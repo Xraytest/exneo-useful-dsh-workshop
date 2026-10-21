@@ -2,7 +2,7 @@
   "name": "exneo-useful-dsh-workshop",
   "version": "1.0.0",
   "description": "DSH 插件市场：22 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强），每个都是可直接 install_bundle 的 Cordis bundle。",
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "dsh": {
     "minVersion": ">=0.2.0-rc.1"
   },
@@ -19,7 +19,7 @@
       "version": "1.0.0",
       "category": "session",
       "description": "归档会话恢复：设置页列出被归档隐藏的会话并可一键恢复（DSH 出厂只提供单向归档，无恢复入口）",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -30,7 +30,7 @@
       "version": "1.0.0",
       "category": "multi-device",
       "description": "设备网格：多台 DSH 互相接入，会话按 设备/工作区/会话 三级汇总",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": [
         "@deepseek-ai/cordis",
@@ -48,7 +48,7 @@
       "version": "1.0.0",
       "category": "tooling",
       "description": "Cordis plugin: an unload_images model tool that drops the images in the agent's context from later model requests.",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": false,
       "peers": []
     },
@@ -59,7 +59,7 @@
       "version": "1.0.0",
       "category": "session",
       "description": "消息分支（v4）：分支＝我发出的某条消息的多个版本，**不创建任何会话记录**。每条我的消息下面有一条导航条「‹ 上一个分支 | 2/3 | 下一个分支 ›」，点笔改写文本即新建一个分支并切到它；切换是粘性的（host 记账，刷新不丢）。不碰会话日志、不重跑模型、不回退文件——那一整套（v3 的 journal/隔离区/回执）随「真会话分叉」一起删除。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -70,7 +70,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "模型能力管理：按模型管理输入模态与思考强度（关闭/低/高/最大四档），管理值写入 llm-pi-ai 渠道设置成为真实能力声明",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -81,7 +81,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "模型分组：把 (provider, model) 路由编成命名组（成员可跨供应商），一个路由最多归属一个组；分组供用量统计（by=group）与重试策略（按组下策略）消费，设置页「模型分组」管理。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -92,7 +92,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "会话级模型供应池（纯静态、无预设/skill/模型工具依赖）：在会话头部的「供应池」工具里按会话启用/停用，动态调整各级用量上限与重置计数；按 SessionId 严格隔离，未启用的会话完全直通。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -103,7 +103,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "按模型的重试策略：为指定 provider:model 配置重试次数、触发重试的状态码与失败类别、退避；设置页「重试策略」管理，规则落盘热生效，未匹配规则的模型保持官方缺省行为。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -114,7 +114,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "Cordis plugin: on ModelScope multimodal-download timeouts, drop the earliest image from the model-visible surface and retry the failed step.",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": false,
       "peers": []
     },
@@ -125,7 +125,7 @@
       "version": "1.0.0",
       "category": "security",
       "description": "Cordis plugin: the command security audit gate behind the `audited-full-access` permission level (full permissions, every tool call statically audited first).",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": false,
       "peers": []
     },
@@ -136,7 +136,7 @@
       "version": "1.0.0",
       "category": "tooling",
       "description": "Cordis plugin: flattens union-typed (oneOf) tool parameters in the prompt assembly so the platform's tool-call converter delivers nested objects instead of strings.",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": false,
       "peers": []
     },
@@ -147,7 +147,7 @@
       "version": "1.0.0",
       "category": "notification",
       "description": "Pop up a system notification (Windows / Android) when a session turn completes",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -158,7 +158,7 @@
       "version": "1.0.0",
       "category": "session",
       "description": "会话导入：把 /export 导出的会话归档 ZIP 导回本机会话库，导入时选择归属工作区（含新建）",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -169,7 +169,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "会话标题生成：完整上下文（去图片）、工具调用取标题（兼容推理模型）、默认当前会话模型并支持 /title 一次性指定模型；会话标题栏右侧带「标题」控件（client 半边）",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": [
         "@deepseek-ai/dsh-llm",
@@ -183,7 +183,7 @@
       "version": "1.0.0",
       "category": "ui",
       "description": "设置导航分组收纳：把设置页左侧的「设置项」编成命名分组（可折叠收纳，分组可嵌套最多 5 层，折叠是子树级的）、自由排序（左列任何时刻可直接拖，不必先进「整理」模式；分组标题中间段＝放进该组，绝不许成环；管理面里未分组池的项也能拖进分组、空分组占位条可直接落），布局落盘 $DSH_HOME/settings-nav.json，热生效。设置页新增「设置导航」一节作为管理面。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -194,7 +194,7 @@
       "version": "1.0.0",
       "category": "model",
       "description": "会话级子代理模型链：为用户会话指定子代理可用的模型（多个、按序），支持每模型用量限额（请求数/混合 token，或不限），用量耗尽或请求失败自动回退下一模型；可选把子代理用量计入整会话请求池限额。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -205,7 +205,7 @@
       "version": "1.0.0",
       "category": "ui",
       "description": "Claude Code「ultracode / ultra 思考强度」静态还原（逆向自 claude-code 2.1.287）：会话级可选启用（输入框工具行的点亮/熄灭开关，新会话未对话即可用）；开启即在系统提示装配期直注 Ultracode 段并就地改写冲突的 tool:workflow 段，关闭则一字不留，全程不改动模型思考强度。会话的选择落盘 $DSH_HOME/ultracode.json（原子写 + 跨进程合并），dsh 重启后按记录原样恢复，reset 连记录一起抹掉。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -216,7 +216,7 @@
       "version": "1.0.0",
       "category": "analytics",
       "description": "用量统计：按 模型/供应商/会话/每日/每周 统计 token 用量，并可从既有会话日志与导出归档 zip 回填插件上线前的历史用量",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -227,7 +227,7 @@
       "version": "1.0.0",
       "category": "ui",
       "description": "会话创建时可选的压缩规则：完全保留用户消息（user 角色可见节点一律逐字留在可见面上），只把用户消息之间的助手/工具内容摘要成检查点；其余策略与出厂 compaction-basic 一致。开关在输入框工具行 ultracode 右侧，仅新会话未发消息时可见，选择按 sessionId 落盘。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": [
         "@deepseek-ai/dsh-compaction"
@@ -240,7 +240,7 @@
       "version": "1.0.0",
       "category": "workspace",
       "description": "工作区常驻上下文：每个工作区一份长期提示词，常驻在该工作区会话的 system prompt 装配里；人可在设置页或直接编辑 $DSH_HOME/workspace-context/contexts/*.md（热生效），模型可用工具 workspace_context 读写。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": []
     },
@@ -251,7 +251,7 @@
       "version": "1.0.0",
       "category": "workspace",
       "description": "工作区插件容器：把普通 Cordis 插件按「工作区」挂进会话自己的 agent 作用域——只对该工作区的会话生效，会话结束随之卸载。声明写在 profile 的 cordis.patch.yml 或设置页「工作区插件」；状态落盘 $DSH_HOME/workspace-plugins.json。",
-      "license": "MIT",
+      "license": "LGPL-3.0",
       "hasClient": true,
       "peers": [
         "@deepseek-ai/dsh-scope"

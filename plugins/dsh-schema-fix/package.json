@@ -4,7 +4,7 @@
   "main": "index.js",
   "description": "Cordis plugin: flattens union-typed (oneOf) tool parameters in the prompt assembly so the platform's tool-call converter delivers nested objects instead of strings.",
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -17,5 +17,6 @@
     "engines": {
       "dsh": ">=0.2.0-rc.1"
     }
-  }
+  },
+  "author": "ExNeo"
 }

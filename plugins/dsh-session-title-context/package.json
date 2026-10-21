@@ -23,7 +23,7 @@
     "./client": "./client.js"
   },
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -32,5 +32,6 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-timeout": "^0.2.0-rc.1"
-  }
+  },
+  "author": "ExNeo"
 }

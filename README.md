@@ -131,5 +131,7 @@ dsh plugin --profile <profile> add dsh-free-search
 
 ## 许可
 
-仓库整体 MIT（见 [LICENSE](LICENSE)）。`dsh-zcode-cli-proxy` 为 AGPL-3.0
-（上游 kyle123740 的项目 + 本机部署改动，见其目录内 LICENSE）。
+仓库整体 **LGPL-3.0**（GNU Lesser General Public License v3.0，全文见 [LICENSE](LICENSE)）。
+所有插件署名 **ExNeo**。例外：`dsh-zcode-cli-proxy` 为 vendored 的 AGPL-3.0 fork
+（上游 [kyle123740/dsh-zcode-cli-proxy](https://github.com/kyle123740/dsh-zcode-cli-proxy) + 本机部署改动，
+署名 ExNeo (fork of kyle123740/dsh-zcode-cli-proxy)，见其目录内 LICENSE）。
