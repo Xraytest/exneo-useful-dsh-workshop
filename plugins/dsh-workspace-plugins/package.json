@@ -1,0 +1,40 @@
+{
+  "name": "dsh-workspace-plugins",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./store": "./store.js",
+    "./mount": "./mount.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "plugin": {
+      "plane": "host"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "工作区插件容器：把普通 Cordis 插件按「工作区」挂进会话自己的 agent 作用域——只对该工作区的会话生效，会话结束随之卸载。声明写在 profile 的 cordis.patch.yml 或设置页「工作区插件」；状态落盘 $DSH_HOME/workspace-plugins.json。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-scope": "^0.2.0-rc.1"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "dsh-settings-nav",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "plugin": {
+      "plane": "host"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "设置导航分组收纳：把设置页左侧的「设置项」编成命名分组（可折叠收纳，分组可嵌套最多 5 层，折叠是子树级的）、自由排序（左列任何时刻可直接拖，不必先进「整理」模式；分组标题中间段＝放进该组，绝不许成环；管理面里未分组池的项也能拖进分组、空分组占位条可直接落），布局落盘 $DSH_HOME/settings-nav.json，热生效。设置页新增「设置导航」一节作为管理面。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}

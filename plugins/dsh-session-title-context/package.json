@@ -1,0 +1,36 @@
+{
+  "name": "dsh-session-title-context",
+  "type": "module",
+  "main": "session-title.js",
+  "description": "Cordis plugin: full-context session-title provider that gets the title back through a tool call (reasoning-model safe), strips images, and can be re-run with a one-off model.",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    "description": "会话标题生成：完整上下文（去图片）、工具调用取标题（兼容推理模型）、默认当前会话模型并支持 /title 一次性指定模型；会话标题栏右侧带「标题」控件（client 半边）",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "exports": {
+    ".": "./session-title.js",
+    "./client": "./client.js"
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-timeout": "^0.2.0-rc.1"
+  }
+}

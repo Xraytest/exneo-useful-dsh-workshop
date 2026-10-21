@@ -1,0 +1,32 @@
+{
+  "name": "dsh-message-branches",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    "description": "消息分支（v4）：分支＝我发出的某条消息的多个版本，**不创建任何会话记录**。每条我的消息下面有一条导航条「‹ 上一个分支 | 2/3 | 下一个分支 ›」，点笔改写文本即新建一个分支并切到它；切换是粘性的（host 记账，刷新不丢）。不碰会话日志、不重跑模型、不回退文件——那一整套（v3 的 journal/隔离区/回执）随「真会话分叉」一起删除。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}

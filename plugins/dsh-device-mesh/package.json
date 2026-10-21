@@ -1,0 +1,40 @@
+{
+  "name": "dsh-device-mesh",
+  "version": "1.0.0",
+  "description": "设备网格：把装了本插件的其它 DSH 接入当前设备（令牌 + 每请求签名），会话按「设备 → 工作区 → 会话」三级汇总；支持工作区多工作路径与跨设备执行命令。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "设备网格：多台 DSH 互相接入，会话按 设备/工作区/会话 三级汇总",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-bash-local": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-bash-sandbox": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-fs": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-fs-local": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-fs-sandbox": "^0.2.0-rc.1"
+  }
+}

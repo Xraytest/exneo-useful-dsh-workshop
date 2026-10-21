@@ -1,0 +1,24 @@
+{
+  "name": "dsh-safefull",
+  "type": "module",
+  "main": "index.js",
+  "dsh": {
+    "plugin": {
+      "plane": "host"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "description": "Cordis plugin: the command security audit gate behind the `audited-full-access` permission level (full permissions, every tool call statically audited first).",
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}
