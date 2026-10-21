@@ -1,0 +1,22 @@
+{
+  "manifestVersion": "1.0.0",
+  "providerId": "io.exneo.dsh-workshop",
+  "name": "exneo-useful-dsh-workshop",
+  "description": "DSH 插件市场：22 个可安装 bundle 插件（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强），全部 LGPL-3.0 署名 ExNeo。",
+  "attribution": {
+    "name": "ExNeo",
+    "url": "https://github.com/Xraytest",
+    "notice": "本市场收录插件均为 ExNeo 自研；zcode-cli-proxy 为 AGPL-3.0 fork，署名保留上游。"
+  },
+  "transport": {
+    "kind": "https-json",
+    "endpoint": "https://xraytest.github.io/exneo-useful-dsh-workshop/v1/plugins",
+    "method": "GET"
+  },
+  "query": {
+    "supported": [],
+    "defaultLimit": 22,
+    "maxLimit": 22,
+    "sorts": []
+  }
+}
