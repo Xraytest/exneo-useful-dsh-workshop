@@ -4,7 +4,7 @@
   "main": "index.js",
   "description": "Cordis plugin: an unload_images model tool that drops the images in the agent's context from later model requests.",
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -17,5 +17,6 @@
     "engines": {
       "dsh": ">=0.2.0-rc.1"
     }
-  }
+  },
+  "author": "ExNeo"
 }

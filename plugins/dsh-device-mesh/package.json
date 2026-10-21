@@ -23,7 +23,7 @@
       "dsh": ">=0.2.0-rc.1"
     }
   },
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -36,5 +36,6 @@
     "@deepseek-ai/dsh-fs": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-fs-local": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-fs-sandbox": "^0.2.0-rc.1"
-  }
+  },
+  "author": "ExNeo"
 }

@@ -27,10 +27,11 @@
     }
   },
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness"
-  ]
+  ],
+  "author": "ExNeo"
 }

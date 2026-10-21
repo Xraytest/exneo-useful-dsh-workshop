@@ -28,7 +28,7 @@
     }
   },
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "LGPL-3.0",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -36,5 +36,6 @@
   ],
   "peerDependencies": {
     "@deepseek-ai/dsh-scope": "^0.2.0-rc.1"
-  }
+  },
+  "author": "ExNeo"
 }
