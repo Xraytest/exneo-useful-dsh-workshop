@@ -1,0 +1,36 @@
+{
+  "name": "dsh-workspace-context",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./store": "./store.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "plugin": {
+      "plane": "host"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "工作区常驻上下文：每个工作区一份长期提示词，常驻在该工作区会话的 system prompt 装配里；人可在设置页或直接编辑 $DSH_HOME/workspace-context/contexts/*.md（热生效），模型可用工具 workspace_context 读写。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}

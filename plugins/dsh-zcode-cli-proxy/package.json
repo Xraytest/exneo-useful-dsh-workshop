@@ -1,0 +1,72 @@
+{
+  "name": "dsh-zcode-cli-proxy",
+  "version": "0.3.1",
+  "description": "dsh-zcode cli反代：把 DSH 的模型请求经 ZCode 客户端 app-server 转接到 ZCode Start Plan 额度（GLM 系列，真流式、图片输入、会话复用），注册成 DSH 可直接选用的模型提供方。原 zcode2api 网关已移除，需要请用原版 liu5269/zcode2api。",
+  "license": "AGPL-3.0",
+  "author": "kyle123740",
+  "homepage": "https://github.com/kyle123740/dsh-zcode-cli-proxy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kyle123740/dsh-zcode-cli-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kyle123740/dsh-zcode-cli-proxy/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "zcode",
+    "glm",
+    "zai",
+    "proxy",
+    "start-plan"
+  ],
+  "type": "module",
+  "main": "entry-v7.js",
+  "scripts": {
+    "test": "node test/turn-lock.mjs"
+  },
+  "exports": {
+    ".": {
+      "default": "./entry-v7.js"
+    },
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "本机部署版：上游插件 + 本机新增的设置页（账号/登录/通道诊断/运行时/通道测试/只读配置）。设置页代码在 client.js 与 local/host-panel.js，lib/ 保持与上游一致。",
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": ">=3.18.1",
+    "@deepseek-ai/dsh-credentials": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "lib",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "entry-v7.js",
+    "local",
+    "client.js"
+  ]
+}

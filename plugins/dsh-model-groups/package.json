@@ -1,0 +1,36 @@
+{
+  "name": "dsh-model-groups",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "plugin": {
+      "plane": "host"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    },
+    "description": "模型分组：把 (provider, model) 路由编成命名组（成员可跨供应商），一个路由最多归属一个组；分组供用量统计（by=group）与重试策略（按组下策略）消费，设置页「模型分组」管理。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}

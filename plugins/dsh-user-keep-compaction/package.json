@@ -1,0 +1,35 @@
+{
+  "name": "dsh-user-keep-compaction",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    "description": "会话创建时可选的压缩规则：完全保留用户消息（user 角色可见节点一律逐字留在可见面上），只把用户消息之间的助手/工具内容摘要成检查点；其余策略与出厂 compaction-basic 一致。开关在输入框工具行 ultracode 右侧，仅新会话未发消息时可见，选择按 sessionId 落盘。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-compaction": "^0.2.0-rc.1"
+  }
+}

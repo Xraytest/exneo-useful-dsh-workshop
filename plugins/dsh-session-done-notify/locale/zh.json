@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "title": "会话完成通知",
+    "description": "会话回合完成时在 Windows / 安卓上弹出系统通知。"
+  },
+  "notifications": {
+    "title": "会话已完成",
+    "body": "回合已结束，点按返回对话。",
+    "denied": "浏览器通知权限已被拒绝，请在站点设置中重新允许。",
+    "unsupported": "当前浏览器不支持系统通知。"
+  },
+  "settings": {
+    "title": "会话完成通知",
+    "description": "会话回合结束时弹出系统通知（Windows / Android）。仅在该页面未聚焦时提示。",
+    "on": "开启",
+    "off": "关闭"
+  }
+}

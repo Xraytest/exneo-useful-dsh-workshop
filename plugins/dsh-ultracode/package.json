@@ -1,0 +1,32 @@
+{
+  "name": "dsh-ultracode",
+  "type": "module",
+  "main": "inject-v4.js",
+  "exports": {
+    ".": "./inject-v4.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    "description": "Claude Code「ultracode / ultra 思考强度」静态还原（逆向自 claude-code 2.1.287）：会话级可选启用（输入框工具行的点亮/熄灭开关，新会话未对话即可用）；开启即在系统提示装配期直注 Ultracode 段并就地改写冲突的 tool:workflow 段，关闭则一字不留，全程不改动模型思考强度。会话的选择落盘 $DSH_HOME/ultracode.json（原子写 + 跨进程合并），dsh 重启后按记录原样恢复，reset 连记录一起抹掉。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}

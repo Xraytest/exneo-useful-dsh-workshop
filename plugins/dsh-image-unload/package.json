@@ -1,0 +1,21 @@
+{
+  "name": "dsh-image-unload",
+  "type": "module",
+  "main": "index.js",
+  "description": "Cordis plugin: an unload_images model tool that drops the images in the agent's context from later model requests.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  }
+}

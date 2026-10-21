@@ -1,0 +1,33 @@
+{
+  "name": "dsh-subagent-models",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    },
+    "description": "会话级子代理模型链：为用户会话指定子代理可用的模型（多个、按序），支持每模型用量限额（请求数/混合 token，或不限），用量耗尽或请求失败自动回退下一模型；可选把子代理用量计入整会话请求池限额。",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ]
+}

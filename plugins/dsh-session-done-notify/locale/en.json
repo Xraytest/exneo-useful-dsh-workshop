@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "title": "Session Done Notifications",
+    "description": "Pop up a system notification on Windows / Android when a session turn completes."
+  },
+  "notifications": {
+    "title": "Session finished",
+    "body": "The turn has ended — tap to return to the conversation.",
+    "denied": "Notification permission was denied. Re-enable it in the site settings.",
+    "unsupported": "This browser does not support system notifications."
+  },
+  "settings": {
+    "title": "Session done notifications",
+    "description": "Show a system notification (Windows / Android) when a session turn completes. Only shown while this page is not focused.",
+    "on": "On",
+    "off": "Off"
+  }
+}
