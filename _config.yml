@@ -1,0 +1,7 @@
+# GitHub Pages 配置：只发布插件市场索引文件。
+# plugins/ 下的 README 含 Liquid 花括号探针（{{…}}），会炸 Jekyll 构建，整体排除。
+# 插件源码不需要经 Pages 分发——安装验证走 raw.githubusercontent.com。
+exclude:
+  - plugins
+  - .gitignore
+  - marketplace.json
