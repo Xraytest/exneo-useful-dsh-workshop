@@ -1,0 +1,8 @@
+# DSH Desktop 插件市场索引源：强制 JSON Content-Type。
+# 适用于 Cloudflare Pages 与 Netlify（两者共用此格式）。
+# GitHub Pages 无法为无扩展名文件设置 Content-Type，因此端点不能只靠 Pages。
+/v1/plugins
+  Content-Type: application/json
+
+/index-source.json
+  Content-Type: application/json
