@@ -31,6 +31,50 @@ dsh plugin --profile <你的profile> add ./plugins/dsh-image-unload
 > 安装 bundle 前请先删除那些行，否则会报 `duplicate loader entry id`。
 > 各插件的 rowId 见 [marketplace.json](marketplace.json)。
 
+## 作为 DSH Desktop 插件市场索引源（方式三）
+
+[DSH Desktop](https://www.dshdesktop.cn/)（Anywhere Labs 增强版）内置插件市场，支持添加自定义数据源。
+本仓库自带索引文件，可直接注册为源：
+
+| 文件 | 作用 |
+|---|---|
+| [`index-source.json`](index-source.json) | 源 manifest——你在桌面设置里粘贴的入口 URL |
+| [`v1/plugins`](v1/plugins) | 目录端点：22 条 GitHub 安装条目（pinned commit + 子目录） |
+
+桌面设置 → 插件市场 → 添加数据源，粘贴：
+
+```
+https://<你的托管域名>/index-source.json
+```
+
+### 托管要求（重要）
+
+市场的 HTTP 客户端对源有严格校验：
+
+- manifest 与端点必须**同源**（同一个 HTTPS origin，标准 443 端口，无凭据/片段）；
+- 端点路径必须以 `/v1/plugins` 结尾；
+- 两端文件都必须以 **`Content-Type: application/json`** 返回——GitHub Pages 对无扩展名的
+  `v1/plugins` 文件返回 `application/octet-stream`，**会被市场拒绝**。
+
+因此任选其一托管（均已含配置，连接仓库即用）：
+
+1. **Cloudflare Pages**（推荐）：Pages → 连接 GitHub 仓库，构建命令留空、输出目录 `/`，
+   [`_headers`](_headers) 会自动为 `/v1/plugins` 指定 `application/json`。
+   部署后得到 `https://<项目名>.pages.dev`，把 manifest 里的 `transport.endpoint` 改成
+   `https://<项目名>.pages.dev/v1/plugins`，再粘贴 `https://<项目名>.pages.dev/index-source.json` 添加源。
+2. **Netlify**：同上连接仓库，[`_headers`](_headers) 同样生效。
+3. 自己的静态服务器：按上表两条规则自行配置 Content-Type。
+
+### 安装路径说明
+
+源里的每条记录走 **GitHub 安装**（非 npm）：市场先按 pinned commit 从
+`raw.githubusercontent.com` 校验插件 `package.json`（包名合法、版本为精确稳定 semver、
+`dsh.bundle.patch` 合法），再以 `github:Xraytest/exneo-useful-dsh-workshop#<commit>&path:/plugins/<插件目录>`
+交给官方插件管理器安装——**插件不需要发布到 npm**。
+
+索引中的 `installSource.commit` 是固定的提交哈希。插件源码更新后，重新生成
+`v1/plugins`（用新 commit 哈希）并推送，新版本才会进入市场。
+
 ## 插件一览
 
 | 插件 | rowId | 分类 | 说明 |
