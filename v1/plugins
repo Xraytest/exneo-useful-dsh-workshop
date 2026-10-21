@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-10-21T14:24:06.447Z",
+  "generatedAt": "2026-10-21T14:25:30.727Z",
   "items": [
     {
       "id": "dsh-archived-sessions",
@@ -23,13 +23,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-device-mesh",
@@ -52,13 +52,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-image-unload",
@@ -81,13 +81,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-message-branches",
@@ -110,13 +110,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-model-capabilities",
@@ -139,13 +139,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-model-groups",
@@ -168,13 +168,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-model-pool",
@@ -197,13 +197,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-model-retry",
@@ -226,13 +226,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-ms-multimodal-retry",
@@ -255,13 +255,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-safefull",
@@ -284,13 +284,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-cordis-define-schema-fix",
@@ -313,13 +313,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-session-done-notify",
@@ -342,13 +342,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-session-import",
@@ -371,13 +371,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-session-title-context",
@@ -400,13 +400,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-settings-nav",
@@ -429,13 +429,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-subagent-models",
@@ -458,13 +458,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-ultracode",
@@ -487,13 +487,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-usage-stats",
@@ -516,13 +516,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-user-keep-compaction",
@@ -545,13 +545,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-workspace-context",
@@ -574,13 +574,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-workspace-plugins",
@@ -603,13 +603,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     },
     {
       "id": "dsh-zcode-cli-proxy",
@@ -637,13 +637,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "0000000000000000000000000000000000000000"
+        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-10-21T14:24:06.447Z"
+      "updatedAt": "2026-10-21T14:25:30.727Z"
     }
   ],
   "page": {
