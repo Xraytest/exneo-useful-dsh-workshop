@@ -1,7 +1,7 @@
 {
   "name": "exneo-useful-dsh-workshop",
   "version": "1.0.0",
-  "description": "DSH 插件市场：25 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强、工作箱、REA 逆向工程、插件自动更新），每个都是可直接 install_bundle 的 Cordis bundle。",
+  "description": "DSH 插件市场：27 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强、工作箱、REA 逆向工程、插件自动更新），每个都是可直接 install_bundle 的 Cordis bundle。",
   "license": "MIT",
   "dsh": {
     "minVersion": ">=0.2.0-rc.1"
@@ -12,6 +12,17 @@
     "note": "安装前请确认 profile 的 cordis.patch.yml 中没有同 rowId 的旧行，否则报 duplicate loader entry id。"
   },
   "plugins": [
+    {
+      "id": "eac-design-world",
+      "path": "plugins/eac-design-world",
+      "rowId": "eac-design-world",
+      "version": "0.4.0",
+      "category": "creative",
+      "description": "EAC design world：DSH 的本地视频制作与设计工作室——模板选片、浏览器/桌面录制、多轨时间线、本地语音字幕、渲染质检与 HTML/SVG/Markdown 设计成品（保留源文件与修订历史）。本目录为 Ebony-Vinyl/EAC-design-world（AGPL-3.0-or-later）的本地修改版，出处与修改点见 plugins/eac-design-world/MARKETPLACE-PROVENANCE.md",
+      "license": "AGPL-3.0-or-later",
+      "hasClient": true,
+      "peers": []
+    },
     {
       "id": "dsh-archived-sessions",
       "path": "plugins/dsh-archived-sessions",
@@ -59,6 +70,17 @@
       "version": "1.0.0",
       "category": "session",
       "description": "消息分支（v4）：分支＝我发出的某条消息的多个版本，**不创建任何会话记录**。每条我的消息下面有一条导航条「‹ 上一个分支 | 2/3 | 下一个分支 ›」，点笔改写文本即新建一个分支并切到它；切换是粘性的（host 记账，刷新不丢）。不碰会话日志、不重跑模型、不回退文件——那一整套（v3 的 journal/隔离区/回执）随「真会话分叉」一起删除。",
+      "license": "MIT",
+      "hasClient": true,
+      "peers": []
+    },
+    {
+      "id": "dsh-mobile-fullscreen",
+      "path": "plugins/dsh-mobile-fullscreen",
+      "rowId": "mobile-fullscreen",
+      "version": "1.0.0",
+      "category": "ui",
+      "description": "移动端全屏按钮：侧边栏底部 lanmode 二维码按钮右侧的全屏切换按钮（仅窄屏触摸设备且浏览器支持全屏 API 时显示，点击进出全屏，图标与悬停提示同步，样式只用主题 token）",
       "license": "MIT",
       "hasClient": true,
       "peers": []

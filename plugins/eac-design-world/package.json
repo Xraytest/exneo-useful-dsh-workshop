@@ -1,0 +1,93 @@
+{
+  "name": "eac-design-world",
+  "version": "0.4.0",
+  "description": "EAC design world: autonomous video production for DeepSeek Harness",
+  "type": "module",
+  "main": "./plugin/host.mjs",
+  "exports": {
+    ".": "./plugin/host.mjs",
+    "./client": "./plugin/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "license": "AGPL-3.0-or-later",
+  "author": "Ebony-Vinyl",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ebony-Vinyl/EAC-design-world.git"
+  },
+  "homepage": "https://github.com/Ebony-Vinyl/EAC-design-world#readme",
+  "bugs": {
+    "url": "https://github.com/Ebony-Vinyl/EAC-design-world/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "plugin",
+    "locale",
+    "src",
+    "dist",
+    "vendor",
+    "scripts",
+    "feed",
+    "docs",
+    "ui",
+    "public",
+    "index.html",
+    "vite.config.mjs",
+    "cordis.patch.yml",
+    "THIRD_PARTY_NOTICES.md",
+    "npm-asset-map.json"
+  ],
+  "scripts": {
+    "dev": "node src/server.mjs --dev",
+    "start": "node src/server.mjs",
+    "build": "node src/npm-assets-restore.mjs && vite build",
+    "test": "node --test --test-concurrency=2 tests/*.test.mjs",
+    "mcp": "node src/mcp.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "motion:import": "node scripts/import-motion-libraries.mjs",
+    "motion:verify": "node scripts/verify-motion-libraries.mjs",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "update:manifest": "node scripts/build-update-manifest.mjs",
+    "verify:maintenance": "node scripts/verify-maintenance-package.mjs",
+    "postinstall": "node src/npm-assets-restore.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "d3": "^7.9.0",
+    "lucide-react": "^0.468.0",
+    "opentype.js": "^2.0.0",
+    "playwright": "^1.56.1",
+    "pptxgenjs": "^4.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "simplex-noise": "^4.0.3",
+    "three": "^0.186.1",
+    "topojson-client": "^3.1.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

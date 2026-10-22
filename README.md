@@ -49,14 +49,16 @@ dsh plugin --profile <profile> install
 
 ## 插件一览
 
-市场源现收录 25 个插件：
+市场源现收录 27 个插件：
 
 | 插件 | rowId | 分类 | 说明 |
 |---|---|---|---|
+| [eac-design-world](plugins/eac-design-world) | `eac-design-world` | 创作 | EAC design world：本地视频制作与设计工作室（录制/时间线/配音字幕/渲染质检/设计成品）。**AGPL-3.0-or-later**，Ebony-Vinyl/EAC-design-world 的本地修改版，出处见 [MARKETPLACE-PROVENANCE.md](plugins/eac-design-world/MARKETPLACE-PROVENANCE.md) |
 | [dsh-archived-sessions](plugins/dsh-archived-sessions) | `archived-sessions` | 会话 | 恢复被归档隐藏的会话（出厂只归档、不提供恢复） |
 | [dsh-device-mesh](plugins/dsh-device-mesh) | `device-mesh` | 多设备 | 多台 DSH 互接（令牌 + HMAC 签名），会话按设备→工作区→会话汇总，支持工作区多路径与跨设备执行 |
 | [dsh-image-unload](plugins/dsh-image-unload) | `image-unload` | 工具 | `unload_images`：把图片从后续模型请求中卸下，省上下文 |
 | [dsh-message-branches](plugins/dsh-message-branches) | `message-branches` | 会话 | 消息分支：同一条消息的多个版本，不新建会话，用导航条切换 |
+| [dsh-mobile-fullscreen](plugins/dsh-mobile-fullscreen) | `mobile-fullscreen` | 界面 | 移动端全屏按钮：侧边栏 lanmode 二维码按钮右侧的全屏切换（仅窄屏触摸设备） |
 | [dsh-model-capabilities](plugins/dsh-model-capabilities) | `model-capabilities` | 模型 | 按模型配置输入模态与思考强度（关/低/高/最大），写入 llm-pi-ai 渠道设置 |
 | [dsh-model-groups](plugins/dsh-model-groups) | `model-groups` | 模型 | 把 (provider, model) 编成命名分组，跨供应商可用，供统计与重试消费 |
 | [dsh-model-pool](plugins/dsh-model-pool) | `model-pool` | 模型 | 会话级模型供应池：按会话启停、调整用量上限与重置计数，SessionId 隔离 |
@@ -89,7 +91,9 @@ exneo-useful-dsh-workshop/
 ├── v1/plugins                # community-market 目录端点
 ├── _headers                  # JSON Content-Type 配置
 ├── README.md
-├── LICENSE                   # 仓库整体 LGPL-3.0
+├── LICENSE                   # 仓库整体 LGPL-3.0（zcode / eac 为目录内 AGPL-3.0 例外）
+├── packs/                    # 非 DSH bundle 的收录物（ZCode 插件包等）
+│   └── ultracode-pack/       #   ultracode 新版实现（skills+commands+bash 状态机）
 └── plugins/
     ├── dsh-archived-sessions/    # 每个插件 = 一个独立可安装 bundle
     │   ├── package.json          #   dsh.bundle.patch + dsh.client 声明
@@ -97,8 +101,17 @@ exneo-useful-dsh-workshop/
     │   ├── index.js              #   host 半边入口
     │   ├── client.js             #   浏览器半边（可选）
     │   └── ...
-    └── ...（共 25 个在市场中）
+    └── ...（共 27 个在市场中）
 ```
+
+## ultracode 的新版实现
+
+[packs/ultracode-pack](packs/ultracode-pack) 是 ultracode 的**新版实现**（ZCode /
+Claude Code 插件包形态：`skills/` + `commands/` + 纯 bash 状态机，逆向自
+claude-code 2.1.286），比 [plugins/dsh-ultracode](plugins/dsh-ultracode)（DSH
+bundle、提示词注入形态，逆向自 2.1.287）更完整。它不是 DSH Cordis bundle，因此
+不进入 `dsh-index.json` 安装索引，按 `packs/ultracode-pack/REPO-NOTE.md` 的说明
+在 ZCode 侧使用。
 
 ## 开发与自测
 

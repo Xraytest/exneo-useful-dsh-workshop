@@ -1,0 +1,32 @@
+{
+  "name": "dsh-mobile-fullscreen",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "移动端全屏按钮：在侧边栏底部 lanmode 二维码按钮右侧放一个把浏览器切到全屏模式的按钮（进出全屏一键切换，仅窄屏触摸设备且浏览器支持全屏 API 时显示；样式只用主题 token）",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
+  "author": "ExNeo"
+}

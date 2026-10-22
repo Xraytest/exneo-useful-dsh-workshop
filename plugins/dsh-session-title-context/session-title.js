@@ -105,7 +105,8 @@ const TITLE_TOOL = {
 const INSTRUCTION_TEXT = `请现在调用 ${TITLE_TOOL_NAME} 提交本次会话标题（title 参数），不要在助手文本里重复标题。`;
 
 const DEFAULT_CONFIG = {
-  cadence: 'all-prompts',
+  // first-prompt：会话第一句话发出时自动生成一次，之后仅手动（按钮 / /title）触发。
+  cadence: 'first-prompt',
   targetWords: 6,
   targetCjkCharacters: 12,
   maxInputBytes: 65536,

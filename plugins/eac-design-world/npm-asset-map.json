@@ -1,0 +1,611 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/instrument-serif-latin-400-italic.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/instrument-serif-latin-400-italic.woff2",
+      "sha256": "1d6e1bd7bc12e2920ed13edb467b8a5ec4a344e6fb78eb9e302ad9ab00981b9c"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/instrument-serif-latin-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/instrument-serif-latin-400-normal.woff2",
+      "sha256": "7796998dac1ab02b98c32b6e2babbd56255ff3b4e9681d9c7c608530d9033eb6"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/jetbrains-mono-latin-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/jetbrains-mono-latin-400-normal.woff2",
+      "sha256": "14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/jetbrains-mono-latin-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/jetbrains-mono-latin-700-normal.woff2",
+      "sha256": "d0d4e818808f2a0ba39b2b09d1989366f63494e295f003c7ef436697378507e8"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-100-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-100-400-normal.woff2",
+      "sha256": "56cb49ae9271e89fb0103e8676da8b264eb4ba61448fc8213c9bd871830dad1b"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-100-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-100-700-normal.woff2",
+      "sha256": "ac29c0725506bce44c0a85a07f668580315b665c03b7f1dcd3b5ab24c5655ab0"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-101-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-101-400-normal.woff2",
+      "sha256": "6c574faa473824f5922527af279f5510e62c0946079a97485393a43ee17bdaf1"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-101-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-101-700-normal.woff2",
+      "sha256": "bb0ab7d0372b30d36a6872cdc0c011f93614fee60936783434d055ba8e730bd9"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-103-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-103-400-normal.woff2",
+      "sha256": "1c2b9bde25957d2144519b8afd7edcde9ab11882c487ef1476f12bd30496fe1f"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-103-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-103-700-normal.woff2",
+      "sha256": "bfb87c34e384390623914ca9352fefa5c24d1d6f06475f418ffe4f563ba6171d"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-104-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-104-400-normal.woff2",
+      "sha256": "736f1e790cd9ee0dcd12efab900546e3a4428db603ee4630a1b43585c1a0b791"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-104-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-104-700-normal.woff2",
+      "sha256": "9d3c9333163f7ce381712607ed5f0227ecf19844764784ce37dc9a6e3965d45b"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-105-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-105-400-normal.woff2",
+      "sha256": "4e2d04186bde9c704697e716a76c0b84929683aeb6e397c0a3a6ab5a167ab968"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-105-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-105-700-normal.woff2",
+      "sha256": "ceefdb929b6220f41c20cc7317532656a63e45b65b1ae54eaf5a09f4fb107a4f"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-106-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-106-400-normal.woff2",
+      "sha256": "804b813482d83b9b8539b4a0173bf681cc3529f456a9c983f90f58e1617adbbf"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-106-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-106-700-normal.woff2",
+      "sha256": "8b9f7681bf3bd2b7405c3f279ab882874be96729772832070996e7b45da965b6"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-107-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-107-400-normal.woff2",
+      "sha256": "8ac9fe5a3b825b24d89bb8ace16cbc6eab37b36c9783e578ba75bec0a48d3cf5"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-107-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-107-700-normal.woff2",
+      "sha256": "e591ba761990098d85c859d839c7c4857742147192acc2b5bd48b890e2c73f5e"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-108-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-108-400-normal.woff2",
+      "sha256": "fff36e90be88e692bed7d6fd2f0ddcdbeb87be2421382ab11f5f5fb779f3b22b"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-108-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-108-700-normal.woff2",
+      "sha256": "30bff4ec55e45147ecbe7c3b22a8296e386ad79fb91b7589d55f66d020da5821"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-109-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-109-400-normal.woff2",
+      "sha256": "987e6e9204d1c34fda8f53b31ded1637d6f056b3b24a44e8566b8b85a040824b"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-109-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-109-700-normal.woff2",
+      "sha256": "396d696faabcb6f7a739b9c4825530e6f734449c4ede40026a55a6f08edb16f9"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-110-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-110-400-normal.woff2",
+      "sha256": "1004f6329bf8e116889149de865c84fc5b35e59f688f5758d0b1686ff33daadb"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-110-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-110-700-normal.woff2",
+      "sha256": "7dce3bc5bbdc165bb51024bd42e01b966202bbe0313a6ae3d93747e8ec37ebcf"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-111-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-111-400-normal.woff2",
+      "sha256": "fa5bf2e42c5a4805381c1d8f7c4beb4f0d30f2525068b015d56ea8a97ca2c364"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-111-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-111-700-normal.woff2",
+      "sha256": "ce1f349434e354fbeb1e38a334e5ae3aac07f2b02636934ca9a3fbadbc1fe85c"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-112-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-112-400-normal.woff2",
+      "sha256": "cc08d5476f107e89b4597a97c9f6f91e945c09cd17c5910ee6606f77d6528249"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-112-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-112-700-normal.woff2",
+      "sha256": "7e7b4a1b21626941bffed883eafa4381b36785ccab05ec4bc361657653dc3a28"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-113-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-113-400-normal.woff2",
+      "sha256": "3ef60ddb5d922d2bfc5d824fdfda2e670a5209ada3ec24a4a3dbb0165bb38f63"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-113-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-113-700-normal.woff2",
+      "sha256": "59d2b0aae35d849ac46315ae93017fa980c0816eae263e056e68e3a4f216a417"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-114-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-114-400-normal.woff2",
+      "sha256": "fa35f9857271207d950697a344d1e3624069b735c7be2cdcc52d6d6c2851b678"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-114-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-114-700-normal.woff2",
+      "sha256": "91c6c30154b1445f21b56dfdb8b16c1bc669e6a2a2b2e41f690fe6524bcb16e0"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-115-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-115-400-normal.woff2",
+      "sha256": "f46dd32fe0e97121f27a8df5921b45cf93a96a7c697ed516e1bd83ebd3dd22b3"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-115-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-115-700-normal.woff2",
+      "sha256": "20c0032b081f6359580deba4e3e7f323a281f068fbcb19ca4650a3ba02c69502"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-116-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-116-400-normal.woff2",
+      "sha256": "24b25a8cf7656b7f97cd85a053b8c650cbfdf0f1fceac4aa71ac116c30670524"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-116-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-116-700-normal.woff2",
+      "sha256": "af7e0e48cc94125c0a7480a6d5fd477e9ec7116270b2b6ba6d020f4fff38f32e"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-117-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-117-400-normal.woff2",
+      "sha256": "e04e6854f00bfe5fcb2cfb90b193be0592eb54368cb710f0f4c2c58785004a6c"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-117-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-117-700-normal.woff2",
+      "sha256": "e6a69a16bd356a5d1cd6226b321581b9b1ceb4b072095f7d31239834f4c307f2"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-118-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-118-400-normal.woff2",
+      "sha256": "a95263ffdeb04f135785fafabb3bab408dab6bb5e71e92e287ec5e160dc08a92"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-118-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-118-700-normal.woff2",
+      "sha256": "61d6e648075044a37312b1a977fb8955114059e5058ba8f8f124dd1b86e6622e"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-119-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-119-400-normal.woff2",
+      "sha256": "e313549dbb0b4c567ce2105fce8364e6d971b5dd0be8c90351799edc1296f854"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-119-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-119-700-normal.woff2",
+      "sha256": "e99d308aa9edadcc567dd52f6519c1bb90d866789e693205244c76cd62d2ee78"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-28-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-28-400-normal.woff2",
+      "sha256": "034ca3c5272128d9a21cc301d2b8e5232169b98dfd0437fbf1c0314fa91e288b"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-28-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-28-700-normal.woff2",
+      "sha256": "a7c0d3eb810aa74e61d401bd4fb3452fe179e655745825ff7a6b6f3a742b4bd6"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-4-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-4-400-normal.woff2",
+      "sha256": "275c9b0b6cb07900387f1b938e593857fdc29986c7d32cbe577f488dac4f9f0d"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-4-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-4-700-normal.woff2",
+      "sha256": "760838f8248b50cfcb9a37afde6abd3fda6a208fa60da7cd4045bb7a9a200ae4"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-87-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-87-400-normal.woff2",
+      "sha256": "9aefe6029e95940af407feb74a7ba8a0827b9dd3a4cfd828ca9e16a80021f077"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-87-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-87-700-normal.woff2",
+      "sha256": "e33b41a144ebabebf24c005d64850e6261e5cbea26f8f70f030b37205e3031c0"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-88-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-88-400-normal.woff2",
+      "sha256": "bdec889204d4e798a5dff2872d1c37cf08a240c4b7cc63f76bc7eddb84b9899f"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-88-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-88-700-normal.woff2",
+      "sha256": "dfc0fcb3cf144ee09eb708d3e099dde8666fa9685cf7a22bf7ee8fd97c568b72"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-89-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-89-400-normal.woff2",
+      "sha256": "c0f551c263cf0045a91c21365629cfe7e0bae71f266cc45bb9a17b91293e276e"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-89-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-89-700-normal.woff2",
+      "sha256": "a7e69c6bf3e6384d303a062bd7d64020b26df42831785862552741713a9129dd"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-90-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-90-400-normal.woff2",
+      "sha256": "74cda1cd91320c0b5c23894d0eabd9f41cb80a12005794bb5f310a2ecec7d639"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-90-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-90-700-normal.woff2",
+      "sha256": "1651967f37f22f3b5dbd232fe019adc70fc6f2f337d7c0408a14557931240a07"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-99-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-99-400-normal.woff2",
+      "sha256": "09c05a4ac7d568eda8106359287844bbe41a066e0b9f34a07acbeb550bb4eda5"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-99-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-99-700-normal.woff2",
+      "sha256": "ffe2cfdcde20005c8439b016da7bbb2661c981a4665c8b1900361d309b63be45"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-latin-400-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-latin-400-normal.woff2",
+      "sha256": "b33070205f40df26518977f3d8037feddb35dac8cb02c376f220c663b309481e"
+    },
+    {
+      "from": "vendor/motion-promo-film-v2/references/fonts/nscs/noto-serif-sc-latin-700-normal.woff2",
+      "to": "vendor/motion-promo-film/templates/fonts/nscs/noto-serif-sc-latin-700-normal.woff2",
+      "sha256": "dc83b2195d8488176f5a0bb0699f2f4716a36a608177cbb97efc0072d2489215"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/ali01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/ali02.webp",
+      "sha256": "353c1b7e069ea521464a1c61f1255cf46726edf0a3506566ffa8af542f49b7f1"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/ds01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/ds02.webp",
+      "sha256": "4f3da1b473564d42b3c2502f695f7c342f402d45ddbf0c2e279f5bdc5235e7d6"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/inspire_mono_01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/inspire_mono_02.webp",
+      "sha256": "ff83cf4fcfaaf958e89afadea5f4d6131fffd06f1fb6902e43b5afae9f4d948c"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/reunimos01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/reunimos02.webp",
+      "sha256": "28365e8c4edcc198e32b6cb5e438617166684d48be19cad3fffa12411ea1632a"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/s01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/s02.webp",
+      "sha256": "bf26fc485e3cbe15a30197c404a5a37857af8ac162de800ee8e687963df0460b"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/sd01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/sd02.webp",
+      "sha256": "3b17cbddb5a5a10d1b594a9ecccf1bd8fd779f984f6f9fb52cf9bb97b27e6548"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/si.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/si02.webp",
+      "sha256": "db07b1cfbd8afd0cdea4377b03cdbfdbcdbba142b57cc240469389ab17ef7c31"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/vs01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/vs02.webp",
+      "sha256": "1df689570bdfcfa0a84574fd436e490a56805d0822aa61f1d1f81a544bcb1350"
+    },
+    {
+      "from": "vendor/open-design/templates/examples/open-design-homepage/assets/work/wasm01.webp",
+      "to": "vendor/open-design/templates/examples/open-design-homepage/assets/work/wasm02.webp",
+      "sha256": "69745b36f0e57b360df47cbc244583bb95c52d18bcd8007a307a7b579668f642"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/about.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/about.png",
+      "sha256": "8b6cd7e3776adfb2313b44cd4a14723a9fe8bd00978917044158665f042aa9c7"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/capabilities.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/capabilities.png",
+      "sha256": "3f45e6492d6043ee5463c38a3e2c7a13f250bd907b00f3ba3809e1b8db96213b"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/cta.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/cta.png",
+      "sha256": "ed4701d41e5466fb624e295c10101bea47275a42aa64bdbdcb0f640dac55e6c5"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/hero.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/hero.png",
+      "sha256": "3a59ff4925f2b79ff8da7ac91b10d76e1b2e7f82898c2b256f1caaa4c216eb6f"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/lab-1.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/lab-1.png",
+      "sha256": "d5ce492792baf173ccc026f867035d9bdd6835059d53a78d7ca31d7d25b4ce57"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/lab-2.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/lab-2.png",
+      "sha256": "caa72c5544a5b4ad8222af3ea1c789db07ed28b2b7c97739a4c015eb5081a9f9"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/lab-3.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/lab-3.png",
+      "sha256": "73234c899123ed91d6ef84ae5cb254514a211532c8280429339168fcc6def804"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/lab-4.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/lab-4.png",
+      "sha256": "b393e98038082d663739934f08aec2cd7937a21f0d6eb68f9c5109efde62a80e"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/lab-5.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/lab-5.png",
+      "sha256": "6d03a9f64e8ef77e6734f21df613663ed9bda818eea93d6999c9a3546cc0c898"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/method-1.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/method-1.png",
+      "sha256": "f2b9e4c7b15cc13dcb3b639e9b88322cbf2bb5d4ceaca89e31b4d7d108f56eb9"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/method-2.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/method-2.png",
+      "sha256": "6213294887fe52e3afbe1f88394b774ec4248b42f6fbd07224fc761d34d8fd99"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/method-3.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/method-3.png",
+      "sha256": "d63123e0ea95715153d7de5f62e38024bd9ee17d2d2039c681272a4af39bd164"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/method-4.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/method-4.png",
+      "sha256": "665b7fd84b9bd2da1917df85fda7f1fd6c7b229043053421e16ccbe7033764fc"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/testimonial.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/testimonial.png",
+      "sha256": "2143d928305693a331387836b88ce75ff1d3200a3788a38621b9ba46d323250c"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/work-1.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/work-1.png",
+      "sha256": "f45b7eb7efbcfdfe09eaa092ef75c4f5bbdf9b493c9e29679b6fa23822e45b34"
+    },
+    {
+      "from": "vendor/open-design/templates/design-templates/open-design-landing/assets/work-2.png",
+      "to": "vendor/open-design/templates/examples/open-design-landing/assets/work-2.png",
+      "sha256": "699f83d5d4718d74f0e11bcf92b6a9dda1fea9388c565a4798546e0aefc951d7"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f45772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-bold-signal/source/fonts/f45772e776f666632.woff2",
+      "sha256": "d699664b145bfeeccc66a4cce7fa55e14eb63efd7ec6b0b2ec52e25dd98f3917"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f71552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-bold-signal/source/fonts/f71552e776f666632.woff2",
+      "sha256": "a0d054c4af557de20afd6ca59f47ab353bcaec49c63ff04b6c9d39d0f8910557"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f6e772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-decision-tree/source/fonts/f6e772e776f666632.woff2",
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f77552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-decision-tree/source/fonts/f77552e776f666632.woff2",
+      "sha256": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f45772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-glitch-title/source/fonts/f45772e776f666632.woff2",
+      "sha256": "d699664b145bfeeccc66a4cce7fa55e14eb63efd7ec6b0b2ec52e25dd98f3917"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f71552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-glitch-title/source/fonts/f71552e776f666632.woff2",
+      "sha256": "a0d054c4af557de20afd6ca59f47ab353bcaec49c63ff04b6c9d39d0f8910557"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f49632e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-kinetic-type/source/fonts/f49632e776f666632.woff2",
+      "sha256": "f1eeeb479c5f256eeb17fc24709d8dccee6dea59e987f5b46507cbed0daed32e"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f54672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-kinetic-type/source/fonts/f54672e776f666632.woff2",
+      "sha256": "6eb67e6e7abeea2fe33e04c7455e42b713e6f5ce097c53fb51a5b7f9b0b4690a"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f6e772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-kinetic-type/source/fonts/f6e772e776f666632.woff2",
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f77552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-kinetic-type/source/fonts/f77552e776f666632.woff2",
+      "sha256": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f2d6f2e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f2d6f2e776f666632.woff2",
+      "sha256": "c36f509c0a8f9f85f29cb44bc8701d8a9e0b14c499e77a884f789ead7093a7ac"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f46512e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f46512e776f666632.woff2",
+      "sha256": "c6f09ee0e0a24b7c85ecb2a601eb99332f65b1f6b37c31e0bbe73fb307625eca"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f4e6b2e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f4e6b2e776f666632.woff2",
+      "sha256": "a76f53ca6612e7b3828eec2311098675b7f9849ae4169a8bcef6302aec02a6c0"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f59302e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f59302e776f666632.woff2",
+      "sha256": "b03d264e3c7ffc2f6d16c68278ef30ced4e26e7e460b7128b3e4eb7f55413ee9"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f66672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f66672e776f666632.woff2",
+      "sha256": "ef8f324f0a4dceb432ff8d6df616d328b763451d311aa1dc7675ca70379c5043"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f66772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f66772e776f666632.woff2",
+      "sha256": "5b8e8a552336b5c86202391b04a3de87ab08910500541b691353be914914d4f2"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f75322e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f75322e776f666632.woff2",
+      "sha256": "6d5ed511ec2b837e6dc4424233eee8b83bb7cf6734deb750edff3058777eb157"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f7a672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-light-leak-cinema/source/fonts/f7a672e776f666632.woff2",
+      "sha256": "311098be73eac339128f0b5a6e33d72645b6f87488541fdf467c402152d297fd"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f66672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-liquid-bg-hero/source/fonts/f66672e776f666632.woff2",
+      "sha256": "ef8f324f0a4dceb432ff8d6df616d328b763451d311aa1dc7675ca70379c5043"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-data-chart-nyt/source/fonts/f75322e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-liquid-bg-hero/source/fonts/f75322e776f666632.woff2",
+      "sha256": "6d5ed511ec2b837e6dc4424233eee8b83bb7cf6734deb750edff3058777eb157"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-liquid-bg-hero/source/fonts/f65382e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-logo-outro/source/fonts/f65382e776f666632.woff2",
+      "sha256": "83d548cd73ef2e039167db3adb5ea9d7a7870466ffc8a162c9820bc348938aaf"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-liquid-bg-hero/source/fonts/f6d672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-logo-outro/source/fonts/f6d672e776f666632.woff2",
+      "sha256": "4a89b86d992e34430a1674dd4d300520b6bdbc60d12f3eadcb0075e3baa78be9"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f6e772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-logo-outro/source/fonts/f6e772e776f666632.woff2",
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f77552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-logo-outro/source/fonts/f77552e776f666632.woff2",
+      "sha256": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-kinetic-type/source/fonts/f32552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-nyt-graph/source/fonts/f32552e776f666632.woff2",
+      "sha256": "b62b98ef69e6e55b28b9bcac84513eb1bdd1d312a344b1c76e979219923224a5"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-kinetic-type/source/fonts/f726f2e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-nyt-graph/source/fonts/f726f2e776f666632.woff2",
+      "sha256": "1b43b44b580f524de254ecb11fb2230bacb2a4a45533687473e8770b1737f25e"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-glitch-title/source/fonts/f2d342e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo-30s/source/fonts/f2d342e776f666632.woff2",
+      "sha256": "2c32b9b3ee358c119e210f6f5195f9bd34894d78a785ff2e95d60e718e400af4"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f45772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo-30s/source/fonts/f45772e776f666632.woff2",
+      "sha256": "d699664b145bfeeccc66a4cce7fa55e14eb63efd7ec6b0b2ec52e25dd98f3917"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-glitch-title/source/fonts/f46672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo-30s/source/fonts/f46672e776f666632.woff2",
+      "sha256": "9343de2ca5d9549f792e7962375af8efb0f320c7643bfd36c884b5a30e5c396f"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f6e772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo-30s/source/fonts/f6e772e776f666632.woff2",
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-bold-poster/source/fonts/f71552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo-30s/source/fonts/f71552e776f666632.woff2",
+      "sha256": "a0d054c4af557de20afd6ca59f47ab353bcaec49c63ff04b6c9d39d0f8910557"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f77552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo-30s/source/fonts/f77552e776f666632.woff2",
+      "sha256": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f6e772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo/source/fonts/f6e772e776f666632.woff2",
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-build-minimal/source/fonts/f77552e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-product-promo/source/fonts/f77552e776f666632.woff2",
+      "sha256": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-electric-studio/source/fonts/f4e342e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-takram-organic/source/fonts/f4e342e776f666632.woff2",
+      "sha256": "e310b55a7fd9677f5e3555e6c6c4d064fa1f1d24393f0ddbe217cea12a8c432f"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-electric-studio/source/fonts/f5a772e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/frame-takram-organic/source/fonts/f5a772e776f666632.woff2",
+      "sha256": "e8c0b39992f06b3dc9a9834494088014859f363bf6ca8792b6bb07e17c7965f3"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-liquid-bg-hero/source/fonts/f65382e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/vfx-text-cursor/source/fonts/f65382e776f666632.woff2",
+      "sha256": "83d548cd73ef2e039167db3adb5ea9d7a7870466ffc8a162c9820bc348938aaf"
+    },
+    {
+      "from": "vendor/open-design/templates/video/frame-liquid-bg-hero/source/fonts/f6d672e776f666632.woff2",
+      "to": "vendor/open-design/templates/video/vfx-text-cursor/source/fonts/f6d672e776f666632.woff2",
+      "sha256": "4a89b86d992e34430a1674dd4d300520b6bdbc60d12f3eadcb0075e3baa78be9"
+    }
+  ],
+  "packageVersion": "0.4.0"
+}
