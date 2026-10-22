@@ -1,10 +1,11 @@
 /**
  * dsh-ultracode —— 浏览器半边（会话级「点亮 / 熄灭」实心胶囊开关）。
  *
- * 入口位置：**输入框工具行左侧**（conversation.input.left，scope: session，
- * 与 plan / model 同排）。新会话一建立、还没发第一句话时该行即在场，因此
- * 无需先对话就能点亮 ultracode —— 这正是它必须待在输入框而不是会话头部
- * 面板里的原因。
+ * 入口位置（2026-10-22 起变更，用户指令「去掉原来的 ultracode 按钮」）：
+ * **本半边不再注册任何界面座位** —— 输入框工具行的那颗胶囊已删除，点亮/熄灭
+ * 的唯一入口是**工作箱**（dsh-workbench，order 23 原座位）：点开工作列表，
+ * 在 Ultracode 行上拨开关。本文件仍保留组件与样式实现（工作箱拨动时同一份
+ * 状态/路由语义，host 半边零改动），但 apply() 不再把它挂进任何 slot。
  *
  * 视觉（用户指定）：**实心胶囊 + 圆角，底色与对话框（输入卡片）一致，
  * 没有点形指示灯，页面上不出现任何提示语**。
@@ -384,39 +385,22 @@ window.__ModuleLoader__.load({
       );
     }
 
-    const inject = ['slots'];
+    const inject = [];
 
     function apply(ctx) {
-      const styleNode = injectStyles();
-      // 热换（dsh-client-hmr 就地换半边）会重跑整个 bundle：旧实例卸载时必须
-      // 带走自己的 <style>，否则每次热换都往 <head> 里叠一份。
-      ctx.effect(() => () => {
-        stylesInjected = false;
-        if (styleNode !== null && styleNode.parentNode !== null) {
-          styleNode.parentNode.removeChild(styleNode);
-        }
-      }, 'dsh-ultracode: styles');
-      // 会话记录同样归本 fiber：卸载（热换）时一并清掉，不留跨代共享的会话记录。
+      // 2026-10-22（用户指令「去掉原来的 ultracode 按钮」）：不再注册任何槽位。
+      // 保留两个清理 effect 的登记习惯没有意义了 —— 没有样式注入、没有会话
+      // 记录可清（store 仍归模块所有，工作箱经 HTTP 驱动 host 半边），但为了
+      // 热换时的健壮性，仍把 store 清理挂在 fiber 上。
       ctx.effect(() => () => {
         store.clear();
       }, 'dsh-ultracode: session state');
-      // 触发器：输入框工具行左侧（与 plan / model 同排）。新会话未发消息时
-      // 该行已经在场，因此开箱即可点亮。
-      //
-      // 只注册这一个座位：页面上不出现任何提示语（回执行已按用户要求删除），
-      // 状态与原因一律收进按钮 title 悬停提示。
-      ctx.slots.inject('conversation.input.left', () => ctx.slots.register(
-        {
-          name: 'conversation.input.left',
-          id: 'ultracode',
-          order: 23,
-        },
-        UltracodeToggle,
-      ));
     }
 
     exports.inject = inject;
     exports.apply = apply;
+    // 供无头自测与（未来）其它半边复用：组件本体仍在，只是不再入座。
+    exports.__ui = { UltracodeToggle, tooltipFor };
     return module.exports;
   },
 });

@@ -1,0 +1,7 @@
+{
+  "name": "rea-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned runtime for the rea-mcp DSH plugin (npm package rea-agents). Not a plugin itself.",
+  "dependencies": { "rea-agents": "6.7.0" }
+}

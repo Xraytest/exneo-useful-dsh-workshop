@@ -15,7 +15,7 @@
   },
   "description": "Cordis plugin: on ModelScope multimodal-download timeouts, drop the earliest image from the model-visible surface and retry the failed step.",
   "version": "1.0.0",
-  "license": "LGPL-3.0",
+  "license": "MIT",
   "keywords": [
     "dsh",
     "dsh-plugin",

@@ -1,0 +1,18 @@
+# ── 工作箱（dsh-workbench）───────────────────────────────────────────────────
+# 用户指令（2026-10-22）：把 Ultracode 的位置（conversation.input.left / order 23）
+# 换成「工作箱」图标，点击展开工作列表（Ultracode、REA），复选选中才注入对应
+# 上下文；REA 未选中 = 零 REA 上下文。
+#
+# 本行只插 dsh-workbench 自己；联动的三行在别处：
+#   dsh-ultracode      其 client 的胶囊从 order 23 让位到 90（不再两颗按钮同座）
+#   rea-mcp             +workbench 直连路由（只翻 masterEnabled，保留工具白名单）
+#   rea-mcp-server      不动（dsh-mcp-client 照常跑 REA 的 stdio MCP）
+#
+# 状态：$DSH_HOME/workbench.json（0600、原子写、跨进程合并；家族键与 ultracode
+# 同谱系——家谱只读 ultracode.json 的 families 表，家谱事实唯一写者仍是它）。
+- insert:
+    - id: workbench
+      name: './entry-v1.js'
+      config:
+        # 选择落盘位置；null/省略 = $DSH_HOME/workbench.json。
+        stateFile: null

@@ -1,0 +1,64 @@
+# ── REA（Reverse Engineer Anything）插件 ──────────────────────────────────────
+# 上游：https://github.com/morluto/rea（MIT），npm 包 rea-agents，固定 6.7.0，
+# **随本插件目录自带**：./runtime/node_modules/rea-agents（见 runtime/package.json）。
+#
+# 两行分工，缺一不可：
+#   rea-mcp        本插件自己的 host 半边（index.js）——只做「哪些工具可见」和
+#                  设置页路由，不碰 MCP 连接；
+#   rea-mcp-server @deepseek-ai/dsh-mcp-client —— 用 stdio 跑 `rea mcp`，把 207 个
+#                  工具注册成 mcp__rea__*。
+#
+# 为什么拆两行而不是写在 host 半边里：MCP 的握手/重连/工具代际/图片与取消语义都
+# 由 dsh-mcp-client 负责，重写一遍只会丢掉这些行为；工具裁剪则在 host 半边用
+# `agent.ctx.tools.restrict()`（Harness 唯一的官方裁剪口，被挡掉的工具连 schema
+# 都不再下发）。设置页「REA 工具」写 state 文件后立即重挂，下一轮请求即生效。
+#
+# 运行时命令用 `!!js process.execPath`：跟着跑 dsh 的那个 Node，Node 升级不会失效。
+# 不能用 `npx rea-agents@latest mcp`：每次启动都要解析/下载 1700+ 文件，而 MCP
+# 客户端在激活期等这次握手（failOnStartupError: true）。
+#
+# 更新 REA：`npm install rea-agents@latest --omit=optional --prefix <插件>/runtime`
+#   再重启 dsh。`--omit=optional` 必须保留——optional 依赖 frida 本机下载极慢，
+#   且本插件用不到它的运行时注入。
+# 停用整个插件：`plugin_manager set_bundle @local/rea-mcp enabled=false`，或把下面
+#   两行都加 `disabled: true`。只想在界面上全关工具：设置页「REA 工具」的总开关
+#   （连接保留，模型看不到任何 REA 工具）。
+#
+# 本机实测（rea-agents 6.7.0 / Node v24.18.0 / Linux aarch64）：
+#   · MCP 握手 7.5–11 s，tools/list = 207 个工具，instructions 952 B；
+#     全量 tool schema 序列化约 830 KB，会让每轮请求都付这份上下文成本——
+#     这正是设置页选择器存在的理由，默认仍是「全选」（不悄悄削能力）。
+#   · 本机缺 Ghidra/Hopper/IDA/JDK/JADX/apktool/binwalk/tshark/WABT/sigrok，
+#     pwntools/EVM/Wakaru 又只支持 Linux x64：对应工具会如实报不可用，
+#     不影响 MCP 连接本身。补齐方法是给 rea-mcp-server 行加 env（见 README）。
+- insert:
+    - id: rea-mcp
+      # 版本化 entry：改 host 实现后 +1（v3 = +workbench 直连路由）。
+      name: './entry-v3.js'
+      config:
+        # 选择状态落盘位置；省略 = $DSH_HOME/rea-mcp/tools.json。
+        stateFile: null
+        # 只用于设置页展示的前缀（与下面 serverName 保持一致）。
+        serverPrefix: mcp__rea__
+    - id: rea-mcp-server
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: rea
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          # 可移植路径：本行的 config 在 dsh-mcp-client 的 ctx 里求值，借 pluginPackages
+          # 按包名定位本 bundle 的安装目录（link:/git/registry 安装都落在这里），
+          # 拼出 runtime 里 rea.mjs 的绝对路径。找不到时显式抛错，绝不静默指错文件。
+          - !!js >-
+            (() => {
+              const parent = 'file://' + (process.env.DSH_PROFILE_DIR ?? process.cwd()) + '/package.json';
+              const pkg = ctx.get('pluginPackages')?.packageOf('rea-mcp', parent);
+              if (pkg === undefined) throw new Error('rea-mcp: 无法定位安装目录（pluginPackages 找不到 rea-mcp）——先在 runtime/ 里 npm install，见 runtime/README.md');
+              return pkg.dir + '/runtime/node_modules/rea-agents/scripts/rea.mjs'; })()
+          - mcp
+        # 反编译/固件/浏览器观察类调用天然超过默认 60s。
+        toolCallTimeoutMs: 600000
+        failOnStartupError: true
+        # 服务端 instructions 要进系统提示；实测 952 B，给足上限但拒绝失控。
+        maxInstructionBytes: 65536

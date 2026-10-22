@@ -1,0 +1,27 @@
+{
+  "name": "dsh-plugin-autoupdate",
+  "version": "1.0.2",
+  "private": true,
+  "type": "module",
+  "description": "插件源自动更新：监看已安装 bundle 的源（link: 目录 / git / npm），发现新版本即可自动重装——link: 源点「检查并应用」即热生效；git/npm 默认只报告，npm 可开 autoApplyRemote。",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "插件源自动更新：定时对比源版本（link: 目录读 package.json，git ls-remote，npm registry dist-tags），更新走 pluginManager 公开服务（同设置页入口，含锁/兼容/回滚）。设置页「插件更新」可视化管理。"
+  },
+  "license": "MIT"
+}

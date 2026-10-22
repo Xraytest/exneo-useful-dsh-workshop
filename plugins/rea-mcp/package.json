@@ -1,0 +1,27 @@
+{
+  "name": "@local/rea-mcp",
+  "version": "2.1.1",
+  "private": true,
+  "type": "module",
+  "description": "REA (reverse-engineer anything) as a self-contained DSH plugin: MCP bridge + settings-page tool picker.",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "description": "REA（morluto/rea）自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由。未勾选时经 tools.restrict 摘除全部工具 schema，并在装配期摘除 mcp:rea 提示段——零上下文注入。"
+  },
+  "license": "MIT"
+}
