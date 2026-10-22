@@ -10,8 +10,8 @@ DSH Desktop 设置 → 插件市场 → 添加数据源，粘贴官方市场索�
 https://exneo-useful-dsh-workshop.pages.dev/dsh-index.json
 ```
 
-- 托管在 Cloudflare Pages（连接本仓库自动部署）；条目为 GitHub 安装（pinned commit + 子目录），无需发布 npm。
-- 插件更新后重新推送，再运行 `gen-dsh-index.mjs` 以新 commit 重新生成 `dsh-index.json` 并再次推送，新版本才会进市场。
+- 托管在 Cloudflare Pages（直传项目，`wrangler pages deploy` 更新）；条目为 GitHub 安装（pinned commit + 子目录），无需发布 npm。
+- 插件更新后重新推送，再运行 `gen-dsh-index.mjs <repo目录> Xraytest/exneo-useful-dsh-workshop <新commit>` 重新生成 `dsh-index.json`，推送并重新部署 Pages，新版本才会进市场。
 - 另部署有一套 [dsh-community-market](https://github.com/anywhere-labs/dsh-desktop) 标准源：manifest [`index-source.json`](index-source.json) + 目录端点 [`v1/plugins`](v1/plugins)，[`_headers`](_headers) 为两者固定 `application/json`。
 
 ## 环境要求
