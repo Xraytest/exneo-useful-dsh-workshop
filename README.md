@@ -49,7 +49,7 @@ dsh plugin --profile <profile> install
 
 ## 插件一览
 
-市场源现收录 22 个插件：
+市场源现收录 25 个插件：
 
 | 插件 | rowId | 分类 | 说明 |
 |---|---|---|---|
@@ -62,6 +62,7 @@ dsh plugin --profile <profile> install
 | [dsh-model-pool](plugins/dsh-model-pool) | `model-pool` | 模型 | 会话级模型供应池：按会话启停、调整用量上限与重置计数，SessionId 隔离 |
 | [dsh-model-retry](plugins/dsh-model-retry) | `model-retry` | 模型 | 按 provider:model 配置重试次数、状态码、失败类别与退避，落盘热生效 |
 | [dsh-ms-multimodal-retry](plugins/dsh-ms-multimodal-retry) | `ms-multimodal-retry-v1` | 模型 | ModelScope 多模态下载超时时丢弃最早一张图后重试 |
+| [dsh-plugin-autoupdate](plugins/dsh-plugin-autoupdate) | `plugin-autoupdate` | 工具 | 插件源自动更新：定时对比源版本，经 pluginManager 更新，设置页可视化管理 |
 | [dsh-safefull](plugins/dsh-safefull) | `safefull-audit` | 安全 | 完整权限 + 每次工具调用先过静态安全审计（deny 硬拒，ask 视为拒绝） |
 | [dsh-cordis-define-schema-fix](plugins/dsh-schema-fix) | `cordis-define-schema-fix` | 工具 | 扁平化 oneOf 工具参数，让转换器交出嵌套对象而非字符串 |
 | [dsh-session-done-notify](plugins/dsh-session-done-notify) | `session-done-notify` | 通知 | 回合完成时弹系统通知（Windows / Android） |
@@ -72,6 +73,8 @@ dsh plugin --profile <profile> install
 | [dsh-ultracode](plugins/dsh-ultracode) | `ultracode` | 界面 | 还原 Claude Code 的 ultracode 思考强度，会话开关开启即注入对应提示段 |
 | [dsh-usage-stats](plugins/dsh-usage-stats) | `usage-stats` | 统计 | 按模型/供应商/分组/会话/日/周统计 token，可从历史日志与导出 ZIP 回填 |
 | [dsh-user-keep-compaction](plugins/dsh-user-keep-compaction) | `user-keep-compaction` | 界面 | 压缩时 user 消息逐字保留，只摘要其间的助手/工具内容 |
+| [dsh-workbench](plugins/dsh-workbench) | `workbench` | 界面 | 输入框工具行「工作箱」：勾选才注入对应上下文（Ultracode / REA），未选零注入 |
+| [@local/rea-mcp](plugins/rea-mcp) | `rea-mcp` | 工具 | REA 自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由 |
 | [dsh-workspace-context](plugins/dsh-workspace-context) | `workspace-context` | 工作区 | 每个工作区一份常驻提示词，注入该工作区会话的 system prompt，可读写 |
 | [dsh-workspace-plugins](plugins/dsh-workspace-plugins) | `workspace-plugins` | 工作区 | 按工作区挂载普通 Cordis 插件，仅该工作区会话生效，会话结束卸载 |
 | [dsh-zcode-cli-proxy](plugins/dsh-zcode-cli-proxy) | `dsh-zcode-cli-proxy` | 模型 | ZCode 额度反代（GLM 系列，真流式、图片输入），含设置页。**AGPL-3.0** fork |
@@ -94,7 +97,7 @@ exneo-useful-dsh-workshop/
     │   ├── index.js              #   host 半边入口
     │   ├── client.js             #   浏览器半边（可选）
     │   └── ...
-    └── ...（共 22 个在市场中）
+    └── ...（共 25 个在市场中）
 ```
 
 ## 开发与自测

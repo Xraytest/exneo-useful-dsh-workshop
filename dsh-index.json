@@ -1,0 +1,871 @@
+{
+  "format": 1,
+  "title": {
+    "en": "ExNeo DSH Workshop",
+    "zh": "ExNeo 的 DSH 插件工作箱"
+  },
+  "description": {
+    "en": "25 installable DSH bundle plugins by ExNeo.",
+    "zh": "ExNeo 自研/整理的 25 个可安装 DSH bundle 插件。"
+  },
+  "metadata": {
+    "categories": {
+      "session": {
+        "title": {
+          "en": "Sessions",
+          "zh": "会话管理"
+        }
+      },
+      "multi-device": {
+        "title": {
+          "en": "Multi-device",
+          "zh": "多设备"
+        }
+      },
+      "tooling": {
+        "title": {
+          "en": "Tooling",
+          "zh": "工具修复"
+        }
+      },
+      "model": {
+        "title": {
+          "en": "Models",
+          "zh": "模型与路由"
+        }
+      },
+      "security": {
+        "title": {
+          "en": "Security",
+          "zh": "权限与安全"
+        }
+      },
+      "notification": {
+        "title": {
+          "en": "Notifications",
+          "zh": "通知"
+        }
+      },
+      "ui": {
+        "title": {
+          "en": "Interface",
+          "zh": "界面增强"
+        }
+      },
+      "analytics": {
+        "title": {
+          "en": "Analytics",
+          "zh": "用量统计"
+        }
+      },
+      "workspace": {
+        "title": {
+          "en": "Workspace",
+          "zh": "工作区"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-archived-sessions",
+      "description": "归档会话恢复：设置页列出被归档隐藏的会话并可一键恢复（DSH 出厂只提供单向归档，无恢复入口）",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-archived-sessions"
+      },
+      "metadata": {
+        "category": "session",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-archived-sessions"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-device-mesh",
+      "description": "设备网格：多台 DSH 互相接入，会话按 设备/工作区/会话 三级汇总",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-device-mesh"
+      },
+      "metadata": {
+        "category": "multi-device",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-device-mesh"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-image-unload",
+      "description": "Cordis plugin: an unload_images model tool that drops the images in the agent's context from later model requests.",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-image-unload"
+      },
+      "metadata": {
+        "category": "tooling",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-image-unload"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-message-branches",
+      "description": "消息分支（v4）：分支＝我发出的某条消息的多个版本，**不创建任何会话记录**。每条我的消息下面有一条导航条「‹ 上一个分支 | 2/3 | 下一个分支 ›」，点笔改写文本即新建一个分支并切到它；切换是粘性的（host 记账，刷新不丢）。不碰会话日志、不重跑模型、不回退文件——那一整套（v3 的 journal/隔离区/回执）随「真会话分叉」一起删除。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-message-branches"
+      },
+      "metadata": {
+        "category": "session",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-message-branches"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-model-capabilities",
+      "description": "模型能力管理：按模型管理输入模态与思考强度（关闭/低/高/最大四档），管理值写入 llm-pi-ai 渠道设置成为真实能力声明",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-model-capabilities"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-model-capabilities"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-model-groups",
+      "description": "模型分组：把 (provider, model) 路由编成命名组（成员可跨供应商），一个路由最多归属一个组；分组供用量统计（by=group）与重试策略（按组下策略）消费，设置页「模型分组」管理。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-model-groups"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-model-groups"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-model-pool",
+      "description": "会话级模型供应池（纯静态、无预设/skill/模型工具依赖）：在会话头部的「供应池」工具里按会话启用/停用，动态调整各级用量上限与重置计数；按 SessionId 严格隔离，未启用的会话完全直通。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-model-pool"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-model-pool"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-model-retry",
+      "description": "按模型的重试策略：为指定 provider:model 配置重试次数、触发重试的状态码与失败类别、退避；设置页「重试策略」管理，规则落盘热生效，未匹配规则的模型保持官方缺省行为。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-model-retry"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-model-retry"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-ms-multimodal-retry",
+      "description": "Cordis plugin: on ModelScope multimodal-download timeouts, drop the earliest image from the model-visible surface and retry the failed step.",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-ms-multimodal-retry"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-ms-multimodal-retry"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-plugin-autoupdate",
+      "description": "插件源自动更新：定时对比源版本（link: 目录读 package.json，git ls-remote，npm registry dist-tags），更新走 pluginManager 公开服务（同设置页入口，含锁/兼容/回滚）。设置页「插件更新」可视化管理。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-plugin-autoupdate"
+      },
+      "metadata": {
+        "category": "tooling",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.2",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-plugin-autoupdate"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-safefull",
+      "description": "Cordis plugin: the command security audit gate behind the `audited-full-access` permission level (full permissions, every tool call statically audited first).",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-safefull"
+      },
+      "metadata": {
+        "category": "security",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-safefull"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-cordis-define-schema-fix",
+      "description": "Cordis plugin: flattens union-typed (oneOf) tool parameters in the prompt assembly so the platform's tool-call converter delivers nested objects instead of strings.",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-schema-fix"
+      },
+      "metadata": {
+        "category": "tooling",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-schema-fix"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-session-done-notify",
+      "description": "Pop up a system notification (Windows / Android) when a session turn completes",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-session-done-notify"
+      },
+      "metadata": {
+        "category": "notification",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-session-done-notify"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-session-import",
+      "description": "会话导入：把 /export 导出的会话归档 ZIP 导回本机会话库，导入时选择归属工作区（含新建）",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-session-import"
+      },
+      "metadata": {
+        "category": "session",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-session-import"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-session-title-context",
+      "description": "会话标题生成：完整上下文（去图片）、工具调用取标题（兼容推理模型）、默认当前会话模型并支持 /title 一次性指定模型；会话标题栏右侧带「标题」控件（client 半边）",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-session-title-context"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-session-title-context"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-settings-nav",
+      "description": "设置导航分组收纳：把设置页左侧的「设置项」编成命名分组（可折叠收纳，分组可嵌套最多 5 层，折叠是子树级的）、自由排序（左列任何时刻可直接拖，不必先进「整理」模式；分组标题中间段＝放进该组，绝不许成环；管理面里未分组池的项也能拖进分组、空分组占位条可直接落），布局落盘 $DSH_HOME/settings-nav.json，热生效。设置页新增「设置导航」一节作为管理面。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-settings-nav"
+      },
+      "metadata": {
+        "category": "ui",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-settings-nav"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-subagent-models",
+      "description": "会话级子代理模型链：为用户会话指定子代理可用的模型（多个、按序），支持每模型用量限额（请求数/混合 token，或不限），用量耗尽或请求失败自动回退下一模型；可选把子代理用量计入整会话请求池限额。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-subagent-models"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-subagent-models"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-ultracode",
+      "description": "Claude Code「ultracode / ultra 思考强度」静态还原（逆向自 claude-code 2.1.287）：会话级可选启用（输入框工具行的点亮/熄灭开关，新会话未对话即可用）；开启即在系统提示装配期直注 Ultracode 段并就地改写冲突的 tool:workflow 段，关闭则一字不留，全程不改动模型思考强度。会话的选择落盘 $DSH_HOME/ultracode.json（原子写 + 跨进程合并），dsh 重启后按记录原样恢复，reset 连记录一起抹掉。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-ultracode"
+      },
+      "metadata": {
+        "category": "ui",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-ultracode"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-usage-stats",
+      "description": "用量统计：按 模型/供应商/会话/每日/每周 统计 token 用量，并可从既有会话日志与导出归档 zip 回填插件上线前的历史用量",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-usage-stats"
+      },
+      "metadata": {
+        "category": "analytics",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-usage-stats"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-user-keep-compaction",
+      "description": "会话创建时可选的压缩规则：完全保留用户消息（user 角色可见节点一律逐字留在可见面上），只把用户消息之间的助手/工具内容摘要成检查点；其余策略与出厂 compaction-basic 一致。开关在输入框工具行 ultracode 右侧，仅新会话未发消息时可见，选择按 sessionId 落盘。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-user-keep-compaction"
+      },
+      "metadata": {
+        "category": "ui",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-user-keep-compaction"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-workbench",
+      "description": "工作箱（输入框工具行 order 23，原 Ultracode 座位）：图标点击展开工作列表，复选选中才注入上下文。Ultracode 联动 dsh-ultracode 开关；REA 未选中时经 rea-mcp 摘除全部工具 schema，并在系统提示装配期摘除 mcp:rea 说明段——零上下文注入。选择按会话家族落盘 workbench.json。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-workbench"
+      },
+      "metadata": {
+        "category": "ui",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.2.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-workbench"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-workspace-context",
+      "description": "工作区常驻上下文：每个工作区一份长期提示词，常驻在该工作区会话的 system prompt 装配里；人可在设置页或直接编辑 $DSH_HOME/workspace-context/contexts/*.md（热生效），模型可用工具 workspace_context 读写。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-workspace-context"
+      },
+      "metadata": {
+        "category": "workspace",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-workspace-context"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-workspace-plugins",
+      "description": "工作区插件容器：把普通 Cordis 插件按「工作区」挂进会话自己的 agent 作用域——只对该工作区的会话生效，会话结束随之卸载。声明写在 profile 的 cordis.patch.yml 或设置页「工作区插件」；状态落盘 $DSH_HOME/workspace-plugins.json。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-workspace-plugins"
+      },
+      "metadata": {
+        "category": "workspace",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-workspace-plugins"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-zcode-cli-proxy",
+      "description": "本机部署版：上游插件 + 本机新增的设置页（账号/登录/通道诊断/运行时/通道测试/只读配置）。设置页代码在 client.js 与 local/host-panel.js，lib/ 保持与上游一致。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-zcode-cli-proxy"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.3.1",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/dsh-zcode-cli-proxy"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/rea-mcp",
+      "description": "REA（morluto/rea）自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由。未勾选时经 tools.restrict 摘除全部工具 schema，并在装配期摘除 mcp:rea 提示段——零上下文注入。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/rea-mcp"
+      },
+      "metadata": {
+        "category": "tooling",
+        "keywords": [
+          "dsh",
+          "dsh-plugin"
+        ]
+      },
+      "versions": [
+        {
+          "version": "2.1.1",
+          "publishTimestamp": 1792682714,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "8f0935934e37dd36dd68a449aafb34ab5bf81c73",
+            "path": "plugins/rea-mcp"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    }
+  ]
+}
