@@ -10,7 +10,7 @@
   },
   "transport": {
     "kind": "https-json",
-    "endpoint": "https://xraytest.github.io/exneo-useful-dsh-workshop/v1/plugins",
+    "endpoint": "https://exneo-useful-dsh-workshop.pages.dev/v1/plugins",
     "method": "GET"
   },
   "query": {
