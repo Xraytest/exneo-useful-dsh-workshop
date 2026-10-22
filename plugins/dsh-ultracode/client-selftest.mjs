@@ -3,9 +3,11 @@
  * 槽位注册契约、组件可构造，并把**行为**走一遍（取状态 → 点击 → 结果）。
  * 不渲染真实 DOM、不联网。
  *
- * 契约要点（2026-10-08 最终版，逐条对应用户指令）：
- *   - 触发器只有一处：输入框工具行左侧 conversation.input.left（id ultracode），
- *     **不再有会话头部面板，也不再有输入框上方的回执行**；
+ * 契约要点（2026-10-22 起变更，用户指令「去掉原来的 ultracode 按钮」）：
+ *   - **本半边不再注册任何槽位**：输入框工具行的那颗胶囊已删除，唯一入口是
+ *     工作箱（dsh-workbench）工作列表里的 Ultracode 开关行；
+ *   - 组件本体（UltracodeToggle）与样式实现保留在 exports.__ui 里，本自测
+ *     直接驱动它验证「读状态 → 点击 → 落盘语义」不回退；
  *   - **页面上不出现任何提示语**：状态与原因全部只在按钮 title（悬停）里；
  *   - 实心胶囊、**保留圆角**，熄灭态**底色与对话框（输入卡片）一致**；
  *   - 点亮态是**磨砂玻璃质感的浅绿**（半透明绿 + backdrop 模糊），不是纯绿实心；
@@ -158,7 +160,7 @@ assert.ok(captured !== null, 'factory 未注册到 __ModuleLoader__');
 assert.equal(captured.id, 'dsh-ultracode', 'boot 图 id 必须与 package.json name 一致');
 
 const exports = captured.factory(require);
-assert.deepEqual(exports.inject, ['slots'], 'inject 应只要 slots');
+assert.deepEqual(exports.inject, [], '2026-10-22 起：不再注入任何服务、不注册任何槽位');
 
 const registrations = [];
 const injectedNames = [];
@@ -172,20 +174,17 @@ const ctx = {
 };
 exports.apply(ctx);
 
-// ── 注册契约：只有一个座位 ──────────────────────────────────────────────────
-assert.deepEqual(injectedNames, ['conversation.input.left'], '只应注册输入框工具行一个座位');
-assert.equal(registrations.length, 1, '应恰好注册一个槽位条目（回执行已删除）');
-const toggleSeat = registrations[0];
-assert.equal(toggleSeat.meta.name, 'conversation.input.left');
-assert.equal(toggleSeat.meta.id, 'ultracode', '槽位 id 必须是 ultracode（不能复用出厂 id）');
-assert.equal(toggleSeat.meta.order, 23, 'order 23：与 plan / model 同排的固定位次');
-assert.equal(typeof toggleSeat.component, 'function', '座位内容应是组件');
+// ── 注册契约：零座位（按钮已删；唯一入口是工作箱）──────────────────────────
+assert.deepEqual(injectedNames, [], '不得再向任何槽位注入（原按钮已按用户指令删除）');
+assert.equal(registrations.length, 0, '不得注册任何槽位条目');
+assert.equal(typeof exports.__ui.UltracodeToggle, 'function', '组件本体保留在 __ui（工作箱语义仍可复用）');
 
+const Toggle = exports.__ui.UltracodeToggle;
 const renderChip = async (sessionId) => {
-  toggleSeat.component({ sessionId });
+  Toggle({ sessionId });
   await tick();
   await tick();
-  return toggleSeat.component({ sessionId });
+  return Toggle({ sessionId });
 };
 
 // ── 静态渲染：按钮 + 唯一文字子节点（没有点灯、没有提示语）─────────────────
@@ -419,17 +418,13 @@ assert.equal(/position\s*:\s*['"]?(fixed|absolute)/.test(source), false, '不应
 assert.equal(/z-?index/i.test(source), false, '不应再有层级抬升（浮层特征）');
 assert.equal(/overlay|portal|dialog|popup/i.test(source), false, '不应再有覆盖层 / 传送门 / 对话框字样');
 
-// ── 样式与会话状态都归本 fiber 所有（热换不留残渣）──────────────────────────
-assert.equal(styleNodes.length, 1, '样式应只注入一次');
+// ── 会话状态归本 fiber 所有；样式不再注入（没有座位就没有样式）──────────────
+assert.equal(styleNodes.length, 0, '不再注入样式（按钮已删除）');
 assert.deepEqual(
   effectFactories.map((entry) => entry.label),
-  ['dsh-ultracode: styles', 'dsh-ultracode: session state'],
-  'apply 应登记「样式 + 会话状态」两个清理 effect',
+  ['dsh-ultracode: session state'],
+  'apply 只登记「会话状态」一个清理 effect',
 );
-const disposeStyles = effectFactories[0].factory();
-assert.equal(typeof disposeStyles, 'function', 'effect 工厂应返回清理函数');
-disposeStyles();
-assert.equal(styleNodes.length, 0, '插件卸载后样式应从 <head> 移除');
-assert.equal(typeof effectFactories[1].factory(), 'function', '会话状态 effect 也应返回清理函数');
+assert.equal(typeof effectFactories[0].factory(), 'function', '会话状态 effect 应返回清理函数');
 
 console.log('CLIENT SELFTEST PASS');

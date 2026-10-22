@@ -23,7 +23,7 @@
   },
   "description": "模型能力管理：按模型管理输入模态与思考强度（关闭/低/高/最大四档），管理值写入 llm-pi-ai 渠道设置成为真实能力声明",
   "version": "1.0.0",
-  "license": "LGPL-3.0",
+  "license": "MIT",
   "keywords": [
     "dsh",
     "dsh-plugin",

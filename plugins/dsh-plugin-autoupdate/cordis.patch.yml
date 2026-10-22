@@ -1,0 +1,24 @@
+# ── 插件源自动更新（dsh-plugin-autoupdate） ─────────────────────────────────
+# 监看 profile 里已安装 bundle 的「插件源」，有新版本即可自动更新。
+#
+#   link: 目录源（本仓库 plugins/*）：源目录就是已装内容，升版本号后点
+#     「检查并应用」（或 POST /check {apply:true}）→ remove+install 重装 →
+#     patchReload=live 热生效；
+#   git 源：ls-remote 取远端 HEAD，只报告，更新走单个「更新」按钮（一律手动，
+#     远端代码自动进进程是高风险动作，默认不做）；
+#   npm 源：registry dist-tags.latest 对比安装账本；要自动应用需把下面
+#     autoApplyRemote 打开（默认 false 只报告）。
+#
+# 更新动作走 pluginManager 公开服务（与设置页插件管理同一入口）：文件锁、
+# 兼容性检查、失败回滚全部继承，不绕过任何审批面。
+# 账本 $DSH_HOME/plugin-autoupdate/installed.json；历史 history.json（各留最近 50 条）。
+- insert:
+    - id: plugin-autoupdate
+      name: './entry-v2.js'
+      config:
+        # 定时检查间隔（毫秒），缺省 6 小时；首轮在 delayMs 后。
+        intervalMs: 21600000
+        # 启动后延迟（毫秒），避免拖慢 dsh 启动；缺省 5 分钟。
+        delayMs: 300000
+        # npm 源是否自动应用（git 永远只报告；link: 由人点「检查并应用」）。
+        autoApplyRemote: false
