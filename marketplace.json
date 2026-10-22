@@ -21,7 +21,8 @@
       "description": "EAC design world：DSH 的本地视频制作与设计工作室——模板选片、浏览器/桌面录制、多轨时间线、本地语音字幕、渲染质检与 HTML/SVG/Markdown 设计成品（保留源文件与修订历史）。本目录为 Ebony-Vinyl/EAC-design-world（AGPL-3.0-or-later）的本地修改版，出处与修改点见 plugins/eac-design-world/MARKETPLACE-PROVENANCE.md",
       "license": "AGPL-3.0-or-later",
       "hasClient": true,
-      "peers": []
+      "peers": [],
+      "author": "Ebony-Vinyl（Xraytest 本地修改版）"
     },
     {
       "id": "dsh-archived-sessions",
