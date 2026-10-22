@@ -226,7 +226,7 @@ const request = (overrides = {}) => ({
 await checkAsync('推理模型：标题从 tool-call 参数取出，reasoning 被忽略', async () => {
   const ctx = makeCtx([reasoningThenToolCall]);
   const provider = createTitleProvider({ ctx, config, overrides: new Map() });
-  assert.equal(provider.automatic, 'all-prompts');
+  assert.equal(provider.automatic, 'first-prompt');
   const result = await provider.generate(request());
   assert.equal(result.title, '龙门场景重建与接缝');
   assert.deepEqual(result.messageSeqs, [h1Seq, h2Seq]);
@@ -343,7 +343,7 @@ check('readConfig：非法配置直接报错，缺省值可用', () => {
   assert.throws(() => readConfig({ cadence: 'sometimes' }), /cadence/);
   assert.throws(() => readConfig({ timeoutMs: 0 }), /正整数/);
   const defaults = readConfig({});
-  assert.equal(defaults.cadence, 'all-prompts');
+  assert.equal(defaults.cadence, 'first-prompt');
   assert.equal(defaults.textFallback, true);
   assert.equal(defaults.includeSystemPrompt, false);
 });
