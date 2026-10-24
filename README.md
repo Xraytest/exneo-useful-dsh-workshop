@@ -45,6 +45,8 @@ dsh plugin --profile <profile> install
 
 **移除**：`remove_bundle`，或从 `dsh.profile.bundles` 删掉包名后重装。
 
+> **`link:` 与 `file:` 的区别（跨设备同步必读）**：`link:<目录>` 是符号链接，改源目录即刻生效；`file:<目录>` pnpm 会在 profile 的 `node_modules/` 里放**独立副本**——只改源目录不生效，必须两处都改或重装。eac-design-world 这类带大体积素材的插件尤其容易踩到（实测：改 vendor 无效果，postinstall 是在 node_modules 副本里跑的）。多设备同步时优先 `link:`。
+
 > **rowId 冲突**：loader 按行 id 去重。若 profile 的 `cordis.patch.yml` 已有同 rowId 的手工行（如旧文档里的 `./plugins/xxx/index.js`），先删除，否则报 `duplicate loader entry id`。各插件 rowId 见 [marketplace.json](marketplace.json)。
 
 ## 插件一览
