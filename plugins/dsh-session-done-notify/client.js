@@ -1,10 +1,10 @@
 window.__ModuleLoader__.load({
-  id: '@local/session-done-notify',
+  id: 'dsh-session-done-notify',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
 
-    const NS = '@local/session-done-notify';
+    const NS = 'dsh-session-done-notify';
 
     // localStorage key for the user's on/off preference. The browser grants
     // notification permission per site, so "enabled" is stored per device.
