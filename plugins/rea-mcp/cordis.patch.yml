@@ -53,9 +53,17 @@
           - !!js >-
             (() => {
               const parent = 'file://' + (process.env.DSH_PROFILE_DIR ?? process.cwd()) + '/package.json';
-              const pkg = ctx.get('pluginPackages')?.packageOf('rea-mcp', parent);
-              if (pkg === undefined) throw new Error('rea-mcp: 无法定位安装目录（pluginPackages 找不到 rea-mcp）——先在 runtime/ 里 npm install，见 runtime/README.md');
-              return pkg.dir + '/runtime/node_modules/rea-agents/scripts/rea.mjs'; })()
+              const packages = ctx.get('pluginPackages');
+              // scope 无关：同一插件在不同设备上可能以 rea-mcp（上游默认包名）或
+              // @local/rea-mcp（本地安装约定）安装，两种名字依次试，命中即用——
+              // packageOf 是精确包名的 Node 解析，scope 一换就解析不到。新增
+              // 其它 scope 时往 candidates 里加名字即可。
+              const candidates = ['rea-mcp', '@local/rea-mcp'];
+              for (const name of candidates) {
+                const pkg = packages?.packageOf(name, parent);
+                if (pkg !== undefined) return pkg.dir + '/runtime/node_modules/rea-agents/scripts/rea.mjs';
+              }
+              throw new Error('rea-mcp: 无法定位安装目录（试过 ' + candidates.join(' / ') + ' 均未解析到）——确认 profile 依赖表里装有本插件，且 runtime/ 已 npm install，见 runtime/README.md'); })()
           - mcp
         # 反编译/固件/浏览器观察类调用天然超过默认 60s。
         toolCallTimeoutMs: 600000
