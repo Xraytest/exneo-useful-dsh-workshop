@@ -5,8 +5,8 @@
     "zh": "ExNeo 的 DSH 插件工作箱"
   },
   "description": {
-    "en": "27 installable DSH bundle plugins by ExNeo.",
-    "zh": "ExNeo 自研/整理的 27 个可安装 DSH bundle 插件。"
+    "en": "26 installable DSH bundle plugins by ExNeo.",
+    "zh": "ExNeo 自研/整理的 26 个可安装 DSH bundle 插件。"
   },
   "metadata": {
     "categories": {
@@ -92,11 +92,11 @@
       "versions": [
         {
           "version": "0.4.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/eac-design-world"
           },
           "engines": {
@@ -124,11 +124,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-archived-sessions"
           },
           "engines": {
@@ -156,11 +156,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-device-mesh"
           },
           "engines": {
@@ -188,11 +188,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-image-unload"
           },
           "engines": {
@@ -220,11 +220,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-message-branches"
           },
           "engines": {
@@ -252,11 +252,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-mobile-fullscreen"
           },
           "engines": {
@@ -284,11 +284,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-model-capabilities"
           },
           "engines": {
@@ -316,11 +316,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-model-groups"
           },
           "engines": {
@@ -348,11 +348,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-model-pool"
           },
           "engines": {
@@ -380,11 +380,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-model-retry"
           },
           "engines": {
@@ -412,11 +412,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-ms-multimodal-retry"
           },
           "engines": {
@@ -444,11 +444,11 @@
       "versions": [
         {
           "version": "1.0.2",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-plugin-autoupdate"
           },
           "engines": {
@@ -476,11 +476,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-safefull"
           },
           "engines": {
@@ -508,11 +508,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-schema-fix"
           },
           "engines": {
@@ -540,11 +540,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-session-done-notify"
           },
           "engines": {
@@ -572,11 +572,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-session-import"
           },
           "engines": {
@@ -604,11 +604,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-session-title-context"
           },
           "engines": {
@@ -636,11 +636,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-settings-nav"
           },
           "engines": {
@@ -668,11 +668,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-subagent-models"
           },
           "engines": {
@@ -700,11 +700,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-ultracode"
           },
           "engines": {
@@ -732,11 +732,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-usage-stats"
           },
           "engines": {
@@ -764,11 +764,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-user-keep-compaction"
           },
           "engines": {
@@ -796,11 +796,11 @@
       "versions": [
         {
           "version": "1.2.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-workbench"
           },
           "engines": {
@@ -828,11 +828,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-workspace-context"
           },
           "engines": {
@@ -860,44 +860,12 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/dsh-workspace-plugins"
-          },
-          "engines": {
-            "dsh": ">=0.2.0-rc.1"
-          }
-        }
-      ]
-    },
-    {
-      "name": "dsh-zcode-cli-proxy",
-      "description": "本机部署版：上游插件 + 本机新增的设置页（账号/登录/通道诊断/运行时/通道测试/只读配置）。设置页代码在 client.js 与 local/host-panel.js，lib/ 保持与上游一致。",
-      "author": "ExNeo",
-      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "directory": "plugins/dsh-zcode-cli-proxy"
-      },
-      "metadata": {
-        "category": "model",
-        "keywords": [
-          "dsh",
-          "dsh-plugin"
-        ]
-      },
-      "versions": [
-        {
-          "version": "0.3.1",
-          "publishTimestamp": 1792832419,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
-            "path": "plugins/dsh-zcode-cli-proxy"
           },
           "engines": {
             "dsh": ">=0.2.0-rc.1"
@@ -924,11 +892,11 @@
       "versions": [
         {
           "version": "2.1.1",
-          "publishTimestamp": 1792832419,
+          "publishTimestamp": 1792986324,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "43cfa803709991a336fc8c3bd594f3be9ebc3d76",
+            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
             "path": "plugins/rea-mcp"
           },
           "engines": {
