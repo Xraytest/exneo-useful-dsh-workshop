@@ -610,40 +610,6 @@
         "url": "https://github.com/Xraytest"
       },
       "updatedAt": "2026-10-21T14:25:30.727Z"
-    },
-    {
-      "id": "dsh-zcode-cli-proxy",
-      "name": "dsh-zcode-cli-proxy",
-      "displayName": "zcode-cli-proxy",
-      "summary": "本机部署版：上游插件 + 本机新增的设置页（账号/登录/通道诊断/运行时/通道测试/只读配置）。设置页代码在 client.js 与 local/host-panel.js，lib/ 保持与上游一致。",
-      "latestVersion": "0.3.1",
-      "license": "AGPL-3.0",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "deepseek-harness",
-        "dsh",
-        "dsh-plugin",
-        "zcode",
-        "glm",
-        "zai",
-        "proxy",
-        "start-plan"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-zcode-cli-proxy"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "75a8415b4f3812ba8e73d43095012405cb477294"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-10-21T14:25:30.727Z"
     }
   ],
   "page": {

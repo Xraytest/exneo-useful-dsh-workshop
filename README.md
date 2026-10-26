@@ -81,7 +81,6 @@ dsh plugin --profile <profile> install
 | [@local/rea-mcp](plugins/rea-mcp) | `rea-mcp` | 工具 | REA 自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由 |
 | [dsh-workspace-context](plugins/dsh-workspace-context) | `workspace-context` | 工作区 | 每个工作区一份常驻提示词，注入该工作区会话的 system prompt，可读写 |
 | [dsh-workspace-plugins](plugins/dsh-workspace-plugins) | `workspace-plugins` | 工作区 | 按工作区挂载普通 Cordis 插件，仅该工作区会话生效，会话结束卸载 |
-| [dsh-zcode-cli-proxy](plugins/dsh-zcode-cli-proxy) | `dsh-zcode-cli-proxy` | 模型 | ZCode 额度反代（GLM 系列，真流式、图片输入），含设置页。**AGPL-3.0** fork |
 
 ## 目录结构
 
@@ -93,7 +92,7 @@ exneo-useful-dsh-workshop/
 ├── v1/plugins                # community-market 目录端点
 ├── _headers                  # JSON Content-Type 配置
 ├── README.md
-├── LICENSE                   # 仓库整体 LGPL-3.0（zcode / eac 为目录内 AGPL-3.0 例外）
+├── LICENSE                   # 仓库整体 LGPL-3.0（eac-design-world 为目录内 AGPL-3.0 例外）
 ├── packs/                    # 非 DSH bundle 的收录物（ZCode 插件包等）
 │   └── ultracode-pack/       #   ultracode 新版实现（skills+commands+bash 状态机）
 └── plugins/
@@ -140,4 +139,4 @@ dsh plugin --profile <profile> add dsh-free-search
 ## 许可
 
 仓库整体 **LGPL-3.0**（全文见 [LICENSE](LICENSE)），插件署名 **ExNeo**。
-例外：`dsh-zcode-cli-proxy` 为 AGPL-3.0 fork（上游 [kyle123740/dsh-zcode-cli-proxy](https://github.com/kyle123740/dsh-zcode-cli-proxy) + 本机改动），见其目录内 LICENSE。
+例外：`eac-design-world` 为 AGPL-3.0（上游 [Ebony-Vinyl/EAC-design-world](https://github.com/Ebony-Vinyl/EAC-design-world)），见其目录内 LICENSE。
