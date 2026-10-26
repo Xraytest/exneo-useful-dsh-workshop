@@ -1,7 +1,7 @@
 {
   "name": "exneo-useful-dsh-workshop",
   "version": "1.0.0",
-  "description": "DSH 插件市场：27 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强、工作箱、REA 逆向工程、插件自动更新），每个都是可直接 install_bundle 的 Cordis bundle。",
+  "description": "DSH 插件市场：26 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强、工作箱、REA 逆向工程、插件自动更新），每个都是可直接 install_bundle 的 Cordis bundle。",
   "license": "MIT",
   "dsh": {
     "minVersion": ">=0.2.0-rc.1"
@@ -300,22 +300,6 @@
       "hasClient": true,
       "peers": [
         "@deepseek-ai/dsh-scope"
-      ]
-    },
-    {
-      "id": "dsh-zcode-cli-proxy",
-      "path": "plugins/dsh-zcode-cli-proxy",
-      "rowId": "dsh-zcode-cli-proxy",
-      "version": "0.3.1",
-      "category": "model",
-      "description": "本机部署版：上游插件 + 本机新增的设置页（账号/登录/通道诊断/运行时/通道测试/只读配置）。设置页代码在 client.js 与 local/host-panel.js，lib/ 保持与上游一致。",
-      "license": "AGPL-3.0",
-      "hasClient": true,
-      "peers": [
-        "@deepseek-ai/cordis",
-        "@deepseek-ai/schemastery",
-        "@deepseek-ai/dsh-credentials",
-        "@deepseek-ai/dsh-llm"
       ]
     },
     {
