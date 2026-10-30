@@ -150,7 +150,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, parse, resolve, sep } from 'node:path';
 
 /** webServer 是硬依赖：浏览器半边全靠它回传状态。 */
 export const inject = ['webServer'];
@@ -286,15 +286,24 @@ export function defaultBranchLedgerFile() {
  * 也不打日志，只能重启进程。逐级非递归创建把这种路径变成立刻抛出的 ENOENT，
  * 落进既有的 storeError 上报分支。
  *
+ * 逐级切分必须以 `parse().root` 为根，**不能假设根是 `sep`**：Windows 绝对路径是
+ * `C:\Users\…`（盘符 `C:`）或 `\\server\share\…`（UNC），POSIX 才是 `/…`。旧实现写死
+ * `absolute.slice(1).split(sep)`，在 Windows 上第一段就是盘符里的 `:`，于是 mkdir
+ * `C:\:` → `EINVAL`——`$DSH_HOME/ultracode.json` 所在目录的写入从此永远失败、选择跨
+ * 重启必丢（根因与修复同 dsh-settings-nav，见其 README 6.2）。UNC 同理。
+ *
  * @param dir 目标目录（相对路径按进程 cwd 解析）
  */
 function ensureDirSync(dir) {
   const absolute = resolve(dir);
-  if (absolute === sep) return;
-  let current = sep;
-  for (const part of absolute.slice(1).split(sep)) {
+  const { root } = parse(absolute);
+  // 根为空说明不是绝对路径（resolve 之后不该出现，防御性返回）；已到根目录则无事可做。
+  if (root === '' || absolute === root) return;
+  let current = root;
+  for (const part of absolute.slice(root.length).split(sep)) {
     if (part === '') continue;
-    current = current === sep ? sep + part : current + sep + part;
+    // root 自带尾部隔符（`/`、`C:\`、`\\server\share\`），直接拼接即可。
+    current = current.endsWith(sep) ? current + part : current + sep + part;
     if (existsSync(current)) continue;
     try {
       mkdirSync(current);            // 非递归：失败立刻抛（procfs → ENOENT，不再死循环）

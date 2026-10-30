@@ -30,6 +30,8 @@ const sessionsById = new Map();
 // Fake the ultracode & rea routes on our fake webserver via fetch interception
 const ultraCalls = [];
 const reaCalls = [];
+const dualCalls = [];
+const adminCalls = [];
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, options) => {
   if (String(url).includes('/dsh-ultracode/')) {
@@ -39,6 +41,34 @@ globalThis.fetch = async (url, options) => {
   if (String(url).includes('/dsh-rea-mcp/')) {
     reaCalls.push({ url: String(url), options });
     return { ok: true, json: async () => ({ ok: true, stats: { enabled: 28, total: 207 }, state: { masterEnabled: true } }) };
+  }
+  if (String(url).includes('/dsh-admin-channel/')) {
+    adminCalls.push({ url: String(url), options });
+    const wanted = options?.body === undefined ? undefined : JSON.parse(options.body).enabled;
+    const phase = wanted === false ? 'off' : 'running';
+    return {
+      ok: true,
+      json: async () => ({
+        sessionId: 'SID',
+        phase,
+        running: phase === 'running',
+        armed: false,
+        elevated: true,
+        brokerPid: 4321,
+        note: phase === 'running' ? '已开启：通道运行中（PID 4321）。' : '未开启：在「工作箱」打开开关。',
+        hint: phase === 'running' ? '关闭开关会结束提权进程并清除通道' : '打开开关：弹出一次 UAC 确认',
+      }),
+    };
+  }
+  if (String(url).includes('/dsh-dual-agent/')) {
+    dualCalls.push({ url: String(url), options });
+    // 开关式属主：status 回 phase/running/armed；action 回新的 phase。
+    if (String(url).includes('/status')) {
+      return { ok: true, json: async () => ({ sessionId: 'SID', phase: 'armed', running: true, armed: true, note: '已武装：请键入本任务的初始指令。', childId: null, hatchAt: 1_700_000_000_000, agentLive: true, stateFile: '/x', storeError: null }) };
+    }
+    const wanted = options?.body === undefined ? undefined : JSON.parse(options.body).enabled;
+    const phase = wanted === false ? 'off' : wanted === true ? 'armed' : 'armed';
+    return { ok: true, json: async () => ({ sessionId: 'SID', phase, running: phase !== 'off', armed: phase === 'armed', note: null, childId: null, hatchAt: phase === 'running' ? 1_700_000_000_000 : null, agentLive: true, stateFile: '/x', storeError: null, action: phase === 'off' ? 'off' : 'armed' }) };
   }
   throw new Error('unexpected fetch ' + url);
 };
@@ -118,6 +148,40 @@ check('rea section kept when checked', result2.sections.some((s) => s.name === '
 st = await call('/dsh-workbench/reset', 'POST', { sessionId: 'child-1' });
 check('reset clears checked', st.checked.length === 0);
 check('ultracode reset called', ultraCalls.some((c) => c.url.includes('/reset')));
+
+// 7. 动作条目的开关契约：status 透出 kind/checked/phase/note，action 转发目标 enabled
+st = await call('/dsh-workbench/status?sessionId=child-1');
+const action = (st.actions ?? []).find((a) => a.id === 'dual-agent');
+check('action row present', action !== undefined);
+check('action declares switch control', action?.kind === 'switch');
+check('action checked mirrors owner running', action?.checked === true && action?.running === true);
+check('action phase passed through', action?.phase === 'armed');
+check('action note passed through', typeof action?.note === 'string' && action.note.includes('已武装'));
+check('action hatchAt forwarded (client live-timer anchor)', action?.hatchAt === 1_700_000_000_000);
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'dual-agent', enabled: false });
+const offCall = dualCalls.filter((c) => c.url.includes('/action')).at(-1);
+check('action forwards enabled=false to owner', JSON.parse(offCall.options.body).enabled === false);
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'dual-agent', enabled: true });
+const onCall = dualCalls.filter((c) => c.url.includes('/action')).at(-1);
+check('action forwards enabled=true to owner', JSON.parse(onCall.options.body).enabled === true);
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'dual-agent' });
+const legacyCall = dualCalls.filter((c) => c.url.includes('/action')).at(-1);
+check('legacy action without enabled omits the key', !('enabled' in JSON.parse(legacyCall.options.body)));
+
+// 8. v3：管理员权限通道动作条目（属主 dsh-admin-channel）
+st = await call('/dsh-workbench/status?sessionId=child-1');
+const admin = (st.actions ?? []).find((a) => a.id === 'admin-channel');
+check('admin-channel row present', admin !== undefined);
+check('admin-channel declares switch control', admin?.kind === 'switch');
+check('admin-channel checked mirrors owner running', admin?.checked === true && admin?.running === true);
+check('admin-channel hint passed through', typeof admin?.hint === 'string' && admin.hint.includes('提权进程'));
+check('admin-channel label is localized', admin?.label === '管理员权限通道');
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'admin-channel', enabled: false });
+const adminOff = adminCalls.filter((c) => c.url.includes('/action')).at(-1);
+check('admin-channel forwards enabled=false', JSON.parse(adminOff.options.body).enabled === false);
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'admin-channel', enabled: true });
+const adminOn = adminCalls.filter((c) => c.url.includes('/action')).at(-1);
+check('admin-channel forwards enabled=true', JSON.parse(adminOn.options.body).enabled === true);
 
 globalThis.fetch = originalFetch;
 console.log(failures.length === 0 ? 'SELFTEST PASS' : `SELFTEST FAIL (${failures.length})`);

@@ -66,7 +66,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, parse, resolve, sep } from 'node:path';
 
 /** 插件名（诊断回显用）。 */
 export const name = 'dsh-settings-nav';
@@ -84,7 +84,7 @@ export const name = 'dsh-settings-nav';
 export const inject = ['webServer'];
 
 /** 本文件的构建标记（变更时递增；GET /state 会回报）。 */
-export const BUILD = 'nav-4';
+export const BUILD = 'nav-5';
 
 /**
  * 文档 schema 版本。
@@ -135,15 +135,24 @@ const msg = (error) => String((error && error.message) || error);
  * 线程，整个 DSH（GUI + 会话）冻结，既不抛错也不打日志，只能重启进程。
  * 逐级非递归创建把这种路径变成立刻抛出的 ENOENT，落进既有的 500 / 告警分支。
  *
+ * 逐级切分必须以 `parse().root` 为根，**不能假设根是 `sep`**：Windows 的绝对路径是
+ * `C:\Users\…`（盘符 `C:`）或 `\\server\share\…`（UNC），POSIX 才是 `/…`。旧实现写死
+ * `absolute.slice(1).split(sep)`，在 Windows 上第一段就是盘符里的 `:`，于是 mkdir
+ * `C:\:` → `EINVAL: invalid argument, mkdir 'C:\:'`，凡是「配置文件所在目录尚不存在」
+ * 的写入都会 500（报错原文见 README 6.2）。
+ *
  * @param {string} dir 目标目录（相对路径按进程 cwd 解析）。
  */
 export function ensureDirSync(dir) {
   const absolute = resolve(dir);
-  if (absolute === sep) return;
-  let current = sep;
-  for (const part of absolute.slice(1).split(sep)) {
+  const { root } = parse(absolute);
+  // 根为空说明不是绝对路径（resolve 之后不该出现，防御性返回）；已到根目录则无事可做。
+  if (root === '' || absolute === root) return;
+  let current = root;
+  for (const part of absolute.slice(root.length).split(sep)) {
     if (part === '') continue;
-    current = current === sep ? sep + part : current + sep + part;
+    // root 自带尾部隔符（`/`、`C:\`、`\\server\share\`），直接拼接即可。
+    current = current.endsWith(sep) ? current + part : current + sep + part;
     if (existsSync(current)) continue;
     try {
       mkdirSync(current); // 非递归：失败立刻抛（procfs → ENOENT，不再死循环）

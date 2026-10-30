@@ -20,14 +20,26 @@ window.__ModuleLoader__.load({
       // re-syncs; without a retry that one lost write latches a permanent error banner that
       // only a page reload clears. Retry network errors and 5xx, never a 4xx rejection.
       let lastError;
+      let unreachable = false;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const response = await fetch(`${COMPOSER_ORIGIN}/api/composer`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: payload });
           if (response.ok) return;
           lastError = new Error(`Selection sync failed (${response.status})`);
           if (response.status < 500) break;
-        } catch (error) { lastError = error; }
+        } catch (error) {
+          // fetch 只有在连不上时才抛（连接被拒 / DNS / 混合内容）；服务没起来就是这个分支。
+          lastError = error;
+          unreachable = true;
+        }
         await new Promise(resolve => setTimeout(resolve, 400 * 2 ** attempt));
+      }
+      // 服务根本没起来时，「请重试或刷新页面」是误导 —— 刷新多少次都一样。
+      // 把真实原因说出来：宿主半边的本地服务没在跑（插件启动失败或被热重载中途关闭）。
+      if (unreachable) {
+        const error = new Error('本地 EAC 服务未连接（127.0.0.1:4173）。插件宿主半边可能启动失败，请在设置里重新加载 EAC 插件或重启 DeepSeek Harness。');
+        error.code = 'EAC_SERVICE_UNREACHABLE';
+        throw error;
       }
       throw lastError ?? new Error('Selection sync failed');
     };
@@ -297,8 +309,9 @@ window.__ModuleLoader__.load({
           syncQueue.current = syncQueue.current.catch(() => {}).then(() => syncComposerMode(sessionId, value));
           syncQueue.current.then(() => {
             if (syncVersion.current === version) { setSyncing(false); setFailed(null); }
-          }, () => {
-            if (syncVersion.current === version) { setSyncing(false); setFailed({ value }); }
+          }, error => {
+            // 带上失败原因：服务没连上时提示「重启 Harness」，被服务拒绝时才提示「重试或刷新」。
+            if (syncVersion.current === version) { setSyncing(false); setFailed({ value, error }); }
           });
         };
         React.useEffect(() => {
@@ -420,7 +433,10 @@ window.__ModuleLoader__.load({
           if (mode === 'normal') setCanvasOpen(false);
           setFailed(null);
         };
-        const error = failed ? h('span', { className: 'eac-selection-error', role: 'alert' }, t('selectionFailed'), ' ',
+        const error = failed ? h('span', { className: 'eac-selection-error', role: 'alert' },
+          failed.error?.code === 'EAC_SERVICE_UNREACHABLE'
+            ? (failed.error?.message || t('selectionFailed'))
+            : t('selectionFailed'), ' ',
           h('button', { type: 'button', onClick: () => synchronize(failed.value) }, t('addSelection'))) : null;
         const libraryTitle = selection.mode === 'design' ? t('designLibrary') : t('library');
         return h(React.Fragment, null,

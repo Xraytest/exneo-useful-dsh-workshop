@@ -20,6 +20,11 @@
  *   下一帧就看到开关翻过去；失败才回滚到服务器真值并在浮层给红字。
  *   （勾选生效语义不变：下一次请求就注入/摘除上下文。）
  *
+ * 2026-10-30 用户指令「去掉工具箱插件页面底部的文本描述」：删掉浮层底注（原
+ *   `.wb-note` 那段「拨动开关即时生效…」长文）及其样式。上面约定的「状态全走
+ *   title 悬停提示，页面上不写提示语」由此真正成立——浮层里只剩标题、条目与
+ *   异常行，不再有常驻说明文字。
+ *
  * @module dsh-workbench/client
  */
 
@@ -32,7 +37,6 @@ window.__ModuleLoader__.load({
 
     const ROUTE = '/dsh-workbench';
     const POLL_MS = 8000;
-
     const CSS = [
       /* ── 收起的图标胶囊 ────────────────────────────────────────────────────
        * 尺寸/字体与同一行的「权限」选择器逐字对齐（28px / 24px 圆角 / 13px /
@@ -86,6 +90,36 @@ window.__ModuleLoader__.load({
       '.wb-row { display:flex; align-items:flex-start; gap:10px; padding:7px 9px;',
       '  border-radius:var(--dsw-radius-sm, 8px); cursor:pointer; transition:background .15s ease; }',
       '.wb-row:hover { background: var(--dsw-alias-interactive-bg-hover); }',
+      /* 动作行（v2）：与开关行同一骨架，但左列是一颗主按钮（启动/停止）。
+       * 按钮视觉对齐宿主主操作：品牌底、白字、focus-visible 品牌描边。 */
+      '.wb-act { display:flex; align-items:flex-start; gap:10px; padding:7px 9px;',
+      '  border-radius:var(--dsw-radius-sm, 8px); transition:background .15s ease; }',
+      '.wb-act:hover { background: var(--dsw-alias-interactive-bg-hover); }',
+      '.wb-act-btn { flex:none; margin:0; appearance:none; height:24px; padding:0 12px;',
+      '  border-radius:var(--dsw-radius-sm, 8px); border:1px solid var(--dsw-alias-brand-primary);',
+      '  background:var(--dsw-alias-brand-primary); color:#fff; font:inherit; font-size:12px;',
+      '  font-weight:500; line-height:22px; cursor:pointer;',
+      '  transition:opacity .15s ease; }',
+      '.wb-act-btn:hover:not(:disabled) { opacity:.88; }',
+      '.wb-act-btn:active:not(:disabled) { opacity:.78; }',
+      '.wb-act-btn:focus-visible { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:2px; }',
+      '.wb-act-btn:disabled { opacity:.5; cursor:default; }',
+      '.wb-act-btn.wb-stop { background:transparent; color:var(--dsw-alias-label-primary);',
+      '  border-color:var(--dsw-alias-border-l2); }',
+      /* armed（已武装待命）：描边 + 品牌色文字——与 running 的灰描边区分开。 */
+      '.wb-act-btn.wb-armed { background:transparent; color:var(--dsw-alias-brand-primary);',
+      '  border-color:var(--dsw-alias-brand-primary); }',
+      /* 开关式动作行：与开关条目同款排布（track+thumb 在左，文字在中，状态点在右）。 */
+      '.wb-act-row { cursor:pointer; }',
+      '.wb-act-row:has(.wb-switch:disabled) { cursor:default; opacity:.72; }',
+      '.wb-act-label { font-size:12.5px; font-weight:500; color: var(--dsw-alias-label-primary);',
+      '  display:flex; align-items:baseline; gap:6px; }',
+      '.wb-act-desc { font-size:11px; line-height:1.55; color: var(--dsw-alias-label-secondary); margin-top:1px; }',
+      /* 阶段说明单独一行：与功能说明分离，切换阶段不改动说明文本。 */
+      '.wb-act-state { font-size:10.5px; line-height:1.5; margin-top:3px;',
+      '  color:var(--dsw-alias-label-tertiary); }',
+      '.wb-act-badge { font-size:10px; font-weight:400; color:var(--dsw-alias-state-success-primary); }',
+      '.wb-act-badge.wb-act-badge-armed { color:var(--dsw-alias-brand-primary); }',
       /* 开关（track + thumb）：颜色/比例对齐设置页 role="switch"；勾着时染品牌色，
        * thumb 用阴影描边而不是硬阴影；transition 用宿主同款缓动手感。 */
       '.wb-switch { flex:none; width:34px; height:19px; border-radius:999px;',
@@ -108,9 +142,7 @@ window.__ModuleLoader__.load({
       '  background:var(--dsw-alias-border-l2); transition:background .2s ease; }',
       '.wb-dot.on { background:var(--dsw-alias-state-success-primary); }',
       '.wb-dot.busy { background:var(--dsw-alias-state-warn-primary); animation:wb-breath 1s ease-in-out infinite; }',
-      /* 底注：分隔线 + 次要文字；issues 用警告色。 */
-      '.wb-note { font-size:10.5px; line-height:1.6; color: var(--dsw-alias-label-tertiary);',
-      '  padding:7px 9px 5px; border-top:1px solid var(--dsw-alias-border-l1); margin-top:4px; }',
+      /* 联动问题 / 保存失败：警告色一行，不出现在正常态。 */
       '.wb-warn { font-size:11px; line-height:1.6; color:var(--dsw-alias-state-warn-primary);',
       '  padding:2px 9px 6px; }',
       /* 读态失败：浮层内给重试行（红字 + 按钮），不再只留空壳。 */
@@ -160,14 +192,18 @@ window.__ModuleLoader__.load({
     }
 
     function tooltipFor(status, count, error) {
-      const lines = ['工作箱：选择本会话要注入上下文的工作项'];
+      const lines = ['工作箱：选择本会话要注入上下文的工作项；动作条目一键触发'];
       if (status === null) {
         lines.push('正在读取状态…');
       } else {
         for (const entry of status.entries ?? []) {
           lines.push(`  ${entry.checked ? '● 开' : '○ 关'} ${entry.label} — ${entry.description}`);
         }
-        if ((status.checked ?? []).length === 0) lines.push('（未勾选任何项 = 不注入任何相关上下文）');
+        for (const action of status.actions ?? []) {
+          const mark = action.running === true ? '▶ 运行中' : action.running === false ? '○ 停止' : '· 未知';
+          lines.push(`  ${mark} ${action.label} — ${action.description}`);
+        }
+        if ((status.checked ?? []).length === 0 && (status.actions ?? []).length === 0) lines.push('（未勾选任何项 = 不注入任何相关上下文）');
         if (Array.isArray(status.issues) && status.issues.length > 0) lines.push(`联动问题：${status.issues.join('；')}`);
         if (typeof status.storeError === 'string' && status.storeError !== '') lines.push(`落盘：${status.storeError}`);
       }
@@ -212,6 +248,9 @@ window.__ModuleLoader__.load({
       } catch (cause) {
         record.error = cause instanceof Error ? cause.message : String(cause);
       }
+      // 双主智能在跑/待命时，把它阻塞回合的「已停止」标签改写成「执行中」；
+      // 关掉后还原（用户自己按停止键仍看到「已停止」）。
+      syncStoppedLabel(record.status);
       notify(sessionId);
     }
 
@@ -224,6 +263,135 @@ window.__ModuleLoader__.load({
         checked: nextIds,
         entries: (status.entries ?? []).map((entry) => ({ ...entry, checked: set.has(entry.id) })),
       };
+    }
+
+    // 动作条目：开关式（kind === 'switch'）与按钮式（默认）两种形态。
+    // 开关式上送**目标状态** enabled，属主按目标推进；乐观翻转先翻开关不等网络。
+    const actionCheckedOf = (action) => typeof action.checked === 'boolean'
+      ? action.checked
+      : action.running === true;
+    const actionPhaseOf = (action) => {
+      if (typeof action.phase === 'string') return action.phase;
+      if (action.running === true) return 'running';
+      return 'off';
+    };
+    const nextPhaseOf = (action) => {
+      const phase = actionPhaseOf(action);
+      if (phase === 'off') return 'armed';
+      if (phase === 'armed') return 'off';
+      return 'armed';
+    };
+
+    /**
+     * running 中的「已工作 X 分 Y 秒」——客户端每秒重算，比属主 note 里一跳一跳
+     * 的 8s 轮询顺滑；不足 1 分钟返回空串（刚点完晃个 0 分几秒是噪音）。
+     */
+    function runningElapsed(action, nowMs) {
+      if (actionPhaseOf(action) !== 'running') return '';
+      const at = action.hatchAt;
+      if (typeof at !== 'number' || !Number.isFinite(at)) return '';
+      const secs = Math.max(0, Math.floor((nowMs - at) / 1000));
+      if (secs < 60) return '';
+      const m = Math.floor(secs / 60);
+      return m < 60 ? `（已工作 ${m} 分 ${secs % 60} 秒）` : `（已工作 ${Math.floor(m / 60)} 时 ${m % 60} 分）`;
+    }
+
+    async function triggerAction(sessionId, actionId, enabled) {
+      const record = statusCache.get(sessionId);
+      if (record === undefined || record.status === null) return;
+      const seq = record.saveSeq + 1;
+      record.saveSeq = seq;
+      const previous = record.status;
+      const source = (previous.actions ?? []).find((action) => action.id === actionId) ?? {};
+      const isSwitch = source.kind === 'switch';
+      // 目标状态：开关式取点击后的目标值；按钮式按三态推进。
+      const targetChecked = isSwitch ? enabled === true : nextPhaseOf(source) !== 'off';
+      const targetPhase = isSwitch
+        ? (targetChecked ? (actionPhaseOf(source) === 'running' ? 'running' : 'armed') : 'off')
+        : nextPhaseOf(source);
+      const optimistic = {
+        ...previous,
+        actions: (previous.actions ?? []).map((action) =>
+          action.id === actionId
+            ? {
+              ...action,
+              phase: targetPhase,
+              running: targetPhase !== 'off',
+              ...isSwitch ? { checked: targetChecked } : {},
+            }
+            : action),
+      };
+      record.status = optimistic;
+      record.saveError = '';
+      record.pending += 1;
+      record.busy = true;
+      // 乐观阶段也同步一次标签：拨开开关那一刻「已停止」就该变成「执行中」，
+      // 不必等服务器回包（回合标签是即时渲染的）。
+      syncStoppedLabel(optimistic);
+      notify(sessionId);
+      try {
+        const truth = await api(`${ROUTE}/action`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            actionId,
+            ...isSwitch ? { enabled: targetChecked } : {},
+          }),
+        });
+        // 动作回包是属主插件的 status：只并入该动作行关心的字段（整包回填会丢
+        // 工作箱自己的字段）。没有 phase 的旧属主退回 running 布尔。
+        if (seq === record.saveSeq && record.status !== null) {
+          record.status = {
+            ...record.status,
+            actions: (record.status.actions ?? []).map((action) => {
+              if (action.id !== actionId) return action;
+              const truthPhase = typeof truth?.phase === 'string' ? truth.phase : undefined;
+              const truthRunning = typeof truth?.running === 'boolean' ? truth.running : undefined;
+              const mergedRunning = truthRunning ?? (truthPhase === undefined ? undefined : truthPhase !== 'off');
+              return {
+                ...action,
+                ...truthPhase === undefined ? {} : { phase: truthPhase },
+                ...mergedRunning === undefined ? {} : { running: mergedRunning },
+                ...mergedRunning === undefined ? {} : { checked: mergedRunning },
+                available: true,
+                ...typeof truth?.note === 'string' && truth.note !== '' ? { note: truth.note } : {},
+                ...typeof truth?.armed === 'boolean' ? { armed: truth.armed } : {},
+                ...typeof truth?.hatchAt === 'number' ? { hatchAt: truth.hatchAt } : {},
+                // 回包没带 hatchAt 且已不在 running：清掉旧锚点，防止计时器拿
+                // 上一轮的孵化时刻继续数（phase 离开 running 本就不显示，这里是
+                // 双保险——万一属主回包慢，phase 已 running 但没有新锚点）。
+                ...truth?.phase !== undefined && truth.phase !== 'running' && typeof truth?.hatchAt !== 'number'
+                  ? { hatchAt: undefined } : {},
+                // v3.3：执行者活性随真值合并；离开 running 时清掉，避免残留上一轮状态。
+                ...typeof truth?.childLive === 'boolean' ? { childLive: truth.childLive } : {},
+                ...typeof truth?.childStatus === 'string' ? { childStatus: truth.childStatus } : {},
+                ...truth?.phase !== undefined && truth.phase !== 'running'
+                  ? { childLive: undefined, childStatus: undefined } : {},
+                ...typeof truth?.hint === 'string' && truth.hint !== '' ? { hint: truth.hint } : {},
+              };
+            }),
+          };
+          record.error = '';
+          record.fetchedAt = Date.now();
+        }
+      } catch (cause) {
+        // 回滚仍带 seq 守卫（迟到的旧失败不许盖掉更新的真值），但错误提示
+        // 无条件显示——动作失败不能静默等 8s 轮询才暴露。
+        if (seq === record.saveSeq) {
+          record.status = previous;
+          syncStoppedLabel(previous);   // 回滚：标签也跟着回到真值口径
+        }
+        record.saveError = cause instanceof Error ? cause.message : String(cause);
+      } finally {
+        const wasLast = record.pending === 1;
+        record.pending -= 1;
+        record.busy = record.pending > 0;
+        // 成功后也补一次真值收敛：armed/running 的 note 是关键提示，
+        // 不能等下一轮 8s 轮询才出现在面板上。
+        if (wasLast) void refresh(sessionId);
+        notify(sessionId);
+      }
     }
 
     async function save(sessionId, nextChecked) {
@@ -284,6 +452,16 @@ window.__ModuleLoader__.load({
       const status = record.status;
       const checkedCount = status === null ? 0 : (status.checked ?? []).length;
 
+      // running 中的属主（带 hatchAt）需要每秒刷时长；没有 running 就不挂计时器。
+      const [nowTick, setNowTick] = useState(() => Date.now());
+      const anyTimed = (status?.actions ?? []).some(
+        (action) => actionPhaseOf(action) === 'running' && typeof action.hatchAt === 'number');
+      useEffect(() => {
+        if (!anyTimed) return undefined;
+        const timer = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => clearInterval(timer);
+      }, [anyTimed]);
+
       useEffect(() => {
         if (typeof sessionId !== 'string' || sessionId === '') return undefined;
         const timer = setInterval(() => refresh(sessionId), POLL_MS);
@@ -324,6 +502,7 @@ window.__ModuleLoader__.load({
         + (record.error !== '' && status === null ? ' wb-error' : '');
 
       const entries = status?.entries ?? [];
+      const actions = status?.actions ?? [];
       const issues = Array.isArray(status?.issues) ? status.issues.filter((issue) => typeof issue === 'string' && issue !== '') : [];
 
       return h('div', { style: { position: 'relative', display: 'inline-flex' } },
@@ -356,7 +535,7 @@ window.__ModuleLoader__.load({
         // 头部：标题 + 已选计数 + 全关快捷键（全部次要文字，无正文提示语）。
         h('div', { className: 'wb-head' },
           h('span', { className: 'wb-head-title' }, '工作列表'),
-          h('span', { className: 'wb-head-count' }, `${checkedCount}/${entries.length}`),
+          h('span', { className: 'wb-head-count' }, `${checkedCount}/${entries.length + actions.length}`),
           checkedCount > 0 ? h('button', {
             type: 'button',
             className: 'wb-clear',
@@ -405,18 +584,189 @@ window.__ModuleLoader__.load({
             + (entry.checked === true ? ' on' : ''),
         }),
         ))),
+        // ── 动作条目：开关式（kind==='switch'）与按钮式两种形态 ──
+        ...(status === null ? [] : actions.map((action) => {
+          const isSwitch = action.kind === 'switch';
+          const phase = actionPhaseOf(action);
+          const checked = actionCheckedOf(action);
+          // v3.1：徽标用属主的 runningLabel（admin-channel =「已开启」），
+          // 没给时才退回双主智能的「运行中 / 待命中」。
+          const badge = phase === 'running'
+            ? (action.runningLabel ?? '运行中')
+            : phase === 'armed' ? '待命中' : null;
+          // 属主 note 是稳定文案；running 时长由客户端每秒叠加（见 runningElapsed）。
+          const elapsed = runningElapsed(action, nowTick);
+          const stateLine = (typeof action.note === 'string' && action.note !== '') || elapsed !== ''
+            ? h('div', { className: 'wb-act-state' }, `${action.note ?? ''}${elapsed}`)
+            : null;
+          if (isSwitch) {
+            // 属主自带随阶段变化的提示（管理员权限通道的「等待 UAC」/「关闭会结束
+            // 提权进程」就在这里）；没有时：双主智能保留固定文案，其它属主用中性文案。
+            const fallbackHint = action.id === 'dual-agent'
+              ? phase === 'running'
+                ? '关闭将中断执行者（不触发挑刺）'
+                : phase === 'armed'
+                  ? '已启用：下一条你发出的消息就是任务'
+                  : '打开后武装待命，键入初始指令即交给后台执行者'
+              : `${action.label}：${checked ? (action.runningLabel ?? '已开启') : (action.idleLabel ?? '未开启')}`;
+            const hint = action.available !== true
+              ? '动作属主插件未响应（可能未安装或未启动）'
+              : typeof action.hint === 'string' && action.hint !== ''
+                ? action.hint
+                : fallbackHint;
+            return h('div', {
+              key: 'action:' + action.id,
+              className: 'wb-row wb-act-row',
+              onClick: action.available === true && record.pending === 0
+                ? () => { void triggerAction(sessionId, action.id, !checked); }
+                : undefined,
+            },
+            h('button', {
+              type: 'button',
+              className: 'wb-switch',
+              role: 'switch',
+              'aria-checked': checked ? 'true' : 'false',
+              'aria-label': `${action.label}：${checked ? '已启用' : '已关闭'}`,
+              disabled: action.available !== true || record.pending > 0,
+              title: hint,
+              onMouseDown: (event) => { event.preventDefault(); },
+              onClick: (event) => {
+                event.stopPropagation();
+                if (action.available !== true || record.pending > 0) return;
+                void triggerAction(sessionId, action.id, !checked);
+              },
+            }, h('i', null)),
+            h('span', { style: { minWidth: 0 } },
+              h('div', { className: 'wb-row-label' },
+                action.label,
+                badge !== null ? h('span', { className: 'wb-act-badge' + (phase === 'armed' ? ' wb-act-badge-armed' : '') }, badge) : null,
+              ),
+              h('div', { className: 'wb-row-desc' }, action.description),
+              stateLine,
+            ),
+            // 行尾状态点与开关条目同款：开=绿 / 关=灰 / 保存中=琥珀呼吸。
+            h('span', { className: 'wb-dot' + (record.busy ? ' busy' : '') + (checked ? ' on' : '') }),
+            );
+          }
+          const label = phase === 'running'
+            ? (action.runningLabel ?? '停止')
+            : phase === 'armed'
+              ? '取消待命'
+              : (action.idleLabel ?? '启动');
+          const hint = phase === 'running'
+            ? '点击暂停执行者（回到待命，等用户补充）'
+            : phase === 'armed'
+              ? '点击取消待命（完全关闭双主智能）'
+              : '点击启动（之后键入初始指令）';
+          return h('div', {
+            key: 'action:' + action.id,
+            className: 'wb-act',
+          },
+          h('button', {
+            type: 'button',
+            className: 'wb-act-btn' + (phase === 'running' ? ' wb-stop' : phase === 'armed' ? ' wb-armed' : ''),
+            disabled: action.available !== true || record.pending > 0,
+            'aria-label': `${action.label}：${label}`,
+            title: action.available !== true ? '动作属主插件未响应（可能未安装或未启动）' : hint,
+            onMouseDown: (event) => { event.preventDefault(); },
+            onClick: (event) => {
+              event.stopPropagation();
+              void triggerAction(sessionId, action.id);
+            },
+          }, label),
+          h('span', { style: { minWidth: 0 } },
+            h('div', { className: 'wb-act-label' },
+              action.label,
+              badge !== null ? h('span', { className: 'wb-act-badge' + (phase === 'armed' ? ' wb-act-badge-armed' : '') }, badge) : null,
+            ),
+            // 功能说明常驻；阶段说明单独一行（不覆盖说明，也不改变行高节奏）。
+            h('div', { className: 'wb-act-desc' }, action.description),
+            stateLine,
+          ),
+          );
+        })),
         issues.length > 0 ? h('div', { className: 'wb-warn' }, issues.join('；')) : null,
         typeof record.saveError === 'string' && record.saveError !== '' ? h('div', { className: 'wb-warn' }, `保存失败：${record.saveError}（已还原，可重拨）`) : null,
-        h('div', { className: 'wb-note' },
-          '拨动开关即时生效：开启的项目把上下文注入本会话；关闭的 REA 不注入任何工具与说明。'),
         ) : null,
       );
     }
 
     let pluginCtx = null;
 
+    /**
+     * 「已停止」→「执行中」的文案改写（2026-10-30 用户指令「主页面不要用已停止，
+     * 用执行中」，并指明是对话上下文区里的那个）。
+     *
+     * 背景：双主智能的阻塞语义要求主 Agent 的任务回合被 cancel —— 内核据此把
+     * `turn/end` 记成 `reason.kind='aborted'`，而 dsh-client-ui-chat 的
+     * `message.stopped`（zh「已停止」）正是渲染给 aborted/interrupted 回合的标签。
+     * 于是用户每发一条任务，主页面就出现一个「已停止」——而活其实正在后台执行者
+     * 那里干，观感像坏了。
+     *
+     * 实现口径：宿主 locale 的字典是**按引用**查找的（LocaleRuntime.lookup 读
+     * `dicts.get(ns).get(locale)[key]`），所以直接改 chat ns 里那个 entries 对象
+     * 的 `message.stopped` 即可生效。作用域按双主智能的阶段收窄：
+     *   · armed / running → 改成「执行中」（这段时间被 cancel 的回合都是它的阻塞回合）；
+     *   · off             → 还原（用户自己按停止键时仍应看到「已停止」）。
+     * 全程 try/catch：宿主内部结构若变（ns 改名、字段私有化），静默降级为不改写，
+     * 绝不让 UI 挂掉。
+     */
+    const CHAT_NS = 'chat';
+    const STOPPED_KEY = 'message.stopped';
+    const RUNNING_LABEL = '执行中';
+    // 原始文案快照键：挂在 dict 上，只写一次（首次见到时），off 时据此还原。
+    // 故意**不用**模块级布尔标记状态——改写与否完全由 dict 现值 vs 快照值推导，
+    // 这样即使 locale 实例被替换（或测试里换实例）也不会卡在错误的状态上。
+    const ORIGIN_KEY = '__wbOrigStopped';
+
+    function chatDicts() {
+      const locale = pluginCtx?.get?.('locale');
+      const dicts = locale?.dicts;
+      if (!(dicts instanceof Map)) return null;
+      const perLocale = dicts.get(CHAT_NS);
+      if (!(perLocale instanceof Map)) return null;
+      return perLocale;
+    }
+
+    /** 首次见到就先快照原始文案（只写一次，之后不被覆盖）。 */
+    function snapshotOriginals(perLocale) {
+      for (const dict of perLocale.values()) {
+        if (dict !== null && typeof dict === 'object'
+          && typeof dict[STOPPED_KEY] === 'string' && dict[ORIGIN_KEY] === undefined) {
+          dict[ORIGIN_KEY] = dict[STOPPED_KEY];
+        }
+      }
+    }
+
+    function patchStoppedLabel(on) {
+      try {
+        const perLocale = chatDicts();
+        if (perLocale === null) return;
+        snapshotOriginals(perLocale);
+        for (const dict of perLocale.values()) {
+          if (dict === null || typeof dict !== 'object') continue;
+          if (on) {
+            if (typeof dict[STOPPED_KEY] === 'string' && dict[STOPPED_KEY] !== RUNNING_LABEL) {
+              dict[STOPPED_KEY] = RUNNING_LABEL;
+            }
+          } else if (typeof dict[ORIGIN_KEY] === 'string' && dict[STOPPED_KEY] !== dict[ORIGIN_KEY]) {
+            dict[STOPPED_KEY] = dict[ORIGIN_KEY];
+          }
+        }
+      } catch { /* 宿主内部结构变化：静默不改写 */ }
+    }
+
+    /** 按双主智能的阶段收窄/还原「已停止」文案。 */
+    function syncStoppedLabel(status) {
+      const action = (status?.actions ?? []).find((a) => a.id === 'dual-agent');
+      const phase = action === undefined ? 'off' : actionPhaseOf(action);
+      patchStoppedLabel(phase === 'armed' || phase === 'running');
+    }
+
     function apply(ctx) {
       pluginCtx = ctx;
+      // 尽早快照 chat ns 的原始「已停止」文案：之后的轮询只负责按阶段改写/还原。
+      try { snapshotOriginals(chatDicts() ?? new Map()); } catch { /* 宿主结构变化：静默 */ }
       const styleNode = injectStyles();
       ctx.effect(() => () => {
         stylesInjected = false;

@@ -1,0 +1,22 @@
+# ── 管理员权限通道（dsh-admin-channel）──────────────────────────────────────
+# 会话级提权：用户在「工作箱」拨开开关时弹出**一次** UAC；随后本会话的
+# admin_exec 工具把命令交给常驻提权进程（broker.ps1）执行，不再逐次确认。
+# 通道随会话结束 / 空闲超时 / 插件卸载关闭。
+#
+# 本行只插本插件自己；工作箱里的那一行在 dsh-workbench 的 ACTIONS 表里
+# （route = /dsh-admin-channel/action，status = /dsh-admin-channel/status）。
+- insert:
+    - id: admin-channel
+      name: './entry-v7.js'
+      config:
+        # UAC 授权等待上限（毫秒）：用户决定「是/否」的时间预算。
+        uacTimeoutMs: 120000
+        # 空闲自动关闭（毫秒）：最后一次 admin_exec 之后多久关闭提权进程。
+        idleTimeoutMs: 1800000
+        # 同时允许多少个会话各开一条通道；1 = 全局只允许一条。
+        maxChannels: 1
+        # admin_exec 单条命令默认 / 最大超时（毫秒）。
+        execTimeoutMs: 120000
+        maxExecTimeoutMs: 1800000
+        # 单条命令 stdout / stderr 各自保留的字节上限。
+        maxOutputBytes: 262144

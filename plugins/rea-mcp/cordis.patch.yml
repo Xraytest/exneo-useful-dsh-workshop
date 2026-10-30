@@ -50,20 +50,16 @@
           # 可移植路径：本行的 config 在 dsh-mcp-client 的 ctx 里求值，借 pluginPackages
           # 按包名定位本 bundle 的安装目录（link:/git/registry 安装都落在这里），
           # 拼出 runtime 里 rea.mjs 的绝对路径。找不到时显式抛错，绝不静默指错文件。
+          #
+          # 本机适配（2026-10-24）：上游原文写的是无 scope 包名 'rea-mcp'，但本 profile
+          # 以 @local/rea-mcp 安装（与 @local/dsh-provider-proxy 同一惯例），
+          # packageOf('rea-mcp') 解析不到，故改为完整包名。
           - !!js >-
             (() => {
               const parent = 'file://' + (process.env.DSH_PROFILE_DIR ?? process.cwd()) + '/package.json';
-              const packages = ctx.get('pluginPackages');
-              // scope 无关：同一插件在不同设备上可能以 rea-mcp（上游默认包名）或
-              // @local/rea-mcp（本地安装约定）安装，两种名字依次试，命中即用——
-              // packageOf 是精确包名的 Node 解析，scope 一换就解析不到。新增
-              // 其它 scope 时往 candidates 里加名字即可。
-              const candidates = ['rea-mcp', '@local/rea-mcp'];
-              for (const name of candidates) {
-                const pkg = packages?.packageOf(name, parent);
-                if (pkg !== undefined) return pkg.dir + '/runtime/node_modules/rea-agents/scripts/rea.mjs';
-              }
-              throw new Error('rea-mcp: 无法定位安装目录（试过 ' + candidates.join(' / ') + ' 均未解析到）——确认 profile 依赖表里装有本插件，且 runtime/ 已 npm install，见 runtime/README.md'); })()
+              const pkg = ctx.get('pluginPackages')?.packageOf('@local/rea-mcp', parent);
+              if (pkg === undefined) throw new Error('rea-mcp: 无法定位安装目录（pluginPackages 找不到 @local/rea-mcp）——先在 runtime/ 里 npm install，见 runtime/README.md');
+              return pkg.dir + '/runtime/node_modules/rea-agents/scripts/rea.mjs'; })()
           - mcp
         # 反编译/固件/浏览器观察类调用天然超过默认 60s。
         toolCallTimeoutMs: 600000

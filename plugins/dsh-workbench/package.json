@@ -1,14 +1,27 @@
 {
   "name": "dsh-workbench",
-  "version": "1.2.0",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
-  "description": "输入框工具行的「工作箱」：点开列表勾选 Ultracode / REA 等工作项，选中才把对应上下文注入本会话；REA 未选中时工具与提示段完全不进上下文。",
+  "description": "输入框工具行的「工作箱」：点开列表勾选 Ultracode / REA 等工作项，选中才把对应上下文注入本会话；REA 未选中时工具与提示段完全不进上下文。v2 增加动作条目（一键触发其它插件的动作，如双主智能启动/停止）。v3 增加「管理员权限通道」开关（属主 dsh-admin-channel，拨开弹一次 UAC）；v3.1 徽标/提示按属主 label 与 hint 渲染；v3.2 透传属主 hatchAt，running 时长由客户端每秒实时渲染。",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js"
   },
+  "files": [
+    "index.js",
+    "client.js",
+    "entry-v6.js",
+    "entry-v5.js",
+    "entry-v4.js",
+    "cordis.patch.yml",
+    "host-selftest.mjs",
+    "client-selftest.mjs",
+    "client-selftest-v2.mjs",
+    "client-selftest-v3.mjs",
+    "README.md"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -21,7 +34,7 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     },
-    "description": "工作箱（输入框工具行 order 23，原 Ultracode 座位）：图标点击展开工作列表，复选选中才注入上下文。Ultracode 联动 dsh-ultracode 开关；REA 未选中时经 rea-mcp 摘除全部工具 schema，并在系统提示装配期摘除 mcp:rea 说明段——零上下文注入。选择按会话家族落盘 workbench.json。"
+    "description": "工作箱（输入框工具行 order 23，原 Ultracode 座位）：图标点击展开工作列表，复选选中才注入上下文。Ultracode 联动 dsh-ultracode 开关；REA 未选中时经 rea-mcp 摘除全部工具 schema，并在系统提示装配期摘除 mcp:rea 说明段——零上下文注入。选择按会话家族落盘 workbench.json。v2：动作条目（双主智能，经 /dsh-workbench/action 转发到属主插件）。v3：管理员权限通道开关（属主 dsh-admin-channel；拨开弹一次 UAC）。v3.1：动作徽标用属主 runningLabel，hint 优先属主值。"
   },
   "license": "MIT"
 }
