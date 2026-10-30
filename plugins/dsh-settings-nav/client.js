@@ -67,7 +67,7 @@ window.__ModuleLoader__.load({
     /** 同源读写前缀（host 半边 index.js 注册）。 */
     const ROUTE = '/dsh-settings-nav';
     /** 本文件构建标记（诊断用，与 host 的 build 对不上就说明半边版本不同步）。 */
-    const BUILD = 'nav-3';
+    const BUILD = 'nav-4';
     /**
      * 文档 schema。2 = 分组可嵌套（`group.items` 里既有 id 字符串也有子分组对象）；
      * 读的时候 1/2 都认（客户端归一化对 `items` 里的未知类型静默丢弃，host 才报 issue）。
@@ -1039,6 +1039,17 @@ window.__ModuleLoader__.load({
         return { status: response.status, ok: response.ok === true, body: parsed };
       }
 
+      /**
+       * 拼「保存失败」文案。host 的 5xx 响应体自己已经带 `布局写入失败：` 前缀
+       * （host index.js 的路由出口），客户端再拼一次就会显示成
+       * 「布局写入失败：布局写入失败：EINVAL…」。前缀只补一次。
+       */
+      function saveFailure(detail) {
+        const prefix = t('saveFailed');
+        const text = typeof detail === 'string' ? detail : String(detail);
+        return text.startsWith(prefix) ? text : prefix + text;
+      }
+
       /** 读一次 host 状态；失败不致命（降级为「本页有效」）。 */
       async function load() {
         try {
@@ -1124,11 +1135,11 @@ window.__ModuleLoader__.load({
               warnings: Array.isArray(body.warnings) ? body.warnings : [],
             });
           } else {
-            patch({ error: t('saveFailed') + ((body && body.error) || 'HTTP ' + answer.status) });
+            patch({ error: saveFailure((body && body.error) || 'HTTP ' + answer.status) });
             failed = true;
           }
         } catch (error) {
-          patch({ error: t('saveFailed') + errorText(error) });
+          patch({ error: saveFailure(errorText(error)) });
           failed = true;
         } finally {
           inFlight = false;

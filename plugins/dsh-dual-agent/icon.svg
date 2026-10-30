@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 双主智能：两个圆头角色并立 —— 左侧实心（执行者，埋头做事），右侧描边带挑起的一撇（挑刺者，抬手指摘）。
+       配色用宿主品牌色系（--dsw-alias-brand-primary 的近似值），线条语言对齐宿主小图标。 -->
+  <g fill="none" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 执行者：圆头 + 沉肩躬身的躯干 -->
+    <circle cx="22" cy="20" r="9" fill="#3b82f6" stroke="none"/>
+    <path d="M8 56c0-9.9 6.3-16 14-16s14 6.1 14 16"/>
+    <!-- 挑刺者：圆头 + 抬臂指摘的躯干 -->
+    <circle cx="44" cy="16" r="9"/>
+    <path d="M32 56c0-8.8 5.4-14.6 12-14.6 3 0 5.7 1 7.8 2.8"/>
+    <path d="M52 30l6-7"/>
+  </g>
+</svg>

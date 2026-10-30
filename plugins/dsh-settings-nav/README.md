@@ -99,7 +99,7 @@ schema 2 文件时，会把 `items` 里的子分组对象当未知类型丢掉�
 ```yaml
 - insert:
     - id: settings-nav
-      name: ./plugins/dsh-settings-nav/entry-v4.js
+      name: ./plugins/dsh-settings-nav/entry-v5.js
       config:
         file: null        # 布局文件位置；null/省略 = $DSH_HOME/settings-nav.json
         enabled: true     # false = 不增强左列（保留管理页，便于排查）
@@ -266,12 +266,13 @@ loader **按 specifier 缓存模块**。0.2.0-rc.2 上实测的口径（别照�
 
 - 改 **host**（`index.js`）后**必须重启 dsh 才生效**。`dsh-hmr` 确实在 watch `cordis.patch.yml` 并会 reconcile——插件管理器里能看到 `include:settings-nav` 已经指向新 entry、`fiberPhase=active`——但**运行中的 fiber 仍在跑缓存里的旧模块**，改 `name` 只更新了 Include 配置。2026-10-11 实测：补完 `inject`、把 `name` 指到 `entry-v2.js` 之后，客户端半边照常工作、`GET /dsh-settings-nav/state` 依旧 404，而且新代码里加的文件探针**一行都没写出来**（证明 `apply` 从未用新模块重跑）。
 - 换 `entry-v<N+1>.js`（只做 `export * from './index.js?v=nav-<N+1>'`）仍然是**对**的做法：重启后才会重新求值，且**保持同一行 id** 能避免重复注册路由（`webServer.register` 对重复的 `(kind, path)` 会 `throw`）。只是它单独不足以让运行实例换代码。
-- 2026-10-13 又实测了一次同一件事（把 `name` 改指 `entry-v3.js`）：dsh-hmr 照旧 reconcile，而 `GET /dsh-settings-nav/state` 仍然自报 `impl: index.js?v=nav-2`、`build: nav-2`，GUI 全程正常——**老模块继续跑，没有重复注册路由的报错**。所以「改 patch 行」这一步是安全的（现场可核对 `impl`），但**激活新 host 代码只有重启一条路**。
-- 当前谱系：`index.js` 的 `BUILD = 'nav-4'` ↔ patch 行 `entry-v4.js`（`index.js?v=nav-4`）。改 host 后建议同时升 `BUILD` 与 entry 标记，让 `impl` 能一眼看出线上跑的是哪张图。
-- 客户端半边自带一个独立标记 `client.js` 里的 `BUILD`（管理面状态行显示成「host / client」，现为 `nav-4 / nav-3`）。它只是给人看的诊断标，**不参与加载**：client.js 由 `dsh-client-modules` 按 fs 元数据算 rev 供 URL，改完**刷新页面**即生效。2026-10-17 那轮把它从 `nav-1` 升到 `nav-2`（可拖范围扩大）；2026-10-18 这轮升到 `nav-3`（schema 2 嵌套），只为让状态行能一眼区分旧包。
+- 2026-10-13 又实测了一次同一件事（把 `name` 改指 `entry-v3.js`）：dsh-hmr 照旧 reconcile，而 `GET /dsh-settings-nav/state` 仍然自报 `impl: index.js?v=nav-2`、`build: nav-2`，GUI 全程正常——**老模块继续跑，没有重复注册路由的报错**。所以「改 patch 行」这一步是安全的（现场可核对 `impl`）。
+- **2026-10-20 的口径变了（当前 DSH 版本）**：把 patch 行改指 `entry-v5.js` 后，几秒内 `GET /dsh-settings-nav/state` 就自报 `build: nav-5`、`impl: index.js?v=nav-5`，三条路由照旧、无重复注册报错——这一版 `dsh-hmr` **真的把 host fiber 换掉了**，不需要重启。所以上面两条「必须重启」只对 0.2.0-rc.2 那个旧版本成立。判据仍然是 `impl`，改完直接查一次即可；如果 `impl` 没变，再按旧流程重启。
+- 当前谱系：`index.js` 的 `BUILD = 'nav-5'` ↔ patch 行 `entry-v5.js`（`index.js?v=nav-5`）。改 host 后建议同时升 `BUILD` 与 entry 标记，让 `impl` 能一眼看出线上跑的是哪张图。
+- 客户端半边自带一个独立标记 `client.js` 里的 `BUILD`（管理面状态行显示成「host / client」，现为 `nav-5 / nav-4`）。它只是给人看的诊断标，**不参与加载**：client.js 由 `dsh-client-modules` 按 fs 元数据算 rev 供 URL，改完**刷新页面**即生效。2026-10-17 那轮把它从 `nav-1` 升到 `nav-2`（可拖范围扩大）；2026-10-18 升到 `nav-3`（schema 2 嵌套）；2026-10-20 升到 `nav-4`（保存失败文案不再重复前缀）。
 - profile `package.json` 里的 `dsh.profile.patchReload` 在 0.2.0-rc.2 里**没有任何代码读**（整棵安装树 grep 无命中），是惰性键。
 - 改 **client**（`client.js`）后：`dsh-client-modules` 按内容 sha1 供 URL，刷新页面即生效，**不用**重启。
-- **回滚的正确姿势**：`entry-v*` 只是 specifier 别名、**不是代码快照**——把 patch 行的 `name` 指回旧 entry 不会退回旧代码（`index.js?v=…` 标记一变就是新代码）。要真正回滚，先用备份覆盖 `index.js`，再写一个新标记的 entry 并把 `name` 指过去（同样要重启）。
+- **回滚的正确姿势**：`entry-v*` 只是 specifier 别名、**不是代码快照**——把 patch 行的 `name` 指回旧 entry 不会退回旧代码（`index.js?v=…` 标记一变就是新代码）。要真正回滚，先用备份覆盖 `index.js`，再写一个新标记的 entry 并把 `name` 指过去（当前版本会热换；若 `impl` 没变再重启）。
 
 生效判据：`curl http://127.0.0.1:3080/dsh-settings-nav/state` 的 `build` 与 `impl` 字段（`impl` 是 `index.js?v=nav-N`，带缓存标记，才是「线上跑的是哪张图」的证据）。注意 `build` 单独**不能**区分版本——它是文件里的常量，v1 的备份文件里也可能已经是 `nav-2`；只有 `impl`（模块自报的 specifier）能区分。
 
@@ -288,15 +289,29 @@ loader **按 specifier 缓存模块**。0.2.0-rc.2 上实测的口径（别照�
 - 兄弟插件里用硬依赖的是 **`dsh-model-groups` / `dsh-model-pool` / `dsh-subagent-models` / `dsh-usage-stats` 这四个**；`dsh-workspace-context`（完全没有 inject）与 `dsh-workspace-plugins`（`inject = []`）走的是 optional + 判 undefined，**同样是对的**。所以「每个注册路由的兄弟插件都用硬依赖」是错的。
 - 「v1 漏了 inject 导致三条路由静默不注册」是当时的**叙述，不是可核实的证据**：本谱系没有 pre-v2 快照（见 6 节），而 `index.js.bak-*` 与 v2 逐字节相同。**机制成立，具体那次事故无法复现**，别再当史实引用。
 
+## 6.2 Windows 落盘必失败：`EINVAL: invalid argument, mkdir 'C:\:'`（nav-5 已修）
+
+**症状**：Windows 上任何一次保存（管理页改动、`POST /save`、`POST /reset`）都 500，`GET /state` 的 `diag.lastError` 为 `EINVAL: invalid argument, mkdir 'C:\:'`；管理面显示的文案还是双前缀：`布局写入失败：布局写入失败：EINVAL …`。
+
+**根因**：`ensureDirSync` 把「绝对路径的根」写死成 `sep`，用 `absolute.slice(1).split(sep)` 逐级切。这在 POSIX 上成立（`/usr/local` → `usr`、`local`），但 Windows 绝对路径是 `C:\Users\…`：`slice(1)` 之后第一段就是盘符里的 `:`，于是拼出 `C:\:` 去 `mkdirSync`，必然 `EINVAL`。**与布局文件是否已存在无关**——第一段永远非法，所以 Windows 上从第一次保存起就没成功过。UNC（`\\server\share\…`）同理。
+
+**修法**：以 `path.parse(absolute).root` 为根（POSIX 是 `/`，Windows 是 `C:\`，UNC 是 `\\server\share\`），从 `absolute.slice(root.length)` 开始逐级切；root 自带尾部分隔符时直接拼接。保持「逐级非递归」不变（recursive mkdir 在 procfs 上会挂死 JS 线程，见函数注释）。
+
+**客户端文案**：host 的路由出口本来就会给 5xx 拼一次 `布局写入失败：`，客户端 `flush()` 又拼一次。现在 `saveFailure()` 只在 host 文案没有该前缀时补前缀，两边各自独立也能看。
+
+**回归**：`selftest.mjs` 的 `ensureDirSync` 用例在 Windows 上会**先用盘符绝对路径**建多层目录（旧代码在这里直接抛 `EINVAL`）；v5 另用「`$DSH_HOME` 指向不存在的深层目录」跑了一遍默认路径的真实落盘（revision 1→2、文件内容正确）。2026-10-20 本机实测：`node selftest.mjs` 204 项全过（「文件不可读冻结」在 Windows 上按既有逻辑跳过）；live `/state` 自报 `build: nav-5`、`impl: index.js?v=nav-5`、`lastError: null`。
+
+**同类隐患**：`dsh-model-groups/index.js` 与 `dsh-ultracode/inject-v3.js`、`inject-v4.js` 里各有一份相同的 `ensureDirSync` 抄本，同样会在 Windows 上失败；这两处目前没有实际落盘需求（相关文件都还不存在），所以尚未暴露，本次没有改动它们。将来要修就照 v5 的写法改，别只改一处。
+
 ## 7. 自检
 
 ```bash
-node plugins/dsh-settings-nav/selftest.mjs          # host：222 项（假 req/res 桩，逐分支）
+node plugins/dsh-settings-nav/selftest.mjs          # host：204 项（假 req/res 桩，逐分支）
 node plugins/dsh-settings-nav/client-selftest.mjs   # 浏览器半边：399 项
 node plugins/dsh-settings-nav/probe-http.mjs        # host：真实走线（临时端口，不碰在跑的 dsh）
 ```
 
-`probe-http.mjs` 是 `selftest.mjs` 的补充而不是重复：单元自测伪造了请求头，而 4.4 那个漏洞**恰恰是「头本身不可信」**，所以那条修复值得用真正的 `http.request` 再验一遍端点事实。它挂在临时端口 + 临时目录上，跑完即删，不碰正在运行的 dsh、不碰 `$DSH_HOME/settings-nav.json`。**别用 root 跑**：`chmod 000` 挡不住 root，B 段会有一条明确的前置条件断言失败，那是提醒「现在验的没意义」。
+`probe-http.mjs` 是 `selftest.mjs` 的补充而不是重复：单元自测伪造了请求头，而 4.4 那个漏洞**恰恰是「头本身不可信」**，所以那条修复值得用真正的 `http.request` 再验一遍端点事实。它挂在临时端口 + 临时目录上，跑完即删，不碰正在运行的 dsh、不碰 `$DSH_HOME/settings-nav.json`。**别用 root 跑**：`chmod 000` 挡不住 root，B 段会有一条明确的前置条件断言失败，那是提醒「现在验的没意义」。**Windows 上同样如此**：`chmod 000` 只去掉写权限、读照样成功，所以 B 段的前置断言必失败，连带「unreadable / warnings / save 503 / reset 503」四条一起失败（`/reset` 还会因目标只读而 500）——这是检测环境的限制，不是插件回归；要验不可读冻结，得在 POSIX 或用 ACL 真正拒绝读。
 
 `selftest.mjs`：归一化（形状错 vs 单项错的分界、重复 id、未知 type、名字回落、上限、**超长名字/id 的截断要记进 `issues` 而不是静默丢**、**v4 起递归嵌套：三层结构原样保留 / 深度上限整棵丢并点明位置 / `items` 里的杂物只丢自己 / id 账全树共享**）、真实临时目录落盘与原子写、revision 单调不减、坏文件/形状非法保留上次快照、**外部改写后立刻可见（没有 TTL 缓存窗口）**、写盘失败（父路径被文件占住）→ 500 且 **advertised revision 不前进、目标文件逐字节未变**、冲突 409 **且盘上内容逐字节未变**、三条路由的方法 / 同源守卫（可信 authority 与不可信 authority / scheme 与实际传输 / IPv6 回环 / **没有 Host** / `Origin: null` / 跨站）/ 413 / **读超时 408（含"readBody 不自己 destroy"与 413→408→400 的状态映射）** / bad JSON / 无 `webServer` 降级、**文件存在但读不动 → `unreadable:true` + `/save`、`/reset` 都 503 且逐字节未变、权限恢复后自动解冻**、dispose 后重挂不重复注册路由、`cacheTtlMs` 不再是配置项。
 

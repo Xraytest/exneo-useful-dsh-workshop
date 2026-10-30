@@ -13,11 +13,20 @@ export const inject = ['tools', 'systemPrompt'];
 
 const reads = new Set(['status', 'project_get', 'job_status', 'template_read', 'library_read', 'library_list', 'library', 'design_state', 'composer_get']);
 
+/**
+ * 探测端口是否可绑定。
+ *
+ * 必须探测 **0.0.0.0**（和 startServer 实际 bind 的地址一致），不能只探 127.0.0.1：
+ * Windows 上 Node 的 TCP server 默认带 SO_REUSEADDR，此时「已 bind 0.0.0.0:P」并不
+ * 阻止再 bind 127.0.0.1:P —— 探针会误报「端口空闲」，紧接着 startServer 去 bind
+ * 0.0.0.0:P 才以 EADDRINUSE 失败，而那时引擎已经建好、错误信息也只剩一句
+ * "address already in use 0.0.0.0:4173"，看不出是被谁占的。
+ */
 async function assertPortAvailable(port) {
   await new Promise((accept, reject) => {
     const probe = net.createServer();
     probe.once('error', reject);
-    probe.listen(port, '127.0.0.1', () => probe.close(accept));
+    probe.listen(port, '0.0.0.0', () => probe.close(accept));
   });
 }
 
@@ -143,7 +152,13 @@ export function activate(ctx, config = {}, dependencies = {}) {
   if (typeof ctx.effect === 'function') ctx.effect(() => close);
   else ctx.on('dispose', close);
   startup = (async () => {
-    try {
+    // 启动分多段做，每段都能单独失败：端口被占、引擎初始化、起服务、注册工具。
+    // 旧实现是「一处失败就 release + throw」，而 apply() 只是 await 它 —— 于是一次
+    // 瞬时失败（典型：上一个进程的 EAC 服务还没退干净，占着 4173，撞上
+    // EAC_STALE_RUNTIME / EADDRINUSE）就会让宿主半边永久死掉：工具全没了、服务也不听
+    // 端口，而浏览器半边还挂在输入框上，用户只看到「选择同步失败，请重试或刷新页面」。
+    // 现在改成：前台重试若干次，仍失败就转后台继续重试并保留错误，插件自行恢复。
+    const attempt = async () => {
       const { createEngine } = dependencies.createEngine ? dependencies : await import('../src/engine.mjs');
       const { startServer } = dependencies.startServer ? dependencies : await import('../src/server.mjs');
       const { toolDefinitions, productionInstructions = '' } = dependencies.toolDefinitions
@@ -208,9 +223,44 @@ export function activate(ctx, config = {}, dependencies = {}) {
         return { ...resolved, sections: [...resolved.sections, { name: 'eac-design-world:composer', text, interpolate: false }] };
       }));
       return { engine, server, close };
-    } catch (error) {
-      await release();
-      throw error;
+    };
+    // 前台重试：端口被上个进程占用时，旧服务通常几秒内就退干净了，重试一次就能起来。
+    const foregroundAttempts = 4;
+    let lastError;
+    for (let round = 0; round < foregroundAttempts; round += 1) {
+      if (disposed) return;
+      try {
+        return await attempt();
+      } catch (error) {
+        lastError = error;
+        // 已经成功注册过又失败的（理论上不会走到），先收干净再重来。
+        await release().catch(() => {});
+        ctx.logger?.warn?.(`eac-design-world: 启动失败（第 ${round + 1}/${foregroundAttempts} 次，端口 ${port}）：${error?.code ? `${error.code} ` : ''}${error?.message ?? error}`);
+        if (round < foregroundAttempts - 1 && !disposed) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** round));
+        }
+      }
+    }
+    // 后台自愈：不 reject（否则宿主半边彻底死掉、工具全消失），继续按退避间隔重试，
+    // 直到端口空出来或插件被 dispose。错误保留在 lastError 上便于排查。
+    // 日志按次数抽稀：前 5 次每次都说，之后每 10 次一条，避免长期占端口时刷屏。
+    ctx.logger?.error?.(`eac-design-world: ${foregroundAttempts} 次启动均失败（端口 ${port}），转入后台重试。最后一次错误：${lastError?.code ? `${lastError.code} ` : ''}${lastError?.message ?? lastError}`);
+    let backgroundRound = 0;
+    while (!disposed) {
+      await new Promise(resolve => setTimeout(resolve, 15000));
+      if (disposed) break;
+      backgroundRound += 1;
+      try {
+        await attempt();
+        ctx.logger?.info?.(`eac-design-world: 后台第 ${backgroundRound} 次重试启动成功（端口 ${port}）`);
+        return;
+      } catch (error) {
+        lastError = error;
+        await release().catch(() => {});
+        if (backgroundRound <= 5 || backgroundRound % 10 === 0) {
+          ctx.logger?.warn?.(`eac-design-world: 后台第 ${backgroundRound} 次重试仍失败（端口 ${port}）：${error?.code ? `${error.code} ` : ''}${error?.message ?? error}`);
+        }
+      }
     }
   })();
   return startup;

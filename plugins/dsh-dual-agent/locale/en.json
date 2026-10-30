@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Dual Primary Agents",
+    "description": "Starting arms it and waits for your initial instruction. The Executor runs as a background subagent with its own session; the Critic evaluates its report from the main context's viewpoint and only on an agent-initiated stop. Manual stop returns to armed, waiting for your follow-up, without criticism."
+  }
+}

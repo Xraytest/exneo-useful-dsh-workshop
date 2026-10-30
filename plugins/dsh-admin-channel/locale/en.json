@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Administrator Channel",
+    "description": "After one UAC approval from the workbench, this session can run elevated commands through a local named pipe into a resident elevated helper; the channel closes with the session or after idle timeout."
+  }
+}

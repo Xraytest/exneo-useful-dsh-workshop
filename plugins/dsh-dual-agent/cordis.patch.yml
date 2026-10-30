@@ -1,0 +1,12 @@
+# ── 双主智能（dsh-dual-agent）───────────────────────────────────────────────
+# v2（2026-10-29）：启动=武装待命；执行者=真 subagent；手动停止=回待命不挑刺。
+# v3（2026-10-30）：双线阻塞修正——执行者 delivery:'caller'，结算由编排 await
+#   activation.result 驱动，把「报告原文 + 评估指令」合成**恰一条**注入主上下文，
+#   任务期间主 Agent 不再抢答汇报（真实内核沙箱 E2E 19 断言 ×3 全绿）；webServer
+#   改可选（ctx.get），新增 dualAgent 可编程服务面。本行插 host 半边。
+- insert:
+    - id: dual-agent
+      name: './entry-v17.js'
+      config:
+        # 状态落盘位置；null/省略 = $DSH_HOME/dual-agent.json
+        stateFile: null

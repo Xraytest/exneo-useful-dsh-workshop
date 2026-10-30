@@ -1,0 +1,18 @@
+node_modules/
+__pycache__/
+*.pyc
+tmp/
+.scratch/
+dsh-blender.config.json
+*.tgz
+*.zip
+*.log
+.DS_Store
+
+# Python 虚拟环境（open3d 等大依赖，1.2G，绝不入库；用 runtime/ext/README 里的安装说明重建）
+venv/
+runtime/ext/venv/
+.venv/
+
+# 工作树/构建用的依赖符号链接（node_modules/ 只匹配目录，符号链接要单独忽略）
+node_modules

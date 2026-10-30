@@ -110,7 +110,10 @@ check('popover opens with no animation classes', popNode !== undefined && popNod
 check('header title', textOf().includes('工作列表'));
 check('header count 0/2', textOf().includes('0/2'));
 check('clear hidden when none on', !textOf().includes('全关'));
-check('footer note present', textOf().includes('拨动开关即时生效'));
+// 2026-10-30 用户指令「去掉工具箱插件页面底部的文本描述」：底注整段移除，
+// 浮层里不再有任何常驻说明文字（说明只在各条目自己的 wb-row-desc 里）。
+check('footer note removed', !textOf().includes('拨动开关即时生效'));
+check('no wb-note node', findNodes((n) => n.type === 'div' && n.props.className === 'wb-note').length === 0);
 const chipAfterOpen = findNodes((n) => n.type === 'button' && String(n.props.className).includes('wb-chip'))[0];
 check('chip gains open class on expand', String(chipAfterOpen?.props.className ?? '').includes('wb-open'));
 const rows = findNodes((n) => n.type === 'div' && n.props.className === 'wb-row');

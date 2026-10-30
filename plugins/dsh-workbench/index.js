@@ -64,6 +64,41 @@ const ENTRIES = [
     description: '逆向工程工具集（207 个 MCP 工具）。未选中时工具与说明文字都不进入上下文。',
   },
 ];
+
+/**
+ * 箱内动作条目注册表（v2）：一次性触发，不落盘勾选。
+ * `route`：动作属主插件的同源 POST 路由；`payload(sessionId)` 组装请求体。
+ * 第一个条目是 dsh-dual-agent 的双主智能（2026-10-28 用户指令「启动按钮放
+ * 到工具箱内」）。属主插件缺席时按钮报它的错误——不在这里伪造能力。
+ * v2.1（2026-10-29）：status 探测回包的 note（阶段说明）原样透传给 client。
+ */
+const ACTIONS = [
+  {
+    id: 'dual-agent',
+    label: '双主智能',
+    description: '执行者=后台 subagent；挑刺者=主上下文评估人格。开启后键入初始指令；完成后回到待命等补充；只有智能体主动停止才触发评估。',
+    // 控件形态由属主语义决定：双主智能是「启用/关闭」的开关，不是一次触发按钮。
+    kind: 'switch',
+    route: '/dsh-dual-agent/action',
+    payload: (sessionId, enabled) => (typeof enabled === 'boolean' ? { sessionId, enabled } : { sessionId }),
+    /** 开关的读法：勾上=启用。armingLabel/runningLabel 只用于徽标与 aria 文案。 */
+    runningLabel: '运行中',
+    idleLabel: '待命中',
+  },
+  // v3（2026-10-29 用户指令「启动通道的 UI 也放在工具箱内」）：管理员权限通道。
+  // 拨开 = 由属主插件弹一次 UAC 并拉起常驻提权进程；开关状态、阶段说明与悬停提示
+  // 全部来自属主 /dsh-admin-channel/status（本插件只画开关，不复制任何提权逻辑）。
+  {
+    id: 'admin-channel',
+    label: '管理员权限通道',
+    description: '一会话一条：拨开时弹一次 UAC，之后本会话的提权命令不再逐次确认；随会话结束 / 空闲超时关闭。',
+    kind: 'switch',
+    route: '/dsh-admin-channel/action',
+    payload: (sessionId, enabled) => (typeof enabled === 'boolean' ? { sessionId, enabled } : { sessionId }),
+    runningLabel: '已开启',
+    idleLabel: '未开启',
+  },
+];
 const ENTRY_IDS = new Set(ENTRIES.map((entry) => entry.id));
 
 // ── 落盘（与 ultracode.json 同款纪律） ─────────────────────────────────────
@@ -215,8 +250,10 @@ function readBody(req, limit) {
 }
 
 /**
+/**
  * 转发本进程内打到 ultracode / rea 的路由（复用它们的语义与守卫）。同进程回环：
  * 从 webServer 服务读真实监听端口（0 = OS 分配时也能拿到），再 fetch 自己。
+ * 非 2xx 时抛带 {status, error} 的错误（/action 据此透传属主的 409 等语义码）。
  */
 async function postJson(ctx, path, body) {
   const port = listenPortOf(ctx);
@@ -229,7 +266,11 @@ async function postJson(ctx, path, body) {
   const text = await response.text();
   let value = null;
   try { value = JSON.parse(text); } catch { /* 非 JSON */ }
-  if (!response.ok) throw new Error(value?.error ?? `${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    const cause = new Error(value?.error ?? `${response.status} ${response.statusText}`);
+    cause.status = response.status;
+    throw cause;
+  }
   return value;
 }
 
@@ -324,6 +365,37 @@ export function apply(ctx, config = {}) {
         return await response.json();
       } catch { return null; }
     })();
+    // 动作条目的实况（v2）：逐个问属主插件的 status 路由。
+    // 路由形态约定：GET <前缀>/status?sessionId=… → { running?: boolean, phase?, armed?, note?, … }。
+    // running 是兼容布尔（老属主可能只回它）；phase 是三态真值（off/armed/running）。
+    const actionStates = await Promise.all(ACTIONS.map(async (action) => {
+      try {
+        const port = listenPortOf(ctx);
+        if (port === null || typeof sessionId !== 'string' || sessionId === '') return { id: action.id, running: null, available: false };
+        const response = await fetch(`http://127.0.0.1:${port}${action.route.replace(/\/[^/]*$/, '')}/status?sessionId=${encodeURIComponent(sessionId)}`, { headers: { accept: 'application/json' } });
+        if (!response.ok) return { id: action.id, running: null, available: false };
+        const value = await response.json();
+        return {
+          id: action.id,
+          running: value?.running === true,
+          phase: typeof value?.phase === 'string' ? value.phase : undefined,
+          armed: value?.armed === true,
+          available: true,
+          note: typeof value?.note === 'string' && value.note !== '' ? value.note : undefined,
+          // v3.2：属主可透出孵化时刻（双主智能 running 中=epoch ms）；客户端据此
+          // 每秒刷新「已工作 X 分 Y 秒」，不必等 8s 轮询一跳一跳。
+          hatchAt: typeof value?.hatchAt === 'number' ? value.hatchAt : undefined,
+          // v3.3：执行者活性（双主智能 running 中）。主对话静默时用户唯一的安全感
+          // 来源：childLive=false=执行者会话已不在本进程；childStatus='idle'=本轮
+          // 已停、等待编排结算。note 里也已带人话后缀，这里透出供客户端细粒度用。
+          childLive: typeof value?.childLive === 'boolean' ? value.childLive : undefined,
+          childStatus: typeof value?.childStatus === 'string' ? value.childStatus : undefined,
+          // v3：属主可以给随阶段变化的悬停提示（如「等待 UAC 授权」/「关闭会结束提权进程」）。
+          hint: typeof value?.hint === 'string' && value.hint !== '' ? value.hint : undefined,
+          storeError: typeof value?.storeError === 'string' && value.storeError !== '' ? value.storeError : undefined,
+        };
+      } catch { return { id: action.id, running: null, available: false }; }
+    }));
     return {
       sessionId,
       family: rootId ?? null,
@@ -333,6 +405,30 @@ export function apply(ctx, config = {}) {
         ...entry,
         checked: checked.has(entry.id),
       })),
+      actions: ACTIONS.map((action) => {
+        const state = actionStates.find((candidate) => candidate.id === action.id);
+        return {
+          id: action.id,
+          label: action.label,
+          description: action.description,
+          kind: action.kind ?? 'button',
+          runningLabel: action.runningLabel,
+          idleLabel: action.idleLabel,
+          running: state?.running ?? null,
+          // 开关的勾选态 =「已启用」（armed 或 running 都算开）。
+          checked: state?.running === true || state?.armed === true,
+          phase: state?.phase,
+          armed: state?.armed === true,
+          available: state?.available === true,
+          note: state?.note,
+          hatchAt: state?.hatchAt,
+          childLive: state?.childLive,
+          childStatus: state?.childStatus,
+          hint: state?.hint,
+          // 属主的落盘错误也透出（与工作箱自己的 storeError 同一可见性口径）。
+          storeError: state?.storeError,
+        };
+      }),
       rea: {
         masterEnabled: reaMasterEnabled(),
         connected: true,
@@ -401,6 +497,37 @@ export function apply(ctx, config = {}) {
     let ultracodeResult = null;
     try { ultracodeResult = await postJson(ctx, `${ULTRA_ROUTE}/reset`, { sessionId }); } catch { /* reset 语义：清掉即可 */ }
     return json(200, await statusOf(sessionId));
+  });
+
+  // ── 动作转发（v2）：把工作箱动作按钮的一次点击转给属主插件 ─────────────────
+  // 工作箱自己不实现动作语义，只做：同源守卫 → 校验动作 id → 原样转发 → 回传
+  // 属主插件的回包（含它的错误——比如「会话不在线」就是 dual-agent 的真实答复）。
+  register(`${ROUTE}/action`, async (req, res, json) => {
+    if (req.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
+    if (!sameOrigin(req)) return json(403, { error: 'cross-origin request rejected' });
+    const body = await readBody(req, 1 << 20);
+    if (!body.ok) return json(400, { error: body.error });
+    let parsed;
+    try { parsed = JSON.parse(body.text === '' ? '{}' : body.text); } catch { return json(400, { error: 'body 不是合法 JSON' }); }
+    const actionId = typeof parsed?.actionId === 'string' ? parsed.actionId : '';
+    const sessionId = typeof parsed?.sessionId === 'string' ? parsed.sessionId : '';
+    if (sessionId === '') return json(400, { error: 'sessionId 必填' });
+    const action = ACTIONS.find((candidate) => candidate.id === actionId);
+    if (action === undefined) return json(404, { error: `未知动作条目：${actionId === '' ? '(空)' : actionId}` });
+    // 开关式动作：客户端把**目标状态**（enabled）上送，属主按目标推进，
+    // 不再由属主猜「下一次点击该进哪一态」。旧式无 enabled 的请求仍兼容。
+    const enabled = typeof parsed?.enabled === 'boolean' ? parsed.enabled : undefined;
+    try {
+      const result = await postJson(ctx, action.route, action.payload(sessionId, enabled));
+      return json(200, result);
+    } catch (cause) {
+      // 属主插件有话直说（如 dual-agent 的 409「会话不在线」）：透传它的
+      // 状态码与错误；只有网络层失败（属主进程内路由打不通）才报 502。
+      if (typeof cause?.status === 'number' && cause.status >= 400 && cause.status < 600) {
+        return json(cause.status, { error: cause.message });
+      }
+      return json(502, { error: `动作属主未响应：${errorText(cause)}` });
+    }
   });
 
   ctx.logger?.info?.(`dsh-workbench: 就绪（state=${stateFile}）`);

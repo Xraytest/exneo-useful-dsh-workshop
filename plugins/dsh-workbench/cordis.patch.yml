@@ -12,7 +12,7 @@
 # 同谱系——家谱只读 ultracode.json 的 families 表，家谱事实唯一写者仍是它）。
 - insert:
     - id: workbench
-      name: './entry-v1.js'
+      name: './entry-v7.js'
       config:
         # 选择落盘位置；null/省略 = $DSH_HOME/workbench.json。
         stateFile: null

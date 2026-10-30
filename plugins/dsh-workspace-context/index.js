@@ -532,7 +532,13 @@ export function apply(ctx, config = {}) {
     };
   };
 
-  const webServer = ctx.get('webServer');
+  // webServer 在 0.2.1-rc.2 的冷启动里不一定已就绪（patch 的 `- insert:` 行先于
+  // webserver 那一行的 fiber 启动）：原先在 apply 里 `ctx.get` 一次就定终身，
+  // 于是 /dsh-workspace-context/* 静默 404。改为 `ctx.inject` 等它出现再注册
+  // （与 dsh-workspace-plugins v7 同一口径）；仍不声明硬依赖，免得整行被挂起、
+  // 把 system-prompt 注入与 workspace_context 工具一起拖住。
+  ctx.inject(['webServer'], (webCtx) => {
+  const webServer = webCtx.get('webServer');
   if (webServer !== undefined && webServer !== null && typeof webServer.register === 'function') {
     diag.routes = true;
     const postRoute = (path, handler, label) => {
@@ -627,6 +633,7 @@ export function apply(ctx, config = {}) {
       return stateView(typeof args.cwd === 'string' ? args.cwd : undefined);
     }, 'dsh-workspace-context reload route');
   }
+  });
 
   // 启动即建目录：用户一眼能看到文件该放哪里（失败不致命，留给诊断上报）。
   try {

@@ -353,6 +353,15 @@ try {
     eq(existsSync(nested), true, 'ensureDirSync 逐级建目录');
     ensureDirSync(nested);
     eq(existsSync(nested), true, 'ensureDirSync 幂等');
+
+    // Windows 回归：绝对路径以盘符（`C:\`）开头时，一旦把根当成 `sep`，盘符里的 `:`
+    // 就会被切成第一级目录 → mkdir `C:\:` → EINVAL。这里再往下建两层，锁死「以
+    // path.parse().root（盘符 / UNC / `/`）为根」的切分方式。
+    if (process.platform === 'win32') {
+      const drivePath = join(root, 'win-drive-regression', 'nested');
+      ensureDirSync(drivePath);
+      eq(existsSync(drivePath), true, 'ensureDirSync 支持盘符绝对路径（不把 : 当成目录名）');
+    }
   }
 
   /* ════════════════════════════ 2. 落盘与 revision ═══════════════════════ */

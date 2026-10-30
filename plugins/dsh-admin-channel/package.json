@@ -1,0 +1,40 @@
+{
+  "name": "dsh-admin-channel",
+  "version": "1.0.6",
+  "private": true,
+  "type": "module",
+  "description": "会话级管理员权限通道：用户在工作箱里打开开关（一次 UAC），本会话内的提权命令经受控命名管道交给常驻提权进程执行，不再逐次确认。",
+  "main": "entry-v7.js",
+  "exports": {
+    ".": "./entry-v7.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "entry-v1.js",
+    "entry-v2.js",
+    "entry-v3.js",
+    "entry-v4.js",
+    "entry-v5.js",
+    "entry-v6.js",
+    "entry-v7.js",
+    "index.js",
+    "cordis.patch.yml",
+    "broker.ps1",
+    "launch.ps1",
+    "lib/pipe-client.js",
+    "lib/channel.js",
+    "locale/zh.json",
+    "locale/en.json",
+    "icon.svg",
+    "README.md",
+    "test/self-test.mjs",
+    "test/manager-test.mjs",
+    "test/sandbox-lifecycle.mjs"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "description": "管理员权限通道（会话级）：工作箱开关触发一次 UAC，随后本会话可用 admin_exec 以管理员令牌执行命令；命名管道 + 令牌 + 客户端 PID 校验，随会话/空闲/插件卸载自动关闭。"
+  },
+  "license": "MIT"
+}
