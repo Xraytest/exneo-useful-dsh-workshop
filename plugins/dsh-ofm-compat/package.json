@@ -1,3 +1,7 @@
 {
-  "type": "module"
+  "name": "dsh-ofm-compat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "dsh-our-free-model 的宿主垫片（必须排在它前面加载）"
 }
