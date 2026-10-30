@@ -987,12 +987,12 @@
       },
       "versions": [
         {
-          "version": "3.4.0",
-          "publishTimestamp": 1793358754,
+          "version": "3.5.0",
+          "publishTimestamp": 1793402992,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f2d3b7a347d9e08d830e24f46dc87510b0e88929",
+            "commit": "986870585e230ad201c1bde332022b086575c7d5",
             "path": "plugins/dsh-dual-agent"
           },
           "engines": {
