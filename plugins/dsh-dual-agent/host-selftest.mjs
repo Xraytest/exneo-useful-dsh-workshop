@@ -13,6 +13,9 @@ const check = (label, condition) => {
 
 // ── fake 基座 ───────────────────────────────────────────────────────────────
 
+/** host 半边当前发布的入口（换 entry 文件名 = 强制热更；自测必须跟它走）。 */
+const ENTRY = './entry-v18.js';
+
 function makeAgent(id) {
   const listeners = new Map(); // 事件名 → Set<listener>
   const sessionListeners = [];
@@ -25,6 +28,9 @@ function makeAgent(id) {
     status: 'idle',
     inbox: { hasPending: false, nextTurn: [], nextStep: [] },
     session: {
+      // 真实 Session 的稳定身份（session.id）。会话事件的懒恢复靠它兜底：
+      // 插件重载后 watchedSessions 会清空，只认 WeakMap 的话就再也孵化不了。
+      id,
       seq: 0,
       deriveMessages: () => [],
       // 真实会话按 fromSeq 投影已提交事件；评估轮兜底据此判断该轮是否已产出正文。
@@ -63,7 +69,7 @@ function makeAgent(id) {
   return agent;
 }
 
-function makeCtx(agentsById, subagentsApi) {
+function makeCtx(agentsById, subagentsApi, extraServices = {}) {
   const routes = new Map();
   const disposed = [];
   const created = [];
@@ -100,6 +106,8 @@ function makeCtx(agentsById, subagentsApi) {
       // 插件不再 inject webServer，改用 ctx.get('webServer') 可选查找；
       // fake 必须在这里把它的 webServer 交出去，否则路由挂不上、测试全 404。
       if (key === 'webServer') return this.webServer;
+      // 自测用附加服务（sessionQuery：重载后读回已结束执行者的报告）。
+      if (extraServices[key] !== undefined) return extraServices[key];
       // E2E / 自测经 ctx.get('dualAgent') 取可编程面（provide 注册的服务）。
       if (provided.has(key)) return provided.get(key);
       return undefined;
@@ -122,6 +130,10 @@ function fakeSubagents(hatchImpl, options = {}) {
   const pending = new Map(); // childId -> {resolve, reject}
   const api = {
     __calls: calls,
+    // 孵化出来的执行者在真实宿主里当然是一个活 Agent（ctx.agents.get(childId) 命中）。
+    // 自测必须同构：否则插件的「running 必须有可核对的活执行者」会把每次孵化都
+    // 判成幽灵。startPlugin 在第一次装载时把宿主表交给这里。
+    __agentsById: options.agentsById ?? null,
     list: () => providers.map((p) => p.name),
     getProvider: (name) => providers.find((p) => p.name === name),
     resolveMaxDepth: () => 1,
@@ -129,6 +141,10 @@ function fakeSubagents(hatchImpl, options = {}) {
       calls.push(spec);
       const made = await hatchImpl(spec); // 可能 {childId} 或抛错
       const childId = made.childId;
+      const registry = api.__agentsById;
+      if (registry !== null && registry !== undefined && registry.get(childId) === undefined) {
+        registry.set(childId, makeAgent(childId));
+      }
       let resolve; let reject;
       const result = new Promise((res, rej) => { resolve = res; reject = rej; });
       pending.set(childId, { resolve, reject });
@@ -194,10 +210,13 @@ async function call(ctx, path, method, body, origin) {
   return { status: res.state.status, json: res.state.body === null ? null : JSON.parse(res.state.body) };
 }
 
-async function startPlugin(stateFile, agentsById, subagentsApi) {
-  const ctx = makeCtx(agentsById, subagentsApi);
-  // 用**当前发布的入口文件**（entry-v10）自测：和宿主真实加载路径一致。
-  const pluginUrl = new URL('./entry-v10.js', import.meta.url);
+async function startPlugin(stateFile, agentsById, subagentsApi, extraServices = {}) {
+  if (subagentsApi.__agentsById === null || subagentsApi.__agentsById === undefined) {
+    subagentsApi.__agentsById = agentsById;
+  }
+  const ctx = makeCtx(agentsById, subagentsApi, extraServices);
+  // 用**当前发布的入口文件**自测：和宿主真实加载路径一致。
+  const pluginUrl = new URL(ENTRY, import.meta.url);
   const { apply } = await import(`${pluginUrl.href}?v=${Date.now()}-${Math.random().toString(36).slice(2)}`);
   apply(ctx, { stateFile });
   // 路由是**懒注册**的（等 webServer 服务出现，见 index.js whenWebServer）：
@@ -345,7 +364,8 @@ const stateFile = join(dir, 'dual-agent.json');
   check('back to armed after hatch failure', status.json.phase === 'armed');
 }
 
-// ⑦ 恢复：落盘 running 记录在重启后降级为 armed（child 不跨进程恢复）
+// ⑦ 恢复：落盘 running 记录在「同进程重载、执行者还活着」时被**接管**（running），
+//    轮询本身不改盘；执行者真的不在时才降级（见 ㉖）。
 {
   const agentA = makeAgent('s7');
   const subA = fakeSubagents(async () => ({ childId: 'child-7' }));
@@ -357,9 +377,18 @@ const stateFile = join(dir, 'dual-agent.json');
   const onDisk = JSON.parse(readFileSync(stateFile, 'utf8'));
   check('running persisted with child', onDisk.sessions['s7']?.phase === 'running' && onDisk.sessions['s7']?.childId === 'child-7');
   const agentB = makeAgent('s7');
-  const ctxB = await startPlugin(stateFile, new Map([['s7', agentB]]), fakeSubagents(async () => ({ childId: 'y' })));
+  // 同进程：执行者仍在 ctx.agents 里（宿主表是进程级的），新实例必须接管而不是降级。
+  const ctxB = await startPlugin(stateFile, new Map([['s7', agentB], ['child-7', makeAgent('child-7')]]), fakeSubagents(async () => ({ childId: 'y' })));
   const status = await call(ctxB, '/dsh-dual-agent/status?sessionId=s7', 'GET');
-  check('status is read-only: persisted running is reported, not downgraded', status.json.phase === 'running' && status.json.running === true);
+  check('status adopts a live executor instead of downgrading it', status.json.phase === 'running' && status.json.running === true);
+  const afterPoll = JSON.parse(readFileSync(stateFile, 'utf8'));
+  check('status polling does not rewrite the running record',
+    afterPoll.sessions['s7']?.phase === 'running' && afterPoll.sessions['s7']?.childId === 'child-7',
+    JSON.stringify(afterPoll.sessions?.s7 ?? null));
+  // 接管后执行者自然停 → 结算（这里没有可读报告，故以「报告未取回」收尾）。
+  await new Promise((r) => setTimeout(r, 1_600));
+  const settled = JSON.parse(readFileSync(stateFile, 'utf8'));
+  check('adopted reload settles after the executor stops', settled.sessions['s7']?.phase === 'armed');
 }
 
 // ⑧ 人类消息过滤：非 rpcId 的注入消息不触发孵化；挑刺者评估轮也不触发
@@ -698,10 +727,19 @@ const stateFile = join(dir, 'dual-agent.json');
   child.status = 'idle';
   const stIdle = (await call(ctx, '/dsh-dual-agent/status?sessionId=s22', 'GET')).json;
   check('idle child note says awaiting settlement', stIdle.note.includes('等待编排结算'), stIdle.note.slice(-60));
-  // 执行者消失（进程内已无该 agent）→ note 明说，不再让用户干等。
+  // 执行者消失（进程内已无该 agent）→ 不再宣称「执行中」：收敛回待命并说明
+  // 报告没取回（v18；旧行为是挂着 running + 一句「已不在本进程」的警告，永远不会好）。
   agentsById.delete('child-22');
   const stGone = (await call(ctx, '/dsh-dual-agent/status?sessionId=s22', 'GET')).json;
-  check('gone child note says executor no longer in process', stGone.childLive === false && stGone.note.includes('已不在本进程'), `live=${stGone.childLive}`);
+  check('gone child is no longer reported as executing', stGone.phase === 'armed' && stGone.running === true,
+    `phase=${stGone.phase}`);
+  await new Promise((r) => setTimeout(r, 40));
+  const stGone2 = (await call(ctx, '/dsh-dual-agent/status?sessionId=s22', 'GET')).json;
+  check('gone child note says the old executor has ended',
+    String(stGone2.note).includes('插件重载/进程重启时丢失'), String(stGone2.note).slice(0, 40));
+  check('gone child settlement explains the lost report once',
+    agent.__followups.filter((m) => (m.content[0]?.text ?? '').includes('没有回到主上下文')).length === 1,
+    `n=${agent.__followups.length}`);
   // armed 态不探测（无 child），字段为 null。
   await call(ctx, '/dsh-dual-agent/action', 'POST', { sessionId: 's22', enabled: false });
   const stOff = (await call(ctx, '/dsh-dual-agent/status?sessionId=s22', 'GET')).json;
@@ -725,7 +763,7 @@ const stateFile = join(dir, 'dual-agent.json');
   await new Promise((r) => setTimeout(r, 10));
   const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s23', 'GET')).json;
   check('running record downgraded to armed on recovery', st.phase === 'armed' && st.childId === null, `phase=${st.phase} child=${st.childId}`);
-  check('recovery note explains the interrupted executor', typeof st.note === 'string' && st.note.includes('进程重启被中断'), st.note);
+  check('recovery note explains the interrupted executor', typeof st.note === 'string' && st.note.includes('插件重载/进程重启时丢失'), st.note);
   // 落盘也已纠偏（此时还没发新任务，记录应已是 armed、无 childId）。
   const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
   check('persisted phase corrected to armed on recovery', onDisk.sessions['s23']?.phase === 'armed' && onDisk.sessions['s23']?.childId === undefined,
@@ -734,7 +772,7 @@ const stateFile = join(dir, 'dual-agent.json');
   agent.__emitEvent(humanUserMessage('重试任务', 0));
   await new Promise((r) => setTimeout(r, 20));
   const st2 = (await call(ctx, '/dsh-dual-agent/status?sessionId=s23', 'GET')).json;
-  check('new task clears the interruption notice', !String(st2.note).includes('进程重启被中断') && String(st2.note).includes('主对话已让位'), String(st2.note).slice(0, 40));
+  check('new task clears the interruption notice', !String(st2.note).includes('插件重载/进程重启时丢失') && String(st2.note).includes('主对话已让位'), String(st2.note).slice(0, 40));
   // 新任务孵化后落盘回到 running+新 childId（setChild 的既有语义）。
   const onDisk2 = JSON.parse(readFileSync(sf, 'utf8'));
   check('new task persists running with fresh child', onDisk2.sessions['s23']?.phase === 'running' && onDisk2.sessions['s23']?.childId === 'c23',
@@ -762,12 +800,12 @@ const stateFile = join(dir, 'dual-agent.json');
   await new Promise((r) => setTimeout(r, 10));
   const st2 = (await call(ctx, '/dsh-dual-agent/status?sessionId=ghost-session', 'GET')).json;
   check('live session downgrades to armed with interruption note',
-    st2.phase === 'armed' && String(st2.note).includes('进程重启被中断'), `phase=${st2.phase} note=${String(st2.note).slice(0, 30)}`);
+    st2.phase === 'armed' && String(st2.note).includes('插件重载/进程重启时丢失'), `phase=${st2.phase} note=${String(st2.note).slice(0, 30)}`);
 }
 
 // ㉓ 报告嵌入截断（长报告不整体灌进主会话上下文）。
 {
-  const { reportTextOf } = await import(`${new URL('./entry-v10.js', import.meta.url).href}?rep=${Date.now()}`);
+  const { reportTextOf } = await import(`${new URL(ENTRY, import.meta.url).href}?rep=${Date.now()}`);
   const mk = (n) => ({ output: [{ type: 'text', text: 'x'.repeat(n) }] });
   const short = reportTextOf(mk(100));
   check('short report passes through untouched', short.length === 100 && !short.includes('省略'));
@@ -858,6 +896,140 @@ const stateFile = join(dir, 'dual-agent.json');
   const last = (allHatches[allHatches.length - 1]?.request?.prompt ?? []).find((b) => b.type === 'text' && String(b.text).includes('最近几轮挑刺者评估结论'));
   const items = last ? (last.text.match(/—— 第 \d+ 条 ——/g) ?? []).length : 0;
   check('critique history stays bounded (max 3)', items <= 3, `items=${items}`);
+}
+
+// ── v18：结算自愈（用户报障「后台执行者结束、前台仍执行中」） ────────────────
+const messageTextOf = (message) => (message?.content ?? [])
+  .filter((block) => block?.type === 'text')
+  .map((block) => block.text ?? '')
+  .join('');
+const followupTexts = (agent) => agent.__followups.map(messageTextOf);
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// ㉖ 幽灵 running（执行者已不在、会话也读不回来）：status 不得再宣称「执行中」，
+//     落盘要收敛成 armed，且只投一条「报告未取回」——重复轮询不得重复投。
+{
+  const sf = join(dir, 'ghost.json');
+  writeFileSync(sf, JSON.stringify({
+    version: 2,
+    sessions: { s27: { phase: 'running', childId: 'gone-child', since: Date.now() - 60_000, updatedAt: Date.now() - 60_000 } },
+  }), 'utf8');
+  const agent = makeAgent('s27');
+  const sub = fakeSubagents(async () => ({ childId: 'c27' }));
+  const ctx = await startPlugin(sf, new Map([['s27', agent]]), sub);
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s27', 'GET')).json;
+  check('ghost running is no longer reported as executing', st.phase === 'armed', `phase=${st.phase}`);
+  check('ghost status keeps the recorded child id for diagnosis', st.childId === 'gone-child', `child=${st.childId}`);
+  check('ghost status exposes the build marker', st.build === '3.5.0+reconcile', String(st.build));
+  await sleep(40);
+  const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
+  check('ghost running converges to armed on disk',
+    onDisk.sessions.s27?.phase === 'armed' && onDisk.sessions.s27?.childId === undefined,
+    JSON.stringify(onDisk.sessions?.s27 ?? null));
+  const notices = () => followupTexts(agent).filter((text) => text.includes('没有回到主上下文'));
+  check('ghost settlement explains the lost report once', notices().length === 1, `n=${notices().length}`);
+  await call(ctx, '/dsh-dual-agent/status?sessionId=s27', 'GET');
+  await call(ctx, '/dsh-dual-agent/status?sessionId=s27', 'GET');
+  await sleep(40);
+  check('repeated polling does not duplicate the notice', notices().length === 1, `n=${notices().length}`);
+}
+
+// ㉗ 幽灵 running + 执行者会话可读：把报告读回来照常评估，而不是只说"丢了"。
+{
+  const sf = join(dir, 'ghost-report.json');
+  writeFileSync(sf, JSON.stringify({
+    version: 2,
+    sessions: { s28: { phase: 'running', childId: 'report-child', since: Date.now() - 60_000, updatedAt: Date.now() - 60_000 } },
+  }), 'utf8');
+  let disposed = 0;
+  const sessionQuery = {
+    async observeSession() {
+      return {
+        events: [
+          { type: 'assistant/message', seq: 1, time: 1, data: { message: { role: 'assistant', content: [{ type: 'text', text: '执行者最终报告：已修好 3 处。' }] } } },
+          { type: 'turn/end', seq: 2, time: 2, data: { reason: { kind: 'completed' } } },
+        ],
+        [Symbol.dispose]() { disposed += 1; },
+      };
+    },
+  };
+  const agent = makeAgent('s28');
+  const ctx = await startPlugin(sf, new Map([['s28', agent]]), fakeSubagents(async () => ({ childId: 'c28' })), { sessionQuery });
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s28', 'GET')).json;
+  check('ghost with readable report leaves executing state immediately', st.phase === 'armed', `phase=${st.phase}`);
+  await sleep(40);
+  const critics = followupTexts(agent).filter((text) => text.includes('【挑刺者评估】'));
+  check('recovered report is evaluated as a normal settlement', critics.length === 1, `n=${critics.length}`);
+  check('recovered report reaches the critic prompt', critics[0]?.includes('已修好 3 处') === true, critics[0]?.slice(0, 60));
+  check('recovered-report path does not also send the lost notice',
+    !followupTexts(agent).some((text) => text.includes('没有回到主上下文')));
+  check('session observation lease is disposed', disposed === 1, `n=${disposed}`);
+}
+
+// ㉘ 重载后执行者仍活着：接管它（不误判为待命/幽灵），停了再结算，报告照样评估。
+{
+  const sf = join(dir, 'adopt.json');
+  const parent = makeAgent('s29');
+  const child = makeAgent('live-child');
+  const agentsById = new Map([['s29', parent], ['live-child', child]]);
+  writeFileSync(sf, JSON.stringify({
+    version: 2,
+    sessions: { s29: { phase: 'running', childId: 'live-child', since: Date.now() - 60_000, updatedAt: Date.now() - 60_000 } },
+  }), 'utf8');
+  const ctx = await startPlugin(sf, agentsById, fakeSubagents(async () => ({ childId: 'c29' })));
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s29', 'GET')).json;
+  check('live executor keeps running phase across a reload', st.phase === 'running' && st.childId === 'live-child',
+    `phase=${st.phase} child=${st.childId}`);
+  check('adopted executor is reported alive', st.childLive === true && st.childStatus === 'idle', `live=${st.childLive}`);
+  child.session.deriveMessages = () => [{ role: 'assistant', source: { kind: 'model' }, content: [{ type: 'text', text: '接管后读到的收尾报告' }] }];
+  child.__snapshot.push({ type: 'turn/end', seq: 1, time: 1, data: { reason: { kind: 'completed' } } });
+  await sleep(1_600);
+  const critics = followupTexts(parent).filter((text) => text.includes('【挑刺者评估】'));
+  check('adopted executor settles with its own report', critics.length === 1 && critics[0].includes('接管后读到的收尾报告'),
+    `n=${critics.length}`);
+  const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
+  check('adopted settlement persists armed with no child',
+    onDisk.sessions.s29?.phase === 'armed' && onDisk.sessions.s29?.childId === undefined,
+    JSON.stringify(onDisk.sessions?.s29 ?? null));
+}
+
+// ㉙ 插件重载 + 武装记录：不靠 agent/created，第一条会话事件就要把编排簿接回来并孵化
+//     （现场 ff511d07 的缺陷：重载后连续三条用户消息都没孵化，主 Agent 自己干了）。
+{
+  const sf = join(dir, 'reload.json');
+  const agent = makeAgent('s30');
+  const agentsById = new Map([['s30', agent]]);
+  const sub = fakeSubagents(async () => ({ childId: 'c30' }));
+  const first = await startPlugin(sf, agentsById, sub);
+  await call(first, '/dsh-dual-agent/action', 'POST', { sessionId: 's30', enabled: true });
+  // 重载：新实例（runs / watchedSessions 全空），刻意不触发 agent/created。
+  const second = await startPlugin(sf, agentsById, sub);
+  agent.__emitEvent(humanUserMessage('重载之后的新任务', 1));
+  await sleep(40);
+  const hatches = sub.__calls.filter((call) => call.provider !== undefined);
+  check('armed session still hatches after a plugin reload', hatches.length === 1, `hatches=${hatches.length}`);
+  const st = (await call(second, '/dsh-dual-agent/status?sessionId=s30', 'GET')).json;
+  check('reloaded instance reports the fresh executor as running', st.phase === 'running' && st.childId === 'c30',
+    `phase=${st.phase} child=${st.childId}`);
+}
+
+// ㉚ 两个实例同时发现幽灵 running：childId 是一次性令牌，说明只能投一次。
+{
+  const sf = join(dir, 'once.json');
+  writeFileSync(sf, JSON.stringify({
+    version: 2,
+    sessions: { s31: { phase: 'running', childId: 'gone31', since: Date.now() - 60_000 } },
+  }), 'utf8');
+  const agent = makeAgent('s31');
+  const agentsById = new Map([['s31', agent]]);
+  const sub = fakeSubagents(async () => ({ childId: 'c31' }));
+  const a = await startPlugin(sf, agentsById, sub);
+  const b = await startPlugin(sf, agentsById, sub);
+  await call(a, '/dsh-dual-agent/status?sessionId=s31', 'GET');
+  await call(b, '/dsh-dual-agent/status?sessionId=s31', 'GET');
+  await sleep(60);
+  const notices = followupTexts(agent).filter((text) => text.includes('没有回到主上下文'));
+  check('two instances settle the same ghost exactly once', notices.length === 1, `n=${notices.length}`);
 }
 
 rmSync(dir, { recursive: true, force: true });

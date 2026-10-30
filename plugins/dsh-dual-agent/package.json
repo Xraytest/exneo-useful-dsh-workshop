@@ -1,6 +1,6 @@
 {
     "name":  "dsh-dual-agent",
-    "version":  "3.4.0",
+    "version":  "3.5.0",
     "private":  true,
     "type":  "module",
     "description":  "双主智能：启动=武装待命（等用户键入初始指令）；执行者=真 subagent（delivery:caller，自己的会话与提示）；任务期间主上下文静默（回合起点被压制）；挑刺者=主上下文评估人格，执行者自然结算后由编排注入恰一条「报告+评估」消息；用户手动停止回待命等补充、不挑刺。",
@@ -12,6 +12,7 @@
                 },
     "files":  [
                   "index.js",
+                  "entry-v18.js",
                   "entry-v17.js",
                   "entry-v16.js",
                   "entry-v15.js",

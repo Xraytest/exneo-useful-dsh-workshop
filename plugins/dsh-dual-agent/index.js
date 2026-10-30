@@ -1,5 +1,5 @@
 /**
- * dsh-dual-agent —— 双主智能编排（host 半边，v2）。
+ * dsh-dual-agent —— 双主智能编排（host 半边，v18）。
  *
  * 用户指令（2026-10-28 初版 + 2026-10-29 修订）：
  *   「启动按钮ui错误，启动后需要等用户键入初始指令并在用户手动停止是等待用户补充，
@@ -30,15 +30,16 @@
  *     挑刺者说明执行者中止的原因。用户手动停止（本插件主动 dispose）不发评估。
  *   · 点「停止」（armed 态）＝ 完全解除武装：摘人格、清状态。
  *
- * 子代理投递细节（对齐 dsh-subagent 的真实形态）：
+ * 子代理投递细节（对齐 dsh-subagent 的真实形态，v3 起）：
  *   · 孵化：startActivation({ provider:'spawn', label:'双主智能·执行者',
- *     request:{ prompt:[{type:'text',text:任务}], parent, signal }, delivery:'parent' })。
+ *     request:{ prompt:[…任务内容块], parent, signal }, delivery:'caller' })。
  *     spawn provider 支持 continuable（prepareContinuable 在场）。
- *   · 结果：delivery:'parent' → manager 在 child 结算后把 settlement notice
- *     （subagent-settled source，含 closing message）投回主 Agent。
- *   · 评估触发：本插件监听主 Agent 作用域的 `subagent/end`（scoped dispatch
- *     按 parent agent 键分发，agentCtx 能收到本会话孩子的 end）→ 立即注入
- *     挑刺者评估轮（followup，保证主循环醒来消费刚送达的报告）。
+ *   · 结果：caller 模式**不会**自动投 settlement notice、也不唤醒主 Agent；报告由
+ *     编排 `await activation.result` 取回（{output, stopReason}），内嵌进评估消息。
+ *   · 评估触发：结算点唯一（上面那根 await）；本插件把「报告原文 + 评估指令」合成
+ *     恰一条 followup 注入主上下文。v18 起这根 await 不再是唯一收尾手段：实例被
+ *     重载丢掉它时，reconcileSession 会用「活的执行者 + 落盘记录」把状态收敛回来
+ *     （接管活执行者 / 读回已结束执行者的报告 / 幽灵 running 收回待命）。
  *   · 中断：停止时 subagents.interrupt(childId, {kind:'user', parentSessionId})，
  *     不产生评估（这是用户手动停止）。
  *
@@ -78,6 +79,27 @@ const ORDER_BASE = 10300;
  */
 const CRITIQUE_HISTORY_DEPTH = 3;
 const CRITIQUE_HISTORY_ITEM_LIMIT = 2_000;
+
+/**
+ * 状态自愈（v18，2026-10-30 用户报障「后台子代理结束、前台仍显示执行中」）。
+ *
+ * 在途编排（runs）只活在本插件实例里：一次 profile 重载（装/更任何插件都会
+ * 重建插件实例）就把 runs 连同 await 着的 activation.result 一起丢掉，而落盘
+ * 记录仍是 running，于是 /status 照着记录宣称「执行者独立工作中」——执行者早已
+ * 结束、报告却永远不会回来，前台永远停在执行中。
+ *
+ * 两条时间常量：
+ *   · HATCH_GIVE_UP_MS  孵化窗口上限。正常几十毫秒就能拿到 childId；超过就当
+ *     startActivation 卡死，收敛回待命（否则运行态会永远挂着）。
+ *   · ADOPT_POLL_MS/ADOPT_IDLE_TICKS  重载后接管活执行者的观察节奏：连续两拍
+ *     「idle 且 inbox 空」才算停（第一拍可能是它还没起跑就被看到 idle）。
+ */
+const HATCH_GIVE_UP_MS = 180_000;
+const ADOPT_POLL_MS = 1_000;
+const ADOPT_IDLE_TICKS = 2;
+
+/** 供 status 透出的构建标识（诊断用：确认进程里跑的是哪一版）。 */
+const BUILD = '3.5.0+reconcile';
 
 // ── 挑刺者人格与提示段 ─────────────────────────────────────────────────────
 
@@ -209,14 +231,23 @@ function createStore(file, onError) {
       record.updatedAt = Date.now();
       write();
     },
+    /**
+     * 把会话记录收回待命并摘掉 childId。
+     *
+     * @returns 是否由**本次**调用兑现。落盘里的 childId 是一次性令牌：重载前后
+     *   两个插件实例可能同时发现「执行者没了」，只有真正摘掉 childId 的那一个
+     *   负责往主上下文投递评估/说明——否则同一份报告会被注入两次。
+     */
     clearChild(sessionId) {
       read();
       const record = doc.sessions[sessionId];
-      if (record === undefined) return;
+      if (record === undefined) return false;
+      const claimed = record.childId !== undefined;
       delete record.childId;
       record.phase = 'armed';
       record.updatedAt = Date.now();
       write();
+      return claimed;
     },
   };
 }
@@ -576,6 +607,7 @@ export function apply(ctx, config = {}) {
     run.phase = 'armed';
     run.childId = undefined;
     run.hatchDispose = undefined;
+    run.hatchStartedAt = undefined;
     store.clearChild(sessionId);
     if (agent !== undefined) {
       shapeSections(sessionId, agent);
@@ -593,7 +625,10 @@ export function apply(ctx, config = {}) {
     store.setPhase(agent.id, 'off');
   });
 
-  // 插件卸载 → 全拆（含懒注册可能还没跑完的路由；cleanup 在声明之后才执行，安全）。
+  // 插件卸载（含 profile 重载）→ 全拆本实例的装配。
+  // ⚠ 落盘记录**故意保留**：会话还活着、执行者可能还在跑，record 里的 childId 就是
+  // 下一个实例把执行者接回来的唯一线索（见 reconcileSession 的接管分支）。这里只
+  // 摘段拆监视器——不写盘、不改 phase。
   ctx.effect(() => () => {
     for (const [sessionId, run] of [...runs.entries()]) {
       run.dispose?.();
@@ -632,13 +667,15 @@ export function apply(ctx, config = {}) {
       watchDispose: undefined,
       hatchDispose: undefined,
       hatchAt: undefined,
+      hatchStartedAt: undefined,
+      recovering: false,
       criticPending: false,
       criticRetried: false,
       lastCriticText: undefined,
       criticBase: 0,
       critiqueHistory: [],
-      // 上一次进程内是 running（执行者随进程消亡）→ 让用户知道旧任务被中断，
-      // 而不是对着通用待命文案以为任务还在跑。用户发新任务时清除。
+      // 上一次进程内是 running（执行者随进程消亡，或插件重载丢了在途结算）→ 让用户
+      // 知道旧任务已结束，而不是对着通用待命文案以为任务还在跑。用户发新任务时清除。
       recoveredFrom: record.phase === 'running' ? 'running' : null,
     };
     store.setPhase(sessionId, 'armed');
@@ -682,6 +719,315 @@ export function apply(ctx, config = {}) {
     run.watchDispose = () => {
       if (watchedSessions.get(session) === sessionId) watchedSessions.delete(session);
     };
+  };
+
+  // ── 结算收口与自愈（v18） ───────────────────────────────────────────────────
+  //
+  // 用户报障（2026-10-30）：「后台子任务子代理结束，前台依然处于执行中」。
+  // 现场取证（同进程的两条真会话）：
+  //   · 19c360e9：17:46 孵化执行者 12ac7695，执行者跑到 21:20 自然 completed；
+  //     落盘记录从 17:46 起一直是 running+childId，主会话此后再没有任何事件——
+  //     报告没回来、评估没注入、按钮/回合标签永远停在执行中。
+  //   · ff511d07：插件重载后连续三条用户消息**没有孵化**（主 Agent 自己做了），
+  //     因为 run 没了；直到 /action 重新物化 armed 才恢复孵化。根因是同一处：
+  //     在途编排只活在本插件实例的 runs 里，而 profile 重载会整体重建插件实例
+  //     （cleanup 还会把 runs 清空），await 着的 activation.result 从此无人接手。
+  //
+  // 修法：不再把「running」当成只能由那一根 await 收尾的状态。
+  //   ① 落盘 childId 兼作一次性结算令牌：只有摘掉它的一方能投递评估/说明；
+  //   ② 任何时刻都能用「活的执行者 + 落盘记录」把 running 收敛回真实情形：
+  //      执行者还在 → 重新接管并盯到它停；执行者已没了 → 把它的会话读回来，
+  //      报告还在就照常评估，读不回来才诚实说明；
+  //   ③ /status 不再照抄记录：running 必须有一份可核对的活执行者（或在孵化窗口内）。
+
+  /** 进程内的活 Agent 查找（会话不在本进程时返回 undefined；绝不抛）。 */
+  const childAgentOf = (childId) => {
+    if (typeof childId !== 'string' || childId === '') return undefined;
+    try { return ctx.agents.get(childId); } catch { return undefined; }
+  };
+
+  const textOfMessage = (message) => (message?.content ?? [])
+    .filter((block) => block?.type === 'text')
+    .map((block) => block.text ?? '')
+    .join('')
+    .trim();
+
+  /** 会话事件里的最后一条 assistant 正文（= 执行者的收尾报告）。 */
+  const lastAssistantTextOfEvents = (events) => {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type !== 'assistant/message') continue;
+      const text = textOfMessage(event.data?.message);
+      if (text !== '') return text;
+    }
+    return '';
+  };
+
+  /** 已消息数组里的最后一条 assistant 正文（活 Agent 的 deriveMessages）。 */
+  const lastAssistantTextOfMessages = (messages) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'assistant') continue;
+      const text = textOfMessage(message);
+      if (text !== '') return text;
+    }
+    return '';
+  };
+
+  const lastTurnStopReasonOfEvents = (events) => {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type !== 'turn/end') continue;
+      const kind = event.data?.reason?.kind;
+      if (typeof kind === 'string') return kind;
+    }
+    return undefined;
+  };
+
+  const lastTurnStopReasonOfAgent = (child) => {
+    try {
+      const seq = typeof child?.session?.seq === 'number' ? child.session.seq : 0;
+      const from = Math.max(0, seq - 400);
+      return lastTurnStopReasonOfEvents(child.session?.snapshotEvents?.(from) ?? []);
+    } catch { return undefined; }
+  };
+
+  /**
+   * 读回执行者的收尾报告：活着的子 Agent 直接读它的会话；已被回收的从会话持久化
+   * 读回来（sessionQuery.observeSession 是 continuable 能力的前提，通常在场）。
+   * 只读、有界；任何异常都吞掉回 undefined——它跑在 /status 的收敛路径上。
+   */
+  const readExecutorReport = async (childId) => {
+    const liveChild = childAgentOf(childId);
+    if (liveChild !== undefined) {
+      try {
+        const text = lastAssistantTextOfMessages(liveChild.session?.deriveMessages?.() ?? []);
+        if (text !== '') return { text, stopReason: lastTurnStopReasonOfAgent(liveChild) ?? 'completed' };
+      } catch { /* 落到持久化路径 */ }
+    }
+    const query = (() => { try { return ctx.get('sessionQuery'); } catch { return undefined; } })();
+    if (typeof query?.observeSession !== 'function') return undefined;
+    let observation;
+    try {
+      observation = await query.observeSession(childId, { signal: new AbortController().signal });
+      const events = observation?.events ?? [];
+      const text = lastAssistantTextOfEvents(events);
+      if (text === '') return undefined;
+      return { text, stopReason: lastTurnStopReasonOfEvents(events) ?? 'completed' };
+    } catch (cause) {
+      ctx.logger?.debug?.(`dsh-dual-agent: 读回执行者报告失败（child=${childId}）：${errorText(cause)}`);
+      return undefined;
+    } finally {
+      // observeSession 返回的是 caller-owned 租约，用完必须归还（否则缓存条目被钉住）。
+      try { observation?.[Symbol.dispose]?.(); } catch { /* 尽力 */ }
+    }
+  };
+
+  /**
+   * 把 run 从 running 收回 armed（内存 + 落盘），返回这次是否由本调用兑现。
+   * @returns { childId, claimed } claimed=false 表示别处已经结算过（或记录已不在），
+   *   调用方不得再向主上下文投递第二份说明。
+   */
+  const releaseRun = (sessionId, agent, run) => {
+    const childId = run.childId;
+    run.childId = undefined;
+    run.hatchDispose = undefined;
+    run.hatchStartedAt = undefined;
+    run.phase = 'armed';
+    // 没有 childId（孵化还没完成）时没有令牌可争，本次调用就是唯一持有者。
+    const claimed = childId === undefined ? true : store.clearChild(sessionId);
+    if (childId === undefined) store.setPhase(sessionId, 'armed');
+    shapeSections(sessionId, agent);
+    return { childId, claimed };
+  };
+
+  /** 注入挑刺者评估轮（结算路径与「读回报告」路径共用）。 */
+  const deliverCritic = (agent, run, childId, stopReason, reportText) => {
+    const criticText = criticEvaluateWithAngle(agent, run.used, childId, stopReason, reportText);
+    // 记录评估轮状态：注入后若该轮**自己失败**（额度/网络报错、无正文），
+    // 主上下文会停在一条用户看得见的注入消息上没有任何回复——观感是
+    // 「插件哑了」。监听 turn/end 给它一次自动重试 + 可读兜底。
+    run.criticPending = true;
+    run.criticRetried = false;
+    run.lastCriticText = criticText;
+    run.criticBase = agent.session?.seq ?? 0;
+    deliver(agent, criticText);
+  };
+
+  /** 结算：报告到手 → 回待命 + 评估轮（只由兑现结算令牌的那一方投递）。 */
+  const settleWithReport = (sessionId, agent, run, childId, stopReason, reportText) => {
+    const { claimed } = releaseRun(sessionId, agent, run);
+    if (claimed !== true) {
+      ctx.logger?.debug?.(`dsh-dual-agent: 结算已由别处兑现（session=${sessionId} child=${childId}），不重复投递`);
+      return false;
+    }
+    deliverCritic(agent, run, childId, stopReason, reportText);
+    return true;
+  };
+
+  /** 「报告丢了」的统一口径：说清发生了什么、现在是什么状态、下一步怎么走。 */
+  const lostNotice = (childId) => `【双主智能编排】执行者（subagent ${childId}）已经结束，但它的报告没有回到主上下文（编排在插件重载/进程重启时丢了在途结算，会话里也没能读回报告）。已回到待命：键入下一条消息即可重新开工。`;
+
+  /**
+   * 结算丢失后的补救：先把执行者的会话读回来。
+   *   · 报告读到了 → 照常注入挑刺者评估轮（报告确实是它做的活，只是晚到了）；
+   *   · 读不到     → 诚实说明，别让用户以为任务还在跑。
+   * 期间用户若已开新任务/关闭，则一个字都不投（run 已被替换）。
+   */
+  const recoverAfterRelease = async (sessionId, agent, run, childId) => {
+    if (run.recovering === true) return;
+    run.recovering = true;
+    try {
+      const report = childId === undefined ? undefined : await readExecutorReport(childId);
+      const now = runs.get(sessionId);
+      if (now !== run || now.phase !== 'armed' || now.childId !== undefined) return;
+      if (report !== undefined && report.text !== '') {
+        ctx.logger?.info?.(`dsh-dual-agent: 已从执行者会话读回报告（session=${sessionId} child=${childId}）`);
+        deliverCritic(agent, run, childId, report.stopReason,
+          reportTextOf({ output: [{ type: 'text', text: report.text }] }));
+        return;
+      }
+      if (childId !== undefined) {
+        // 待命文案也说清「上一轮不是正常交接」：否则用户看到的是通用「请键入初始
+        // 指令」，会以为任务已经正常收尾。
+        if (run.recoveredFrom === null || run.recoveredFrom === undefined) run.recoveredFrom = 'running';
+        deliver(agent, lostNotice(childId));
+      }
+    } finally {
+      run.recovering = false;
+    }
+  };
+
+  /**
+   * 重载后重新接管一个**仍然活着**的执行者：重建内存簿 + 盯到它停。
+   * 落盘记录保持 running+childId 不写——下一次重载还能再接管（幂等）。
+   */
+  const watchAdoptedChild = (sessionId, agent, run, childId) => {
+    let idleTicks = 0;
+    const tick = async () => {
+      if (runs.get(sessionId) !== run || run.phase !== 'running' || run.childId !== childId) return;
+      const child = childAgentOf(childId);
+      if (child === undefined) {
+        const { claimed } = releaseRun(sessionId, agent, run);
+        if (claimed === true) await recoverAfterRelease(sessionId, agent, run, childId);
+        return;
+      }
+      const pending = (child.inbox?.nextTurn?.length ?? 0) + (child.inbox?.nextStep?.length ?? 0);
+      idleTicks = child.status === 'running' || pending > 0 ? 0 : idleTicks + 1;
+      if (idleTicks < ADOPT_IDLE_TICKS) {
+        setTimeout(() => { void tick(); }, ADOPT_POLL_MS);
+        return;
+      }
+      const report = await readExecutorReport(childId);
+      if (runs.get(sessionId) !== run || run.phase !== 'running' || run.childId !== childId) return;
+      const stopReason = report?.stopReason ?? lastTurnStopReasonOfAgent(child) ?? 'completed';
+      settleWithReport(sessionId, agent, run, childId, stopReason,
+        reportTextOf({ output: [{ type: 'text', text: report?.text ?? '' }] }));
+    };
+    setTimeout(() => { void tick(); }, 0);
+  };
+
+  const adoptChild = (sessionId, agent, childId, record) => {
+    if (runs.has(sessionId)) return;
+    const adopted = {
+      phase: 'running',
+      dispose: undefined,
+      used: new Set(),
+      childId,
+      pendingSupplements: [],
+      hatchedSeq: undefined,
+      watchDispose: undefined,
+      hatchDispose: undefined,
+      hatchAt: typeof record?.updatedAt === 'number' ? record.updatedAt : undefined,
+      criticPending: false,
+      criticRetried: false,
+      lastCriticText: undefined,
+      criticBase: 0,
+      critiqueHistory: [],
+      recoveredFrom: null,
+      hatchStartedAt: undefined,
+      recovering: false,
+      adopted: true,
+    };
+    runs.set(sessionId, adopted);
+    shapeSections(sessionId, agent);
+    attachHatchWatcher(sessionId, agent);
+    watchAdoptedChild(sessionId, agent, adopted, childId);
+    ctx.logger?.info?.(`dsh-dual-agent: 已重新接管执行者（session=${sessionId} child=${childId}）`);
+  };
+
+  /**
+   * 用「活的执行者 + 落盘记录」把 running 收敛到真实情形（幂等，可反复调用）。
+   *
+   * @param quiet 用户正要发新任务时不要插话（如 user/message 触发的收敛）。
+   */
+  const reconcileSession = (sessionId, { quiet = false } = {}) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    const agent = agentOf(sessionId);
+    // 会话不在本进程：记录无法核对，保持 orphan 口径（不写盘、不动状态）。
+    if (agent === undefined) return;
+    const run = runs.get(sessionId);
+    if (run !== undefined) {
+      if (run.phase !== 'running') return;
+      if (run.childId !== undefined) {
+        if (childAgentOf(run.childId) !== undefined) return; // 执行者还活着：正常跟随
+        const childId = run.childId;
+        const { claimed } = releaseRun(sessionId, agent, run);
+        if (claimed === true) void recoverAfterRelease(sessionId, agent, run, childId);
+        return;
+      }
+      // 孵化窗口：超过上限仍没拿到 childId → 放弃（startActivation 卡住/宿主异常）。
+      if (typeof run.hatchStartedAt === 'number' && Date.now() - run.hatchStartedAt > HATCH_GIVE_UP_MS) {
+        releaseRun(sessionId, agent, run);
+        if (!quiet) {
+          deliver(agent, `【双主智能编排】执行者孵化超时（${Math.round(HATCH_GIVE_UP_MS / 1000)} 秒内没拿到执行者身份）。已回到待命：可以重新发送或补充指令。`);
+        }
+      }
+      return;
+    }
+    const record = store.recordOf(sessionId);
+    if (record.phase === 'armed') {
+      // 记录还在武装：把段与监视器接回来（重载后靠这条恢复，否则用户消息永远不孵化）。
+      ensureRun(sessionId);
+      return;
+    }
+    if (record.phase !== 'running') return;
+    const childId = record.childId;
+    if (typeof childId === 'string' && childId !== '' && childAgentOf(childId) !== undefined) {
+      adoptChild(sessionId, agent, childId, record);
+      return;
+    }
+    // 幽灵 running：记录说在跑，本进程里却没有这个执行者。
+    // 先兑现令牌再物化（clearChild 会先重读落盘，别的实例已经收过尾就看得见），
+    // 否则两个实例会各投一条「报告未取回」。
+    const consumed = typeof childId === 'string' && childId !== ''
+      ? store.clearChild(sessionId)
+      : true;
+    const recovered = ensureRun(sessionId);
+    if (recovered === undefined) return;
+    if (!quiet && consumed === true) void recoverAfterRelease(sessionId, agent, recovered, childId);
+  };
+
+  /** 把收敛排进下一个微任务（/status 每 8s 轮询调它：不阻塞回包、不重复排队）。 */
+  const reconcileQueue = new Map(); // sessionId → quiet（多次请求取 AND：有一处不让插话就不插）
+  let reconcileScheduled = false;
+  const scheduleReconcile = (sessionId, quiet = false) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    if (agentOf(sessionId) === undefined) return;
+    const previous = reconcileQueue.has(sessionId) ? reconcileQueue.get(sessionId) : true;
+    reconcileQueue.set(sessionId, previous && quiet);
+    if (reconcileScheduled) return;
+    reconcileScheduled = true;
+    queueMicrotask(() => {
+      reconcileScheduled = false;
+      const batch = [...reconcileQueue.entries()];
+      reconcileQueue.clear();
+      for (const [id, quietRun] of batch) {
+        try { reconcileSession(id, { quiet: quietRun }); } catch (cause) {
+          ctx.logger?.warn?.(`dsh-dual-agent: 状态收敛失败（session=${id}）：${errorText(cause)}`);
+        }
+      }
+    });
   };
 
   /**
@@ -743,20 +1089,31 @@ export function apply(ctx, config = {}) {
         } catch (cause) {
           ctx.logger?.warn?.(`dsh-dual-agent: 回合压制失败（session=${sessionId}）：${errorText(cause)}`);
         }
-        const relay = [...taskBlocks, { type: 'text', text: '（以上是用户在当前任务执行中追加的补充要求，请纳入处理。）' }];
-        if (current.childId === undefined) {
-          // 执行者还在孵化：排队，等 hatchExecutor 完成后统一转达。
-          current.pendingSupplements.push(relay);
+        // 执行者已经没了（重载丢了结算 / 宿主回收）→ 这条补充无处安放：先把编排
+        // 收敛回待命，再把它当作新任务孵化。**不能**继续往空处转达——那正是
+        // 「前台还说执行中、消息却谁也没处理」的那条路。
+        if (current.childId !== undefined && childAgentOf(current.childId) === undefined) {
+          const lostChildId = current.childId;
+          ctx.logger?.info?.(`dsh-dual-agent: 执行者已不在（child=${lostChildId}），补充改按新任务处理（session=${sessionId}）`);
+          const { claimed } = releaseRun(sessionId, agent, current);
+          if (claimed === true) void recoverAfterRelease(sessionId, agent, current, lostChildId);
+          // 落到下面的 armed 分支，用同一条事件孵化新执行者。
+        } else {
+          const relay = [...taskBlocks, { type: 'text', text: '（以上是用户在当前任务执行中追加的补充要求，请纳入处理。）' }];
+          if (current.childId === undefined) {
+            // 执行者还在孵化：排队，等 hatchExecutor 完成后统一转达。
+            current.pendingSupplements.push(relay);
+            return;
+          }
+          const childId = current.childId;
+          // 出 append 窗口再投（与 cancel 同一拍序），复用统一转达路径。
+          queueMicrotask(() => {
+            const now = runs.get(sessionId);
+            if (now === undefined || now.childId !== childId) return;
+            relaySupplement(sessionId, agent, childId, relay);
+          });
           return;
         }
-        const childId = current.childId;
-        // 出 append 窗口再投（与 cancel 同一拍序），复用统一转达路径。
-        queueMicrotask(() => {
-          const now = runs.get(sessionId);
-          if (now === undefined || now.childId !== childId) return;
-          relaySupplement(sessionId, agent, childId, relay);
-        });
-        return;
       }
 
       // ── armed 态：这条人类消息就是初始指令 → 孵化执行者 ──
@@ -766,6 +1123,7 @@ export function apply(ctx, config = {}) {
       if (current.hatchedSeq === event.seq) return;
       current.hatchedSeq = event.seq;
       current.phase = 'running';
+      current.hatchStartedAt = Date.now(); // 孵化窗口起点：reconcile 据此判定卡死
       current.recoveredFrom = null; // 用户已开新任务：中断提示使命完成
       shapeSections(sessionId, agent);
       // 双线路径的「阻塞」：任务交给执行者，主 Agent 这一轮到此为止。此刻
@@ -800,6 +1158,7 @@ export function apply(ctx, config = {}) {
           }
           now.childId = childId;
           now.hatchDispose = dispose;
+          now.hatchStartedAt = undefined;
           now.hatchAt = Date.now(); // running note 里的「已工作 X 分 Y 秒」锚点
           store.setChild(sessionId, childId);
           ctx.logger?.info?.(`dsh-dual-agent: 执行者已孵化（session=${sessionId} child=${childId}）`);
@@ -816,31 +1175,17 @@ export function apply(ctx, config = {}) {
             // result 被 reject（teardown 失败等）：按「异常停止」处理，仍要让主上下文知情。
             const st = runs.get(sessionId);
             if (st === undefined || st.childId !== childId) return; // 已被手动停止/替换：不抢话
-            st.childId = undefined;
-            st.hatchDispose = undefined;
-            st.phase = 'armed';
-            store.clearChild(sessionId);
-            shapeSections(sessionId, agent);
-            deliver(agent, `【双主智能编排】执行者（subagent ${childId}）结算异常：${errorText(cause)}。已回到待命状态，可重试或补充指令。`);
+            const { claimed } = releaseRun(sessionId, agent, st);
+            if (claimed === true) {
+              deliver(agent, `【双主智能编排】执行者（subagent ${childId}）结算异常：${errorText(cause)}。已回到待命状态，可重试或补充指令。`);
+            }
             return;
           }
           const st = runs.get(sessionId);
           if (st === undefined || st.childId !== childId) return; // 手动停止/disarm/替换：不挑刺
-          st.childId = undefined;
-          st.hatchDispose = undefined;
-          st.phase = 'armed'; // 结算完成：回待命等补充
-          store.clearChild(sessionId);
-          shapeSections(sessionId, agent);
           const stopReason = typeof settled?.stopReason === 'string' ? settled.stopReason : 'completed';
-          const criticText = criticEvaluateWithAngle(agent, st.used, childId, stopReason, reportTextOf(settled));
-          // 记录评估轮状态：注入后若该轮**自己失败**（额度/网络报错、无正文），
-          // 主上下文会停在一条用户看得见的注入消息上没有任何回复——观感是
-          // 「插件哑了」。监听 turn/end 给它一次自动重试 + 可读兜底。
-          st.criticPending = true;
-          st.criticRetried = false;
-          st.lastCriticText = criticText;
-          st.criticBase = agent.session?.seq ?? 0;
-          deliver(agent, criticText);
+          // 结算收口（含跨实例互斥）与评估注入共用同一条实现，见 settleWithReport。
+          settleWithReport(sessionId, agent, st, childId, stopReason, reportTextOf(settled));
         } catch (cause) {
           const now = runs.get(sessionId);
           if (now === undefined || now.phase !== 'running' || now.hatchedSeq !== event.seq) return;
@@ -848,6 +1193,7 @@ export function apply(ctx, config = {}) {
           // 不再触发压制——这一轮让主 Agent 正常向用户说明）。
           now.phase = 'armed';
           now.hatchedSeq = undefined;
+          now.hatchStartedAt = undefined;
           store.clearChild(sessionId);
           shapeSections(sessionId, agent);
           deliver(agent, `【双主智能编排】执行者孵化失败：${errorText(cause)}。已回到待命状态，可重试（重新发送或补充指令即可）。`);
@@ -855,15 +1201,21 @@ export function apply(ctx, config = {}) {
       })();
   };
 
-  // 根作用域单一监听器：所有会话的 session/event 都会到这里，按 watchedSessions 过滤。
+  // 根作用域单一监听器：所有会话的 session/event 都会到这里，按会话身份过滤。
   // 未打标签的监听器在 Cordis 里全局放行——不依赖 agent 作用域与 store 作用域的
   // 血缘，这是本插件能稳定收到事件的保证（dsh-session 的 scopeTarget 规则）。
+  // ⚠ sessionId 不能只靠 watchedSessions：那张表随插件实例一起消失，重载后
+  //   已经武装的会话会因此「收得到事件却不孵化」（2026-10-30 实测到）。会话自身
+  //   的 header.id 是稳定身份，拿它兜底，再按落盘记录懒恢复编排簿。
   ctx.effect(() => ctx.on('session/event', (session, event) => {
-    const sessionId = watchedSessions.get(session);
-    if (sessionId === undefined) return;
+    const sessionId = watchedSessions.get(session) ?? session?.id;
+    if (typeof sessionId !== 'string' || sessionId === '') return;
     const agent = agentOf(sessionId);
     if (agent === undefined || agent.session !== session) return;
     try {
+      // 懒恢复：重载后第一条事件就把该会话的编排簿接回来（armed 装段/监视器，
+      // running 接管活执行者或收敛幽灵态）。用户正在发言时不插话（quiet）。
+      if (!runs.has(sessionId)) reconcileSession(sessionId, { quiet: event.type === 'user/message' });
       if (event.type === 'user/message') {
         handleHumanMessage(sessionId, agent, event);
       } else if (event.type === 'assistant/message') {
@@ -1027,17 +1379,36 @@ export function apply(ctx, config = {}) {
     const record = store.recordOf(sessionId);
     const run = sessionId === undefined ? undefined : runs.get(sessionId);
     const agent = sessionId === undefined ? undefined : agentOf(sessionId);
-    const phase = run !== undefined ? run.phase : (record.phase === 'armed' || record.phase === 'running' ? record.phase : 'off');
+    const recorded = record.phase === 'armed' || record.phase === 'running' ? record.phase : 'off';
+    let phase = run !== undefined ? run.phase : recorded;
+    // 会话不在本进程时无法核对记录，只能按记录转述（orphan 分支会说实话）。
+    if (agent !== undefined) {
+      // 收敛排到微任务：回包先走，状态自己会追上（见 reconcileSession）。
+      scheduleReconcile(sessionId, false);
+    }
     const hatch = hatchReadiness();
-    const childId = run?.childId ?? null;
+    // childId 以内存为准、落盘兜底：重载后正是靠落盘里的它把执行者找回来。
+    const childId = run?.childId ?? record.childId ?? null;
+    const hatching = phase === 'running'
+      && (run === undefined ? childId === null : run.childId === undefined);
+    const hatchTimedOut = hatching && (typeof run?.hatchStartedAt === 'number'
+      ? Date.now() - run.hatchStartedAt > HATCH_GIVE_UP_MS
+      : typeof record.since === 'number' && Date.now() - record.since > HATCH_GIVE_UP_MS);
+    // 真值化（用户报障的正解）：running 必须有一份**可核对**的活执行者；执行者
+    // 已经没了、孵化也超时了，就不是「执行中」——哪怕落盘还写着 running。
+    // 会话不在本进程时不做判定（无从核对），交给 orphan 分支说明。
+    const child = agent === undefined || childId === null ? undefined : childAgentOf(childId);
+    if (agent !== undefined && phase === 'running' && ((!hatching && child === undefined) || hatchTimedOut)) {
+      phase = 'armed';
+    }
     const live = phase === 'running' ? childLiveness(childId) : { live: null, status: null };
     // 挑刺进度（用户视角的「还有哪几项没过」）：已点名角度数 + 最近一个角度。
     // 零成本（run 里已有），但让「持续表示不符合要求」变成可见的累计状态。
     const anglesUsed = run?.used?.size ?? 0;
     const lastAngle = anglesUsed > 0 ? [...run.used].pop() : null;
-    // 「会话不在本进程」时落盘可能还留着 running（/status 只读、不纠偏）：绝不能
-    // 对用户宣称「执行者独立工作中」——那是个幽灵状态。说实话并指向恢复入口。
-    const orphan = phase === 'running' && run === undefined && agent === undefined;
+    // 「会话不在本进程」时落盘可能还留着 running：绝不能对用户宣称「执行者独立
+    // 工作中」——那是个幽灵状态。说实话并指向恢复入口。
+    const orphan = recorded === 'running' && run === undefined && agent === undefined;
     // running note 追加活性后缀：静默≠卡死，让用户能分辨。
     // ⚠ orphan 分支不加后缀——它的 note 正文已经把「会话不在本进程」说清了，
     // 再加一句就是同义重复（实测过这个 duplication）。
@@ -1056,7 +1427,7 @@ export function apply(ctx, config = {}) {
         ? null
         : phase === 'armed'
           ? (run?.recoveredFrom === 'running'
-            ? '上次的执行者已随进程重启被中断（不会自动恢复）。重新键入任务即可再次孵化执行者。'
+            ? '上次的后台执行者已结束（结算在插件重载/进程重启时丢失，报告未取回）。已回到待命：键入下一条消息即可重新开工。'
             : anglesUsed > 0
               ? `已评估 ${anglesUsed} 轮，最近点名角度：「${lastAngle}」。键入下一条消息继续修正（执行者会带着这几轮结论开工）。`
               : hatch.ready
@@ -1073,6 +1444,8 @@ export function apply(ctx, config = {}) {
       anglesUsed,
       lastAngle,
       agentLive: agent !== undefined,
+      // 诊断：本次回包是照哪一版逻辑算的（重载是否生效一眼可见）。
+      build: BUILD,
       hatch,
       stateFile: store.file,
       storeError: store.error,
@@ -1094,10 +1467,14 @@ export function apply(ctx, config = {}) {
         { dualAgentStatus: 'offline' },
       );
     }
+    // 先收敛再推进：否则 ensureRun 会把「记录 running + 执行者还活着」直接降级成
+    // armed（看起来像用户关闭过），用户的下一条消息就会再孵一个执行者。
+    reconcileSession(sessionId);
     const makeFresh = () => ({
       phase: 'armed', dispose: undefined, used: new Set(), childId: undefined,
       pendingSupplements: [],
       hatchedSeq: undefined, watchDispose: undefined, hatchDispose: undefined, hatchAt: undefined,
+      hatchStartedAt: undefined, recovering: false,
       criticPending: false, criticRetried: false, lastCriticText: undefined, criticBase: 0,
       critiqueHistory: [],
       recoveredFrom: null,
@@ -1172,9 +1549,10 @@ export function apply(ctx, config = {}) {
     try {
       sessionId = new URL(req.url, 'http://localhost').searchParams.get('sessionId') ?? undefined;
     } catch { sessionId = undefined; }
-    // 只读：**不**调 ensureRun（它会写盘、装段、装监视器）。工作箱每 8s 轮询一次
-    // status，若在这里复活状态，用户什么都没点就会被自动重新武装。
-    // 恢复只发生在显式动作路径（/action）与会话创建兜底（agent/created）。
+    // 回包本身是只读的：phase 由**可核对的现实**算出来（见 statusOf 的真值化），
+    // 不在这里写盘。收敛（接管活执行者 / 把幽灵 running 收回待命 / 读回报告）
+    // 由 statusOf 排到微任务里跑，只纠正与记录冲突的状态，绝不会把 off 的会话
+    // 凭空武装——所以每 8s 轮询不会复活用户没开的东西。
     return json(200, statusOf(sessionId));
   });
 
