@@ -52,6 +52,37 @@ off ──开关拨开──► armed ──用户键入初始指令──► ru
   （成功静默、失败才投【补充转达失败】）；补充回合同样被压制，主页面仍无新动作。
 - **自然结算** → armed + 恰一条评估轮。角度池从用户要求原文里提取，用过不重复。
 
+## 结算自愈（v18，2026-10-30）
+
+**报障**：「后台子任务子代理结束，但前台依然处于执行中」。
+
+**现场**（同进程真会话 `session-19c360e9`）：17:46 孵化执行者 `12ac7695`，执行者
+跑到 21:20 自然 `completed`；落盘记录自 17:46 起一直 `running + childId`，主会话
+此后再没有事件——报告没回来、评估没注入、按钮与回合标签永远停在「执行中」。
+
+**根因**：在途编排（`runs`）与 `await activation.result` 都是**插件实例私产**。
+一次 profile 重载（装/更任何插件都会重建插件实例）就把两者一起丢掉；`/status` 却
+照抄落盘记录说「执行者独立工作中」。同源缺陷还有一条：`session/event` 靠
+`watchedSessions`（WeakMap）认会话，重载后为空 → 已武装的会话**收到消息也不再孵化**
+（现场 `session-ff511d07` 的连续三条消息被主 Agent 自己做了）。
+
+**修法**（`index.js` 的「结算收口与自愈」段）：
+
+1. **落盘 `childId` = 一次性结算令牌**：`clearChild` 返回「是不是我摘掉的」，只有
+   兑现方投递评估/说明——重载前后两个实例不会各投一份。
+2. **任何时候都能收敛**：`reconcileSession` 用「活的执行者 + 落盘记录」对齐现实：
+   - 执行者还在 → **接管**（重建内存簿 + 盯到它 idle 两拍），停了照常取报告评估；
+   - 执行者已结束 → 用 `sessionQuery.observeSession` 把它会话里的**收尾报告读回来**
+     照常评估；读不回来才投一条「报告未取回」的诚实说明；
+   - 记录是 `running` 但本进程根本没有这个执行者（幽灵）→ 收回 `armed` 并落盘。
+3. **`/status` 不再照抄记录**：`running` 必须有可核对的活执行者（或在孵化窗口内，
+   `HATCH_GIVE_UP_MS`=180s），否则就是 `armed`。回包新增 `build` 字段（诊断用）。
+4. **会话事件不再只认 WeakMap**：`session.id` 兜底 + 首条事件懒恢复（重载后依旧能
+   孵化）。用户正要发新消息时收敛走 `quiet`，不插话。
+
+**已知边界**：`used`（已点名角度）与 `critiqueHistory` 仍是内存态，重载后从空开始
+（失忆，但不会卡住）；真正的跨进程恢复靠执行者会话本身，不靠这些缓存。
+
 ## 入口
 
 - 工具箱（dsh-workbench）里是**开关**（与 Ultracode/REA 同款 track+thumb）：
@@ -60,7 +91,9 @@ off ──开关拨开──► armed ──用户键入初始指令──► ru
   满 1 分钟起附「已工作 X 分 Y 秒」；status 同时返回 `hatchAt`（epoch ms），客户端
   可走自己的秒表。armed 的 note 在 `hatch.ready=false` 时**提前警告**没有可用
   provider，不等用户键入任务才撞上孵化失败。
-- `GET /dsh-dual-agent/status?sessionId=…`：**只读**（不物化、不写盘、不装段）。
+- `GET /dsh-dual-agent/status?sessionId=…`：**回包只读**（算出来的是可核对的真实现
+  状，见上节）；收敛动作（接管活执行者 / 收回幽灵 running / 读回报告）排在微任务里，
+  只纠正与记录冲突的状态，不会把 `off` 的会话凭空武装。
 - `POST /dsh-dual-agent/action { sessionId, enabled? }`：开关语义按**目标状态**推进、
   幂等；不带 `enabled` 走旧式三态循环。会话不在线回 409。
 - 可编程面 `ctx.provide('dualAgent', { status, transition, readiness })`：
@@ -139,11 +172,13 @@ node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs   # 4 项全跑，退�
 （arm/status/disarm 全 200）+ 真模型探针 13 断言，**4/4 全过**；摘要落
 `<sandbox>/check-summary.json`。
 
-- 离线自测：`node host-selftest.mjs`（状态机/压制/转达/附件/开关/守卫/恢复/活性）
-  + `node source-kind-test.mjs`（真实 v4 codec）。
-
-- 离线自测：`node host-selftest.mjs`（状态机/压制/转达/附件/开关/守卫）
-  + `node source-kind-test.mjs`（真实 v4 codec）。
+- 离线自测：`node host-selftest.mjs`（状态机/压制/转达/附件/开关/守卫/恢复/活性
+  /v18 结算自愈 ㉖～㉚：幽灵 running 收敛、报告读回、重载接管活执行者、事件驱动
+  恢复、两实例只结算一次）+ `node source-kind-test.mjs`（真实 v4 codec）。
+- **真实宿主复现与修复验收**（2026-10-30 21:57，本机 GUI profile）：把插件重载到
+  `entry-v18` 后，`session-19c360e9` 的幽灵 `running` 在 `/status` 第一次轮询时
+  即显示为 `armed`；落盘记录纠正为 `armed`（无 childId）；执行者会话里的收尾报告
+  被读回，`21:57:44` 以【挑刺者评估】注入该主会话（`turn 4`），全程只注入一次。
 - **真实内核沙箱 E2E**（`_tmp/dual-agent-sandbox`，不碰本机 profile、不联网——
   假 LLM adapter `e2e-fake` 同步注册）：驱动插件用 `agents.create` +
   `dualAgent.transition` + 人类 followup 走完整内核事件流，**8 场景 79 断言

@@ -181,6 +181,41 @@ apply() 时刻 `ctx.get('webServer')` 为 **undefined**（webserver 条目后激
 - **orphan note 去重**：正文已说清「会话不在本进程」，后缀又重复一遍。
 - ㉔ 契约扩到 12 条。
 
+## 结算自愈（round 27 / v18，2026-10-30）
+
+**报障**：后台子代理结束，前台仍显示「执行中」。
+
+**实测取证**（本机 GUI profile，同一进程，未重启）：
+
+| 会话 | 现象 | 结论 |
+|---|---|---|
+| `session-19c360e9` | 17:46 孵化 `12ac7695`；执行者 21:20 `completed`；主会话自 17:46 起零事件；`/status` 一直 `running` | 幽灵 running：结算回调随插件实例消失 |
+| `session-ff511d07` | 执行者 19:16 正常结算并评估；之后 20:13/20:16/21:16 三条用户消息**没有孵化**（主 Agent 自己做了），20:43 才又孵化 | 重载后 `watchedSessions` 为空 → 不再认会话 |
+
+**根因**：`runs` 与 `await activation.result` 都是插件实例私产；profile 重载
+（`plugin_manager` 装/更任意 bundle 都会重建实例）把它们一起丢掉，落盘 `running`
+从此无人收尾。
+
+**修复**：`childId` 一次性结算令牌 + `reconcileSession` 三态收敛（接管活执行者 /
+读回已结束执行者的报告 / 幽灵 running 收回待命）+ `/status` 真值化 + 会话事件
+`session.id` 兜底懒恢复。
+
+**验证**：
+
+- `host-selftest.mjs` 扩到 **144 断言**，新增 ㉖～㉚ 共 18 条：
+  - ㉖ 幽灵 running：status 立即 `armed`、落盘纠正、只投一条「报告未取回」、重复
+    轮询不重复投；
+  - ㉗ 幽灵 + `sessionQuery` 可读：报告读回并按正常结算评估，**不**另发丢失说明，
+    observation 租约被 dispose；
+  - ㉘ 重载 + 活执行者：保持 `running` 并接管，执行者 idle 两拍后带自身报告结算；
+  - ㉙ 重载 + armed：不依赖 `agent/created`，第一条会话事件即恢复并孵化；
+  - ㉚ 两个实例同时发现同一幽灵：只结算一次（令牌互斥）。
+- **真实宿主验收**（21:57）：重载到 `entry-v18` 后，`session-19c360e9` 首次
+  `/status` 即 `armed`（`build:3.5.0+reconcile`）；落盘 `running+childId` → `armed`；
+  执行者会话里的收尾报告被读回，21:57:44 以【挑刺者评估】注入该主会话 turn 4，
+  且只注入一次。
+- **已知边界**：`used`/`critiqueHistory` 仍是内存态，重载后归零（失忆但不再卡死）。
+
 ## 一键复跑
 
 ```powershell

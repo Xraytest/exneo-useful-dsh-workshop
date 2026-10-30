@@ -4,9 +4,12 @@
 #   activation.result 驱动，把「报告原文 + 评估指令」合成**恰一条**注入主上下文，
 #   任务期间主 Agent 不再抢答汇报（真实内核沙箱 E2E 19 断言 ×3 全绿）；webServer
 #   改可选（ctx.get），新增 dualAgent 可编程服务面。本行插 host 半边。
+# v18（2026-10-30）：修「执行者已结束、前台仍执行中」——插件重载会丢在途结算，
+#   落盘 running 从此无人收尾。现在用「活的执行者 + 落盘记录」自愈：接管活执行者、
+#   读回已结束执行者的报告、幽灵 running 收回待命；childId 兼作一次性结算令牌。
 - insert:
     - id: dual-agent
-      name: './entry-v17.js'
+      name: './entry-v18.js'
       config:
         # 状态落盘位置；null/省略 = $DSH_HOME/dual-agent.json
         stateFile: null
