@@ -1064,6 +1064,41 @@
           }
         }
       ]
+    },
+    {
+      "name": "dsh-free-search",
+      "description": "免费搜索：27 个搜索引擎（Bing/DuckDuckGo/AnySearch/SearXNG/Exa/Tavily/Keenable/Firecrawl/Parallel/You.com 免 key，Perplexity/SerpBase/Baidu/Kimi/Aliyun/Doubao 需 key，OpenAI/Gemini/Claude 内置搜索仅显式调用）+ 自动智能路由 + 引擎启停与回退优先级 + 多引擎并行 multi_search + 时间过滤 + 平台搜索 + 域名黑名单 + web_fetch，带设置页 UI。上游 DDDMUC/dsh-free-search（MIT），此处为镜像收录。",
+      "author": "DDDMUC（上游）· ExNeo 镜像收录",
+      "homepage": "https://github.com/DDDMUC/dsh-free-search",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-free-search"
+      },
+      "metadata": {
+        "category": "tooling",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "web-search",
+          "free-search",
+          "multi-search"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.9.23",
+          "publishTimestamp": 1793412447,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "e8875683a14c74a3c87ed6a17c47b388ee351d1d",
+            "path": "plugins/dsh-free-search"
+          },
+          "engines": {
+            "dsh": ">=0.1.7-rc.1"
+          }
+        }
+      ]
     }
   ]
 }
