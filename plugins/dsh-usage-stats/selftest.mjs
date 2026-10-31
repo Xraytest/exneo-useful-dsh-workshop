@@ -224,7 +224,11 @@ async function sectionA() {
       ]),
     ];
     const res = fold.aggregate(sessions, { by: 'model', timeZone: 'UTC', weekStart: 1 });
-    const row = (k) => res.rows.find((r) => r.key === k);
+    // by=model 的统计键是「供应商␟模型」复合键（同一模型跨供应商各成一行），
+    // 所以按行上拆出来的 **model** 找，而不是按 key。
+    const row = (k) => res.rows.find((r) => r.model === k);
+    assert.ok(res.rows.every((r) => r.key === 'p' + fold.MODEL_KEY_SEP + r.model),
+      'by=model 的 key 必须是 provider␟model 复合键');
 
     // 单一口径：占比 = 缓存读+写 / 可测计费输入，逐项各自算
     assert.equal(row('hit').cacheShare, 900 / 1000, 'hit：900 /（100+900）');
@@ -426,13 +430,35 @@ async function sectionB(corpus) {
   notes.push(`语料：${corpus.fileCount} 个日志文件 / ${(corpus.bytes / 1048576).toFixed(1)} MB（压缩态）/ 解码 ${corpus.sessions.length} 会话`
     + (corpus.duplicateFiles > 0 ? `（另有 ${corpus.duplicateFiles} 份同会话的低世代日志，按最高世代去重）` : ''));
 
-  await test('解码：全部日志无解析错误，且每条用量事件都带 time', () => {
+  await test('解码：全部日志无解析错误，且每条**可折叠事件**都带 time', () => {
     assert.equal(corpus.errors.length, 0, JSON.stringify(corpus.errors.slice(0, 3)));
-    let bad = 0;
+    // 口径修正（2026-10-31）：本测试原样统计「所有缺 time 的行」，但旧版日志里
+    // `text-chunks / reasoning-chunks / tool-call-chunks` 这类**流分块行**只有
+    // `seq0/time0`、没有 `seq`，foldEvents 第一行就跳过它们（不是事件信封）。
+    // 把它们算进「缺 time」会让测试恒红（本机实测某会话 5171 行），从而掩盖真回归。
+    // 真正的契约是：**带 seq 的事件**（折叠会消费的）必须带 time；速率尤其依赖
+    // step/start 与 assistant/message 的时间戳，所以那几类单独点名断言。
+    const RATE_CRITICAL = new Set(['step/start', 'llm/retry-started', 'assistant/message', 'assistant/attempt', 'compaction/summary']);
+    let noTimeWithSeq = 0;
+    let legacyChunkLines = 0;
+    let rateCriticalMissing = 0;
     for (const s of corpus.sessions) for (const e of s.events) {
-      if (e.time === undefined && e.type !== 'session') bad++;
+      if (e.type === 'session') continue;
+      if (e.time !== undefined) continue;
+      if (typeof e.seq === 'number') {
+        noTimeWithSeq++;
+        if (RATE_CRITICAL.has(e.type)) rateCriticalMissing++;
+      } else if (/-chunks$/.test(e.type)) {
+        legacyChunkLines++;   // 旧格式流分块行：无 seq，不参与折叠
+      } else {
+        noTimeWithSeq++;      // 既无 seq 又不是已知分块行 → 仍算异常
+      }
     }
-    assert.equal(bad, 0, `${bad} 条事件缺 time`);
+    assert.equal(noTimeWithSeq, 0, `${noTimeWithSeq} 条带 seq 的事件缺 time（会导致事实时间为 0）`);
+    assert.equal(rateCriticalMissing, 0, '速率端点事件缺 time');
+    if (legacyChunkLines > 0) {
+      notes.push(`旧格式流分块行（无 seq，不参与折叠）：${legacyChunkLines} 行`);
+    }
   });
 
   await test('折叠 == 独立重算（逐会话计数与总量）', () => {
@@ -688,12 +714,15 @@ async function sectionD(corpus, tmpRoot) {
         + (r.stats.errors.length ? ` · 错误 ${r.stats.errors.length}` : ''));
     });
 
-    await test('路由：status / summary(五维) / export.csv 全部可用且 totals 互等', async () => {
+    await test('路由：status / summary(六维) / export.csv 全部可用且 totals 互等', async () => {
       const st = await callRoute(harness.routes, '/dsh-usage/status');
       assert.equal(st.status, 200);
       const status = jparse(st.body);
       assert.equal(status.schema, 1);
       assert.equal(status.timeZone, 'Asia/Shanghai');
+      // 速率与复合键口径必须在 status 里如实交代（界面/脚本都靠它自检版本）
+      assert.ok(status.rate && typeof status.rate.note === 'string', 'status 缺 rate 口径块');
+      assert.equal(status.rate.modelKey, 'provider' + fold.MODEL_KEY_SEP + 'model', 'status 应写明 by=model 的分桶键');
 
       let grand = null;
       for (const by of ['model', 'provider', 'session', 'day', 'week']) {
@@ -705,6 +734,35 @@ async function sectionD(corpus, tmpRoot) {
         if (grand === null) grand = payload.totals.total;
         else assert.equal(payload.totals.total, grand, `${by} 总计应一致`);
         if (by === 'session') assert.ok(payload.rows.every((row) => typeof row.key === 'string'));
+        // 每个维度都要带速率字段（缺字段 = 该版本没接入速率统计）
+        for (const row of payload.rows) {
+          assert.ok('ttftAvg' in row && 'tpsAvg' in row, `${by} 行缺速率字段：${row.key}`);
+        }
+        assert.ok('ttftAvg' in payload.totals && 'tpsAvg' in payload.totals, `${by} totals 缺速率字段`);
+        if (by === 'model') {
+          // 模型维：key 必须是复合键，且 provider / model 两个拆分值都在行上。
+          // **供应商标注的判据 = 展示名会不会撞车**（同名多渠道，或多个请求名解析出同一
+          // 展示名）；不撞车就不标注（噪声）。
+          const aliasCount = new Map();
+          for (const row of payload.rows) aliasCount.set(row.alias, (aliasCount.get(row.alias) || 0) + 1);
+          for (const row of payload.rows) {
+            assert.ok(String(row.key).includes(fold.MODEL_KEY_SEP), `模型维 key 应是复合键：${row.key}`);
+            assert.equal(row.key, row.provider + fold.MODEL_KEY_SEP + row.model, `复合键与拆分值不一致：${row.key}`);
+            const collide = (aliasCount.get(row.alias) || 0) > 1 || row.sharedModel === true;
+            assert.equal(typeof row.sharedLabel, 'boolean', `行上应有 sharedLabel 判定：${row.key}`);
+            assert.equal(row.sharedLabel, collide, `sharedLabel 应与「展示名会撞车」一致：${row.key}`);
+            if (collide) {
+              assert.ok(String(row.label).includes(' @ '), `撞车的行必须注明供应商：${row.label}`);
+            } else {
+              assert.ok(!String(row.label).includes(' @ '),
+                `不撞车的行不该标注供应商（噪声）：${row.label}`);
+            }
+          }
+          // 分区一致性：速率字段与用量字段在同一批行上（同一分组口径）
+          for (const row of payload.rows) {
+            assert.ok('ttftAvg' in row && 'tpsAvg' in row, `模型条目缺速率字段：${row.key}`);
+          }
+        }
       }
       const csv = await callRoute(harness.routes, '/dsh-usage/export.csv', { query: 'by=model' });
       assert.equal(csv.status, 200);
@@ -712,16 +770,21 @@ async function sectionD(corpus, tmpRoot) {
       const lines = csv.body.trim().split('\n');
       assert.ok(lines.length > 1, 'CSV 至少一行数据');
       // 缓存占比两列**追加在末尾**（前 10 列与历史导出逐列一致，位置解析器不受影响）；
-      // cacheShare 为 null 时该格留空，不能写 0。
+      // cacheShare 为 null 时该格留空，不能写 0。再往后是复合键拆分值与速率列。
       assert.deepEqual(lines[0].split(','), [
         'key', 'label', 'calls', 'input', 'output', 'cacheRead', 'cacheWrite',
         'reasoning', 'total', 'sessions', 'cacheShare', 'cacheCoverage',
+        'provider', 'model',
+        'ttftAvgSec', 'ttftMedianSec', 'ttftMinSec', 'ttftMaxSec', 'ttftSamples', 'ttftExcluded',
+        'tpsAvg', 'tpsMean', 'tpsMedian', 'tpsSamples', 'tpsExcluded',
       ]);
-      for (const line of lines.slice(1)) assert.equal(line.split(',').length, 12, `CSV 列数不符：${line}`);
+      const CSV_COLS = 25;
+      for (const line of lines.slice(1)) assert.equal(line.split(',').length, CSV_COLS, `CSV 列数不符：${line}`);
       const modelPayload = jparse((await callRoute(harness.routes, '/dsh-usage/summary', { query: 'by=model' })).body);
       // 逐行比对两列：null 必须留空（不是 0）。--quick 抽样可能一条「无缓存数据」都没有，
       // 所以在有 null 行时额外显式断言一次留空。
       let sawNull = 0;
+      let sawRate = 0;
       for (const r of modelPayload.rows) {
         const line = lines.find((l) => l.startsWith(r.key + ','));
         assert.ok(line !== undefined, `CSV 应有该行：${r.key}`);
@@ -730,6 +793,19 @@ async function sectionD(corpus, tmpRoot) {
           `第 11 列 cacheShare 与接口不一致：${r.key}`);
         assert.equal(cells[11], r.cacheCoverage === null || r.cacheCoverage === undefined ? '' : (r.cacheCoverage * 100).toFixed(2),
           `第 12 列 cacheCoverage 与接口不一致：${r.key}`);
+        // 第 13/14 列：复合键的两个拆分值（供应商 / 请求名）
+        assert.equal(cells[12], r.provider, `第 13 列 provider 不一致：${r.key}`);
+        assert.equal(cells[13], r.model, `第 14 列 model 不一致：${r.key}`);
+        // 速率列：无样本必须留空，不能写 0（0 tok/s 与「没有数据」是两件事）
+        const secCell = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(3) : '');
+        const rateCell = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : '');
+        assert.equal(cells[14], secCell(r.ttftAvg), `ttftAvgSec 列不一致：${r.key}`);
+        assert.equal(cells[20], rateCell(r.tpsAvg), `tpsAvg 列不一致：${r.key}`);
+        if (r.tpsAvg === null || r.tpsAvg === undefined) {
+          assert.equal(cells[20], '', `无 TPS 样本必须留空：${line}`);
+        } else {
+          sawRate++;
+        }
         if (r.cacheShare === null) {
           sawNull++;
           // 「无缓存数据」行：占比必须留空（绝不写 0），但覆盖度是真实的 0.00
@@ -744,6 +820,8 @@ async function sectionD(corpus, tmpRoot) {
       // 全量语料里必然存在「无缓存数据」的模型（该渠道从不上报缓存字段），
       // 这条断言确保上面那段留空检查真的被走到过，而不是空转。
       if (modelPayload.rows.length >= 8) assert.ok(sawNull > 0, '全量语料应至少有一个「无缓存数据」的模型行');
+      // 同理：语料里必然有带 stream 时间戳的调用，速率列不能整片空转。
+      if (modelPayload.rows.length >= 8) assert.ok(sawRate > 0, '全量语料应至少有一个带 TPS 样本的模型行');
     });
 
     await test('路由：range=1d 过滤生效；rescan 需要同源', async () => {
@@ -905,7 +983,7 @@ async function sectionE(corpus) {
   section('E 浏览器半边（图表结构渲染 + 模型别名）');
 
   const { charts } = loadClientCharts();
-  const { TimeChart, HBars, Donut, HoverLine, Legend, CacheBars, CacheDetail, KeyCell, niceMax, shortNum, SERIES, css } = charts;
+  const { TimeChart, HBars, Donut, HoverLine, Legend, CacheBars, CacheDetail, KeyCell, RatePanel, RateTableRow, niceMax, shortNum, SERIES, css } = charts;
 
   // 真实聚合行（有语料就折前 30 个会话当样本，否则用合成会话）
   const sessions = corpus && corpus.sessions && corpus.sessions.length > 0
@@ -1089,22 +1167,22 @@ async function sectionE(corpus) {
     assert.deepEqual(readView(mk('{不是 JSON')), VIEW_DEFAULTS, '坏 JSON → 默认视图');
     assert.deepEqual(readView(mk('"model"')), VIEW_DEFAULTS, '字符串 → 默认视图');
     assert.deepEqual(readView(mk('[1,2,3]')), VIEW_DEFAULTS, '数组 → 默认视图');
-    assert.deepEqual(readView(mk('{"by":"hack","range":"9d","showCache":"yes","showTable":null}')), VIEW_DEFAULTS,
+    assert.deepEqual(readView(mk('{"by":"hack","range":"9d","showCache":"yes","showTable":null,"showRate":1}')), VIEW_DEFAULTS,
       '非法取值必须逐项丢掉（一个坏 by 会让页面报「host 未接入该维度」）');
     assert.deepEqual(readView(mk('{"__proto__":{"polluted":1}}')), VIEW_DEFAULTS, '__proto__ 不进结果');
     assert.equal({}.polluted, undefined, '不得污染 Object 原型');
 
     // 合法值原样恢复（subagents 的合法取值包含 null，不能按 falsy 丢）
     const store = mk();
-    assert.equal(writeView({ by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true }, store), true);
+    assert.equal(writeView({ by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true, showRate: false }, store), true);
     assert.deepEqual(readView(store), {
-      by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true,
+      by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true, showRate: false,
     });
     assert.deepEqual(readView(mk('{"subagents":null}')).subagents, null, '显式 null 是合法取值');
     // 只写白名单键；存储抛错不炸（隐私模式 / 配额满）
     writeView({ by: 'day', evil: 123, __proto__: { x: 1 } }, store);
     assert.deepEqual(Object.keys(JSON.parse(store.raw())).sort(),
-      ['by', 'range', 'shareMode', 'showCache', 'showTable', 'subagents', 'timeMode'], '只写白名单键');
+      ['by', 'range', 'shareMode', 'showCache', 'showRate', 'showTable', 'subagents', 'timeMode'], '只写白名单键');
     const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
     assert.deepEqual(readView(broken), VIEW_DEFAULTS, '读取抛错 → 默认视图');
     assert.equal(writeView({ by: 'day' }, broken), false, '写入抛错 → 返回 false，不抛');
@@ -1112,17 +1190,36 @@ async function sectionE(corpus) {
   });
 
   await test('命中率：点名称弹窗看单项，总表默认关且排在数值表后明细表前', () => {
-    const { CacheDetail, KeyCell, CacheBars, orderedPanels, VIEW_DEFAULTS } = charts;
+    const { CacheDetail, KeyCell, CacheBars, RatePanel, RateTableRow, orderedPanels, VIEW_DEFAULTS, ttftOf, tpsOf, secText, tpsText } = charts;
     const strong = {
-      key: 'm1', label: 'NvidiaDeepSeekV4.1', model: 'deepseek-ai/deepseek-v4.1-flash',
+      key: 'localhost' + fold.MODEL_KEY_SEP + 'm1', label: 'NvidiaDeepSeekV4.1 @ NewAPIGate',
+      model: 'deepseek-ai/deepseek-v4.1-flash',
+      provider: 'localhost', providerLabel: 'NewAPIGate',
+      // 展示名会与其他条目撞车（本机实测：三个不同写法的 deepseek 变体都显示成同一个名字）
+      sharedLabel: true, sharedModel: true, modelProviders: ['localhost', 'other-gw'],
       calls: 100, sessions: 3, input: 1000, output: 50, cacheRead: 9000, cacheWrite: 0,
       reasoning: 0, total: 10050, cacheKnown: true, cacheShare: 0.9, cacheCoverage: 0.9,
       cacheUnknownInput: 1000, providers: ['localhost'], settingsName: 'NvidiaDeepSeekV4.1',
+      // 速率字段（host 的 rateMetrics 形状；分区后**不进**命中率弹窗）
+      ttftAvg: 4.25, ttftMedian: 3.1, ttftMin: 0.2, ttftMax: 48, ttftSamples: 92, ttftExcluded: 3,
+      tpsAvg: 118.4, tpsMean: 121.7, tpsMedian: 125, tpsSamples: 80, tpsExcluded: 1,
+    };
+    const solo = {
+      // 独家模型（只有一个渠道在用的写法）：名称本身就唯一，不该出现供应商后缀
+      key: 'onlyone' + fold.MODEL_KEY_SEP + 'solo-model', label: 'Solo Model',
+      model: 'solo-model', provider: 'onlyone', providerLabel: 'OnlyOne',
+      sharedLabel: false, sharedModel: false, modelProviders: ['onlyone'],
+      calls: 4, sessions: 2, input: 100, output: 5, cacheRead: 0, cacheWrite: 0,
+      reasoning: 0, total: 105, cacheKnown: false, cacheShare: null, cacheCoverage: 0,
+      cacheUnknownInput: 100, providers: ['onlyone'], settingsName: null,
+      ttftAvg: 1.2, ttftMedian: 1.1, ttftMin: 0.5, ttftMax: 2, ttftSamples: 4, ttftExcluded: 0,
+      tpsAvg: 60, tpsMean: 62, tpsMedian: 61, tpsSamples: 3, tpsExcluded: 0,
     };
     const none = {
       key: 'x', label: 'MS 路由', calls: 5, sessions: 1, input: 500, output: 1,
       cacheRead: 0, cacheWrite: 0, total: 501, cacheKnown: false, cacheShare: null,
       cacheCoverage: 0, cacheUnknownInput: 500,
+      ttftAvg: null, ttftMedian: null, ttftSamples: 0, tpsAvg: null, tpsMean: null, tpsMedian: null, tpsSamples: 0,
     };
 
     // 名称是按钮，点了把该行交给 onPick（弹窗由上层用这一行打开）
@@ -1141,6 +1238,9 @@ async function sectionE(corpus) {
     const modalTree = CacheDetail({ row: strong, by: 'model', dimName: '模型', onClose: () => {} });
     const html = toHtml(modalTree);
     assert.ok(html.includes('90.0%'), '显示该项自己的命中率');
+    // 名称里绝不能出现复合键的分隔符（复合键只在数据层，界面一律用拆分值）
+    assert.ok(!html.includes(fold.MODEL_KEY_SEP), '弹窗不得把复合键画到屏幕上');
+    assert.ok(html.includes('NewAPIGate'), '模型维弹窗要标出供应商（展示名优先）');
     const covers = [];
     const kvKeys = [];
     walk(modalTree, (n) => {
@@ -1155,9 +1255,16 @@ async function sectionE(corpus) {
     for (const k of ['调用次数', '会话数', '计费输入', '可测输入', '未上报输入', '未命中输入', '缓存读', '缓存写', '输出', '总计']) {
       assert.ok(kvKeys.includes(k), '弹窗缺少数值项：' + k);
     }
-    for (const k of ['请求名', '模型设置名', '供应商']) {
+    // **用量与速率完全分区**：命中率弹窗里不得出现任何速率项（速率看独立的「速率区」）
+    for (const k of ['平均 TTFT', 'TTFT 中位', '平均 TPS', 'TPS 中位', '速率样本', '剔除点']) {
+      assert.ok(!kvKeys.includes(k), '命中率弹窗不该混入速率项（分区）：' + k);
+    }
+    for (const k of ['请求名', '模型设置名']) {
       assert.ok(kvKeys.includes(k), '模型维缺少信息项：' + k);
     }
+    assert.ok(kvKeys.includes('供应商（展示名会与其他条目撞车）'),
+      '撞车条目要说明是哪一家');
+    assert.ok(!toHtml(modalTree).includes('tok/s'), '弹窗不得出现速率单位（分区）');
     // 会话维给的是另一组信息项
     const sessKeys = [];
     walk(CacheDetail({
@@ -1197,18 +1304,74 @@ async function sectionE(corpus) {
     const bars = CacheBars({ rows: [strong, none], limit: 20 });
     assert.equal(findAll(bars, 'button').length, 2, '总表两行各一个可点名称');
 
-    // 版块顺序：数值表 → 命中率总表 → 明细表；总表关掉时不占位
+    // 速率区（独立成区）：合计两张卡 + 逐项速率表；无数据画「—」而不是 0。
+    const rateTree = RatePanel({ rows: [strong, none], limit: 50, totals: strong, by: 'model', onPick: () => {} });
+    const rateHtml = toHtml(rateTree);
+    assert.ok(rateHtml.includes(secText(strong.ttftAvg)), '速率区要有平均 TTFT');
+    assert.ok(rateHtml.includes(tpsText(strong.tpsAvg)), '速率区要有平均 TPS');
+    assert.equal(findAll(rateTree, 'button').length, 2, '速率区每行名称可点');
+    assert.equal(findAll(rateTree, 'tr').length, 3, '表头一行 + 两条数据行');
+    assert.ok(rateHtml.includes('可测速率 1 / 2 项'), '图例要如实报可测项数');
+    assert.deepEqual(nonFiniteNumbers(rateTree), []);
+    // **分区**：速率区里不得出现 token 用量列（输入/输出/缓存读/缓存写/总计）
+    const rateHead = findAll(rateTree, 'th').map((n) => [].concat(n.props.children).join(''));
+    for (const banned of ['输入', '输出', '缓存读', '缓存写', '推理', '总计', '缓存占比', '会话', '占比']) {
+      assert.ok(!rateHead.includes(banned), `速率区不该有用量列「${banned}」：${rateHead.join('/')}`);
+    }
+    for (const need of ['平均TTFT', '中位TTFT', '平均TPS', '中位TPS', '样本', '剔除']) {
+      assert.ok(rateHead.includes(need), `速率区缺列「${need}」`);
+    }
+    // 无数据的行：数值是「—」，不当 0
+    const onlyNone = RatePanel({ rows: [none], limit: 50, totals: none, by: 'model' });
+    const onlyNoneHtml = toHtml(onlyNone);
+    assert.ok(onlyNoneHtml.includes('无数据'), '合计卡要说明这一项无速率数据');
+    assert.ok(!/\b0\.0 tok\/s/.test(onlyNoneHtml), '无数据不得渲染成 0 tok/s');
+    assert.deepEqual(nonFiniteNumbers(onlyNone), []);
+    assert.equal(typeof RateTableRow({ row: strong }), 'object');
+    // 独家模型（展示名唯一）：**列表/副行/悬停都不标注供应商**，但数据层仍保留拆分值
+    const soloTree = RatePanel({ rows: [solo], limit: 50, totals: solo, by: 'model' });
+    const soloHtml = toHtml(soloTree);
+    assert.ok(soloHtml.includes('Solo Model'), '独家模型显示自己的名字');
+    assert.ok(!soloHtml.includes('Solo Model @ '), '独家模型不标注渠道（噪声）');
+    assert.ok(soloHtml.includes(fold.MODEL_KEY_SEP) === false, '复合键分隔符不得出现在页面上');
+    // 撞车条目的副行才给「供应商 · 请求名」
+    const collideTree = RatePanel({ rows: [strong], limit: 50, totals: strong, by: 'model' });
+    assert.ok(toHtml(collideTree).includes('NewAPIGate · deepseek-ai/deepseek-v4.1-flash'),
+      '撞车条目副行标注供应商与请求名');
+    // 极值裁剪是**真发生**的：超 5 分钟的 TTFT 不进均值，但仍计入剔除数
+    const bigFact = (ms, gen, out) => fold.makeFact('step', 0, 'p', 'm', { outputTokens: out }, { r: { f: ms, g: gen, o: out } });
+    const polluted = fold.aggregate([{
+      id: 'x', meta: {},
+      logFacts: [bigFact(1000, 2000, 200), bigFact(600000, 2000, 200)], auxFacts: [],
+    }], { by: 'model', timeZone: 'UTC' }).rows[0];
+    assert.equal(polluted.ttftSamples, 1, '3 小时那条不得进均值');
+    assert.equal(polluted.ttftExcluded, 1, '被裁掉的条数必须如实计数');
+    assert.equal(polluted.ttftAvg, 1, '均值只算界内样本（1000 ms = 1 s）');
+
+    // 版块顺序（**用量与速率完全分区**）：
+    //   用量区：图表 → 命中率总表（可选）→ 用量明细表（可选）；速率区排在整块用量之后
     const panel = (t) => ({ type: 'div', props: { children: [t] } });
     const seq = (o) => orderedPanels(o).map((n) => n.props.children[0]).join(' → ');
-    assert.equal(seq({ chartCard: panel('图表'), cacheCard: panel('命中率'), table: panel('明细'), showCache: true, showTable: true }),
-      '图表 → 命中率 → 明细', '命中率总表夹在数值表与明细表之间');
-    assert.equal(seq({ chartCard: panel('图表'), cacheCard: panel('命中率'), table: panel('明细'), showCache: false, showTable: true }),
-      '图表 → 明细', '默认不显示总表');
+    assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), cacheCard: panel('命中率'), table: panel('明细'), showRate: true, showCache: true, showTable: true }),
+      '图表 → 命中率 → 明细 → 速率', '速率区独立成区，排在整个用量区之后');
+    assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), cacheCard: panel('命中率'), table: panel('明细'), showRate: true, showCache: false, showTable: true }),
+      '图表 → 明细 → 速率', '命中率总表关掉时不占位');
+    assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), cacheCard: panel('命中率'), table: panel('明细'), showRate: false, showCache: true, showTable: true }),
+      '图表 → 命中率 → 明细', '速率区关掉时只剩用量区');
+    assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), cacheCard: panel('命中率'), table: panel('明细'), showRate: false, showCache: false, showTable: true }),
+      '图表 → 明细', '两块都关时只剩明细表');
     assert.equal(seq({ chartCard: panel('图表'), cacheCard: panel('命中率'), table: panel('明细'), showCache: true, showTable: false }),
       '图表 → 命中率', '只关明细表时总表照常显示');
     assert.equal(seq({ chartCard: panel('图表'), cacheCard: null, table: null, showCache: true, showTable: true }), '图表');
     assert.equal(VIEW_DEFAULTS.showCache, false, '命中率总表默认关（单项走弹窗）');
+    assert.equal(VIEW_DEFAULTS.showRate, true, '速率总表默认开（TTFT/TPS 是本版主指标，需横向比较）');
     assert.equal(VIEW_DEFAULTS.showTable, true, '明细表默认开');
+    // 速率取值助手：null 与 0 是两件事
+    assert.equal(ttftOf({ ttftAvg: null }), null, '无样本 → null');
+    assert.equal(ttftOf({}), null, '字段缺失（旧 host）→ null，不抛');
+    assert.equal(tpsOf({ tpsAvg: 0 }), 0, '真实 0 tok/s 不能被当成无数据');
+    assert.equal(secText(null), '—', '无数据统一显示「—」');
+    assert.equal(String(ttftOf(none)), 'null');
 
     // 弹窗按 key 绑定到**当前**数据，而不是打开时的行快照：
     // 刷新/回填会把行对象整体换掉，存快照会让弹窗一直显示旧数字。
@@ -1247,9 +1410,13 @@ async function sectionE(corpus) {
       ['Esc 监听拆装', "window.removeEventListener('keydown', onKey)"],
       ['换页签 / 换范围关闭弹窗', "React.useEffect(() => { setDetailKey(null); }, [query]);"],
       ['弹窗行按 key 从当前数据取（不是快照）', "rowByKey(rows, detailKey)"],
-      ['视图偏好落盘', "writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache });"],
+      ['视图偏好落盘', "writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache, showRate });"],
       ['初值从存档恢复', "React.useMemo(() => readView(), [])"],
       ['两个开关都在工具条上', "'命中率总表'"],
+      ['速率区开关在工具条上', "'速率区'"],
+      ['速率区接进版块顺序', 'rateCard,'],
+      ['用量表不含速率列（分区）', "const COLS = ['调用', '输入', '输出', '缓存读', '缓存写', '推理', '总计', '缓存占比', '会话']"],
+      ['速率区表列独立定义', "const RATE_COLS = ['调用', '样本', '平均TTFT'"],
     ];
     for (const [name, needle] of must) assert.ok(src.includes(needle), 'client.js 缺少接线：' + name);
     // 只扫**代码**：注释里正好会写到「不是 h(KeyCell, …)」这种解释，别把注释当代码。
@@ -1280,6 +1447,13 @@ async function sectionE(corpus) {
         by: 'model', dimName: '模型', onClose: () => {},
       }),
       KeyCell({ row: modelRows[0] || { key: 'k', label: 'k' }, onPick: () => {} }),
+      // 速率区也必须纳入（它复用 ust-table / ust-card / ust-chart-card 等既有 class，
+      // 漏掉就等于这些列在新场景下没被 CSS 覆盖核对过——上一轮的教训见上面注释）。
+      RatePanel({ rows: modelRows.slice(0, 3).map((r, i) => Object.assign({}, r, i === 0
+        ? { ttftAvg: 3.2, ttftMedian: 2.1, ttftMin: 0.4, ttftMax: 9, ttftSamples: 10, ttftExcluded: 1, tpsAvg: 120, tpsMean: 118, tpsMedian: 125, tpsSamples: 8, tpsExcluded: 2 }
+        : { ttftAvg: null, ttftMedian: null, ttftMin: null, ttftMax: null, ttftSamples: 0, ttftExcluded: 0, tpsAvg: null, tpsMean: null, tpsMedian: null, tpsSamples: 0, tpsExcluded: 0 })), limit: 20, totals: modelRows[0] || {}, by: 'model' }),
+      HoverLine({ row: Object.assign({}, dayRows[0], { cacheKnown: false, cacheShare: null, cacheCoverage: 0 }), cumulative: 1 }),
+      HBars({ rows: modelRows.slice(0, 3).map((r) => Object.assign({}, r, { provider: 'p', providerLabel: 'P', sharedLabel: true, ttftAvg: 2, tpsAvg: 80 })), limit: 20 }),
     ];
     const missing = new Set();
     for (const tree of trees) {
@@ -1372,26 +1546,77 @@ async function sectionE(corpus) {
       });
       // 刷新前（索引未建）：退回旧链（内置表）
       let payload = handle.summaryPayload(new URLSearchParams('by=model'));
-      let row = payload.rows.find((r) => r.key === 'deepseek-ai/deepseek-v4.1-flash');
-      assert.equal(row.label, 'DeepSeek V4.1 Flash', '刷新前走内置表');
+      // by=model 的统计键是「供应商␟请求名」，行上另给 provider / model 两个拆分值
+      const findModel = (name, prov) => payload.rows.find((r) => r.model === name && (!prov || r.provider === prov));
+      let row = findModel('deepseek-ai/deepseek-v4.1-flash');
+      assert.equal(row.alias, 'DeepSeek V4.1 Flash', '刷新前走内置表');
+      // 该 fixture 里这个模型**只有一家用** → 新契约不标注供应商（独家加后缀是噪声）
+      assert.equal(row.label, 'DeepSeek V4.1 Flash', '独家模型不标注供应商');
+      assert.equal(row.sharedLabel, false, '展示名唯一 → sharedLabel=false');
+      assert.equal(row.provider, 'p1', '行上仍要带供应商拆分值（数据层不丢信息）');
       assert.equal(row.settingsName, null);
       // 刷新后：模型设置展示名接管标注
       await handle.refreshModelNames(true);
       payload = handle.summaryPayload(new URLSearchParams('by=model'));
-      row = payload.rows.find((r) => r.key === 'deepseek-ai/deepseek-v4.1-flash');
-      assert.equal(row.label, 'NvidiaDeepSeekV4.1', '刷新后用模型设置展示名');
-      assert.equal(row.alias, 'NvidiaDeepSeekV4.1');
+      row = findModel('deepseek-ai/deepseek-v4.1-flash');
+      assert.equal(row.alias, 'NvidiaDeepSeekV4.1', '刷新后用模型设置展示名');
+      // 这个 fixture 里该模型只有 p1 一家用 → 名称唯一，不标注供应商
+      assert.equal(row.label, 'NvidiaDeepSeekV4.1', '独家模型刷新后同样不标注');
+      assert.equal(row.sharedLabel, false);
+      // 但拆分值仍是 displayName（撞车时才会用到它做注记）
+      assert.equal(row.providerLabel, '一号供应', 'providerLabel 取模型设置的 displayName');
       assert.equal(row.settingsName, 'NvidiaDeepSeekV4.1');
-      assert.equal(row.model, 'deepseek-ai/deepseek-v4.1-flash', '统计键仍是请求名');
-      const step = payload.rows.find((r) => r.key === 'step-5-preview');
-      assert.equal(step.label, 'Step 5 Preview', 'name=id 视为未配置 → 内置表');
+      assert.equal(row.model, 'deepseek-ai/deepseek-v4.1-flash', '请求名原样留在行上');
+      assert.equal(row.key, 'p1' + fold.MODEL_KEY_SEP + 'deepseek-ai/deepseek-v4.1-flash', 'key 是复合键');
+      const step = findModel('step-5-preview');
+      assert.equal(step.alias, 'Step 5 Preview', 'name=id 视为未配置 → 内置表');
       assert.equal(step.settingsName, null);
-      const m1 = payload.rows.find((r) => r.key === 'm-one');
-      assert.equal(m1.label, '设置名甲');
+      const m1 = findModel('m-one');
+      assert.equal(m1.alias, '设置名甲');
+      // **正面钉住标注行为**：同一个请求名挂在两家供应商时，两行都必须注明供应商，
+      // 且用的是各自 displayName（不是原始 key）；两家的量各自独立。
+      const dupState = fold.createFoldState();
+      fold.foldEvents(dupState, [
+        ev(0, 'request/header', { header: { config: { provider: 'p1', model: 'dup-model' } } }, T0),
+        ev(1, 'assistant/message', { usage: { inputTokens: 10, outputTokens: 1 } }, T0 + 1),
+        ev(2, 'request/header', { header: { config: { provider: 'p2', model: 'dup-model' } } }, T0 + 2),
+        ev(3, 'assistant/message', { usage: { inputTokens: 20, outputTokens: 2 } }, T0 + 3),
+      ]);
+      handle.store.entries.set('names-dup', {
+        id: 'names-dup', source: 'live', header: {}, sizeBytes: 0, foldedAt: Date.now(), state: dupState,
+      });
+      const dupPayload = handle.summaryPayload(new URLSearchParams('by=model'));
+      const dups = dupPayload.rows.filter((r) => r.model === 'dup-model');
+      assert.equal(dups.length, 2, '同一请求名跨两家 → 两行（不合并）');
+      for (const d of dups) {
+        assert.equal(d.sharedModel, true, '同名多渠道 → sharedModel=true');
+        assert.equal(d.sharedLabel, true, '同名多渠道 → sharedLabel=true（要标注）');
+        assert.ok(String(d.label).includes(' @ '), `撞车行必须注明供应商：${d.label}`);
+      }
+      const dupA = dups.find((r) => r.provider === 'p1');
+      const dupB = dups.find((r) => r.provider === 'p2');
+      assert.ok(dupA.label.endsWith('@ 一号供应'), `p1 行用 displayName 注记：${dupA.label}`);
+      // p2 的 displayName 未配置（=id）→ 注记退回 provider key 本身
+      assert.ok(dupB.label.endsWith('@ p2'), `p2 无 displayName 时用原 key：${dupB.label}`);
+      assert.equal(dupA.total, 11, 'p1 只含自己的量');
+      assert.equal(dupB.total, 22, 'p2 只含自己的量');
+      assert.notEqual(dupA.key, dupB.key, '复合键把两家分开');
+      handle.store.entries.delete('names-dup');
       // 供应商维度：displayName 接管 label
       const byProv = handle.summaryPayload(new URLSearchParams('by=provider'));
       const p1row = byProv.rows.find((r) => r.key === 'p1');
       assert.equal(p1row.label, '一号供应', '供应商行用 displayName');
+      // 未配置 displayName（=id）的供应商保持原 key（这里造一条 p2 用量验证）
+      const p2state = fold.createFoldState();
+      fold.foldEvents(p2state, [
+        ev(0, 'request/header', { header: { config: { provider: 'p2', model: 'm-x' } } }, T0),
+        ev(1, 'assistant/message', { usage: { inputTokens: 3, outputTokens: 1 } }, T0 + 1),
+      ]);
+      handle.store.entries.set('names-p2', {
+        id: 'names-p2', source: 'live', header: {}, sizeBytes: 0, foldedAt: Date.now(), state: p2state,
+      });
+      const byProv2 = handle.summaryPayload(new URLSearchParams('by=provider'));
+      assert.equal(byProv2.rows.find((r) => r.key === 'p2').label, 'p2', 'displayName 未配置则保持原 key');
       // status：模型设置索引可见
       const status = handle.statusPayload();
       assert.equal(status.modelSettings.available, true);
@@ -1436,8 +1661,12 @@ async function sectionE(corpus) {
         await handle.ensureModelNames();       // 不抛、不挂
         await handle.refreshModelNames(true);  // 同上
         const payload = handle.summaryPayload(new URLSearchParams('by=model'));
-        assert.equal(payload.rows[0].label, 'DeepSeek V4.1 Flash', '无索引时回退内置表');
-        assert.equal(payload.rows[0].settingsName, null);
+        assert.equal(payload.rows[0].alias, 'DeepSeek V4.1 Flash', '无索引时回退内置表');
+        // 只有一个渠道在用 → 不标注供应商（拆分值仍在行上）
+        assert.equal(payload.rows[0].label, 'DeepSeek V4.1 Flash', '独家模型不标注渠道');
+        assert.equal(payload.rows[0].providerLabel, 'p', 'providerLabel 仍如实给出（无 displayName 时=原 key）');
+        assert.equal(payload.rows[0].sharedLabel, false);
+        assert.equal(payload.rows[0].settingsName, null, '索引不可用 → settingsName 为 null');
         const status = handle.statusPayload();
         assert.equal(status.modelSettings.available, false, 'status 应如实报告索引不可用');
         harness.disposers.forEach((d) => { try { d(); } catch { /* ignore */ } });
@@ -1448,7 +1677,7 @@ async function sectionE(corpus) {
     }
   });
 
-  await test('别名：只换显示名，统计键仍是请求名（不合并不同写法）', async () => {
+  await test('别名：只换显示名，统计键是「供应商␟请求名」（不同写法与不同家都不合并）', async () => {
     // 独立 DSH_HOME：否则会读到真实账本（那是 190+ 个会话的模型行）
     const prevHome = process.env.DSH_HOME;
     process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-usage-alias-'));
@@ -1456,7 +1685,7 @@ async function sectionE(corpus) {
     const harness = fakeCtx([], []);
     const handle = createUsageStats(harness.ctx, {
       timeZone: 'Asia/Shanghai', autoBackfill: false, flushIntervalMs: 60000,
-      modelAliases: { 'm-one': '一号模型' },   // 键 = 请求名（模型维的 key 就是它）
+      modelAliases: { 'm-one': '一号模型' },   // 别名表的键 = **请求名**（不是复合键）
     });
     const state = fold.createFoldState();
     fold.foldEvents(state, [
@@ -1464,6 +1693,9 @@ async function sectionE(corpus) {
       ev(1, 'assistant/message', { usage: { inputTokens: 10, outputTokens: 1 } }, T0 + 1),
       ev(2, 'request/header', { header: { config: { provider: 'p', model: 'M-One' } } }, T0 + 2),
       ev(3, 'assistant/message', { usage: { inputTokens: 20, outputTokens: 2 } }, T0 + 3),
+      // 同一请求名挂在**另一个供应商**下：必须独立成行，不跟 p 的那行合并
+      ev(4, 'request/header', { header: { config: { provider: 'q', model: 'm-one' } } }, T0 + 4),
+      ev(5, 'assistant/message', { usage: { inputTokens: 40, outputTokens: 4 } }, T0 + 5),
     ]);
     // 直接把折叠结果塞进账本（summaryPayload → buildSessions 读的就是 store.entries）
     handle.store.entries.set('alias-s', {
@@ -1471,21 +1703,153 @@ async function sectionE(corpus) {
     });
     const payload = handle.summaryPayload(new URLSearchParams('by=model'));
     const rows = payload.rows;
-    assert.equal(rows.length, 2, '大小写不同的请求名必须各自成行');
-    // 模型维的键就是请求名本身（不含 provider 前缀）
-    const one = rows.find((r) => r.key === 'm-one');
-    const two = rows.find((r) => r.key === 'M-One');
-    assert.ok(one && two, `未找到两行：${rows.map((r) => r.key).join(', ')}`);
-    assert.equal(one.label, '一号模型');
+    assert.equal(rows.length, 3, '大小写不同的请求名各自成行；同名模型跨供应商也各自成行');
+    const one = rows.find((r) => r.key === 'p' + fold.MODEL_KEY_SEP + 'm-one');
+    const two = rows.find((r) => r.key === 'p' + fold.MODEL_KEY_SEP + 'M-One');
+    const three = rows.find((r) => r.key === 'q' + fold.MODEL_KEY_SEP + 'm-one');
+    assert.ok(one && two && three, `未找到三行：${rows.map((r) => r.key).join(', ')}`);
+    // m-one 挂在 p 与 q 两家 → 展示名「一号模型」撞车，两行都必须注明供应商
+    assert.equal(one.label, '一号模型 @ p', '撞车条目：别名照常生效 + 附注供应商');
+    assert.equal(one.sharedModel, true, '同名多渠道 → sharedModel');
+    assert.equal(one.sharedLabel, true, '展示名撞车 → sharedLabel');
     assert.equal(one.model, 'm-one', '行上应保留请求名');
-    assert.equal(two.label, 'M One', '未配别名的一侧走兜底');
+    assert.equal(one.provider, 'p', '行上应保留供应商');
+    // M-One 只有 p 一家、且美化后的展示名「M One」在当前视图里唯一 → 不标注渠道
+    assert.equal(two.label, 'M One', '未配别名的一侧走兜底美化；展示名唯一 → 不标注供应商');
+    assert.equal(two.sharedLabel, false, '不撞车 → sharedLabel=false');
     assert.equal(two.model, 'M-One');
+    assert.equal(two.provider, 'p', '拆分值仍保留（数据层不丢信息）');
+    // 跨供应商拆分：q 家的 m-one 与 p 家的 m-one 各算各的量，互不污染
+    assert.equal(three.total, 44, 'q 家只含自己的调用');
+    assert.equal(one.total, 11, 'p 家只含自己的调用');
+    assert.equal(three.label, '一号模型 @ q', '同一别名在不同供应商下各成一行');
+    assert.notEqual(three.key, one.key, '复合键必须把两家分开');
     assert.equal(payload.totals.total, rows.reduce((a, r) => a + r.total, 0));
     harness.disposers.forEach((d) => { try { d(); } catch { /* ignore */ } });
     } finally {
       try { fs.rmSync(process.env.DSH_HOME, { recursive: true, force: true }); } catch { /* ignore */ }
       if (prevHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = prevHome;
     }
+  });
+
+  await test('速率：TTFT / TPS 从 stream 时间戳折出，均值带中位数与上界裁剪', () => {
+    const T = Date.UTC(2026, 9, 8, 0, 0);
+    const mkCall = (seq, turn, step, startD, firstD, lastD, out) => ([
+      ev(seq, 'step/start', { turn, step }, T + startD),
+      ev(seq + 1, 'assistant/message', {
+        turn, step,
+        usage: { inputTokens: 100, outputTokens: out, totalTokens: 100 + out },
+        stream: [
+          { type: 'chunk', time: T + firstD, chunk: { type: 'block-start', index: 0, blockType: 'text' } },
+          { type: 'text-chunks', time0: T + firstD, index: 0, dt: [lastD - firstD], texts: ['x'] },
+          { type: 'chunk', time: T + lastD, chunk: { type: 'block-end', index: 0, block: {} } },
+          { type: 'chunk', time: T + lastD, chunk: { type: 'usage', usage: { inputTokens: 100, outputTokens: out } } },
+          { type: 'chunk', time: T + lastD, chunk: { type: 'finish', reason: { kind: 'stop' } } },
+        ],
+      }, T + lastD),
+    ]);
+    const events = [
+      ev(0, 'request/header', { header: { config: { provider: 'p', model: 'm' } } }, T),
+      // 正常：TTFT 2 s，生成 4 s，输出 400 → 100 tok/s
+      ...mkCall(1, 1, 1, 0, 2000, 6000, 400),
+      // 慢启动：TTFT 10 s，生成 10 s，输出 500 → 50 tok/s
+      ...mkCall(3, 1, 2, 6100, 16100, 26100, 500),
+      // 太短：生成 100 ms → 不进 TPS（阈值 500 ms），但 TTFT 照算
+      ...mkCall(6, 1, 3, 26200, 26400, 26500, 5),
+      // 污染：TTFT 3 小时 → 超上界，不进均值、计入剔除
+      ...mkCall(9, 1, 4, 26600, 10826600, 10827600, 100),
+    ];
+    const st = fold.foldLog(events);
+    assert.equal(st.logFacts.length, 4, '四条用量事实');
+    assert.ok(st.logFacts.every((f) => f.r && f.r.f >= 0), '每条都该有速率样本');
+    assert.equal(st.logFacts[0].r.f, 2000, 'TTFT = 首个内容时刻 − step/start');
+    assert.equal(st.logFacts[0].r.g, 4000, '生成时长 = 事件时刻 − 首个内容时刻');
+    assert.equal(st.logFacts[0].r.o, 400, 'TPS 的输出 tokens');
+    assert.equal(st.logFacts[2].r.g, 0, '生成 100 ms < 阈值 → 不进 TPS');
+
+    const row = fold.aggregate(
+      [{ id: 's', meta: {}, logFacts: st.logFacts, auxFacts: [] }],
+      { by: 'model', timeZone: 'UTC' },
+    ).rows[0];
+    // TTFT 界内样本 = [2000, 10000, 200]（3 小时那条被裁）→ 均值 4066.7 ms
+    assert.equal(row.ttftSamples, 3, '三条进 TTFT 均值（污染那条被裁）');
+    assert.equal(row.ttftExcluded, 1, '被上界裁掉的条数如实计数');
+    assert.equal(row.ttftAvg, (2000 + 10000 + 200) / 3 / 1000, '均值只算界内样本');
+    assert.equal(row.ttftMedian, 2, '中位数');
+    assert.equal(row.ttftMin, 0.2);
+    assert.equal(row.ttftMax, 10, '上界内的最大值（污染点不参与）');
+    // TPS = Σ输出 / Σ生成 =（400+500+100）/（4s+10s+1s）= 66.67
+    //（第 4 条只有 TTFT 被污染，生成 1 s / 输出 100 仍是有效 TPS 样本）
+    assert.equal(row.tpsSamples, 3, '短调用（生成 100 ms）不进 TPS 样本');
+    assert.equal(row.tpsAvg, 1000 / 15, '聚合式 TPS = Σ输出 / Σ生成');
+    assert.equal(row.tpsMean, (100 + 50 + 100) / 3, '逐条算术均值（对照用）');
+    assert.equal(row.tpsMedian, 100);
+    assert.notEqual(row.tpsAvg, row.tpsMean, '聚合口径与算术均值必须不同（否则这条测试抓不出混用）');
+    assert.equal(row.tpsExcluded, 0, '生成 1 s 未超上界，不该被裁');
+
+    // 重试：TTFT 取**最后一次** retry-started（不含前面失败尝试的耗时）
+    const retried = fold.foldLog([
+      ev(0, 'request/header', { header: { config: { provider: 'p', model: 'm' } } }, T),
+      ev(1, 'step/start', { turn: 1, step: 1 }, T),
+      ev(2, 'llm/retry-started', { retryId: 'r1', turn: 1, step: 1 }, T + 5000),
+      ev(3, 'assistant/message', {
+        turn: 1, step: 1,
+        usage: { inputTokens: 100, outputTokens: 200, totalTokens: 300 },
+        stream: [
+          { type: 'chunk', time: T + 6000, chunk: { type: 'block-start', index: 0, blockType: 'text' } },
+          { type: 'text-chunks', time0: T + 6000, index: 0, dt: [2000], texts: ['x'] },
+        ],
+      }, T + 8000),
+    ]);
+    const rr = fold.aggregate([{ id: 'x', meta: {}, logFacts: retried.logFacts, auxFacts: [] }], { by: 'model', timeZone: 'UTC' }).rows[0];
+    assert.equal(rr.ttftAvg, 1, '重试后 TTFT 从最后一次 retry-started 起算（1 s），不含失败尝试耗时');
+
+    // 端点缺失 → 不可测（不是 0）
+    const noStream = fold.foldLog([
+      ev(0, 'request/header', { header: { config: { provider: 'p', model: 'm' } } }, T),
+      ev(1, 'assistant/message', { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 1 } }, T + 1),
+    ]);
+    const nr = fold.aggregate([{ id: 'y', meta: {}, logFacts: noStream.logFacts, auxFacts: [] }], { by: 'model', timeZone: 'UTC' }).rows[0];
+    assert.equal(nr.ttftAvg, null, '没有 stream 时间戳 → null（不谎报 0 s）');
+    assert.equal(nr.tpsAvg, null, '同上，TPS 也是 null');
+    assert.equal(nr.calls, 1, '用量照常记账（速率缺失不影响 token 口径）');
+
+    // 老账本兼容：事实里没有 r 字段（改版前折的）→ 速率不可测，token 数字不受影响
+    const legacy = fold.aggregate([{
+      id: 'old', meta: {},
+      logFacts: [{ t: T, k: 'step', p: 'p', m: 'm', it: 10, ot: 1, cr: 0, cw: 0, rt: 0, tt: 11 }],
+      auxFacts: [],
+    }], { by: 'model', timeZone: 'UTC' }).rows[0];
+    assert.equal(legacy.ttftAvg, null, '老事实无 r 字段 → 速率不可测');
+    assert.equal(legacy.total, 11, '总量不受影响');
+
+    // 跨供应商不混算速率：两家各自算自己的
+    const split = fold.aggregate([
+      { id: 'a', meta: {}, logFacts: [fold.makeFact('step', T, 'fast', 'm', { outputTokens: 100 }, { r: { f: 500, g: 1000, o: 100 } })], auxFacts: [] },
+      { id: 'b', meta: {}, logFacts: [fold.makeFact('step', T, 'slow', 'm', { outputTokens: 100 }, { r: { f: 9000, g: 10000, o: 100 } })], auxFacts: [] },
+    ], { by: 'model', timeZone: 'UTC' });
+    assert.equal(split.rows.length, 2, '同一模型两家供应商各成一行');
+    const fast = split.rows.find((r) => r.provider === 'fast');
+    const slow = split.rows.find((r) => r.provider === 'slow');
+    assert.equal(fast.tpsAvg, 100, '快的家算自己的 TPS');
+    assert.equal(slow.tpsAvg, 10, '慢的家算自己的 TPS（不被平均成 55）');
+    assert.equal(split.totals.tpsAvg, 200 / 11, '合计是两家的样本合并后的聚合值');
+    assert.equal(split.totals.ttftSamples, 2, '合计样本数 = 各行相加');
+
+    // 增量折叠也要有速率：起始标记跨调用存活（state.start 持久化）
+    const inc = fold.createFoldState();
+    fold.foldEvents(inc, events.slice(0, 3));           // header + step/start + message 前半
+    fold.foldEvents(inc, events.slice(3));              // 剩下的
+    const once = fold.foldLog(events);
+    assert.deepEqual(inc.logFacts.map((f) => f.r), once.logFacts.map((f) => f.r),
+      '增量与一次折完的速率样本必须一致（state.start 随账本持久化）');
+
+    // 复合键工具
+    assert.equal(fold.splitCompositeModelKey('p' + fold.MODEL_KEY_SEP + 'm').provider, 'p');
+    assert.equal(fold.splitCompositeModelKey('p' + fold.MODEL_KEY_SEP + 'm').model, 'm');
+    assert.deepEqual(fold.splitCompositeModelKey('legacy-key'), { provider: null, model: 'legacy-key' },
+      '旧键（不含分隔符）解析为 provider=null');
+    assert.equal(fold.compositeModelKey(null, undefined), 'unknown' + fold.MODEL_KEY_SEP + 'unknown');
   });
 }
 

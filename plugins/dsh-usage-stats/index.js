@@ -1,9 +1,22 @@
 /**
  * DSH 用量统计（dsh-usage-stats）— host 半边。
  *
- * 从 模型 / 供应商 / 会话 / 每日 / 每周 五个角度统计 token 用量；关键能力是
- * **恢复历史用量**：插件上线前的对话、以及对话归档（会话日志 / 导出的归档 zip）
+ * 从 模型 / 供应商 / 分组 / 会话 / 每日 / 每周 六个角度统计 token 用量与**平均速率
+ * （TTFT / TPS）**；关键能力是**恢复历史用量**：插件上线前的对话、以及对话归档（会话日志 / 导出的归档 zip）
  * 都能折出同一套事实，与上线后的实时记账可加、可对账。
+ *
+ * 模型维度按「供应商␟模型」复合键分桶（fold.js::compositeModelKey）：同一个模型挂在
+ * 多个供应商下时**各成一行并标注供应商**（本机实测 deepseek-v4.1-flash 同时在
+ * opencode-go 与 trae 下出现，两家聚合 TPS 差 1.6 倍，合并成一行会抹平差异）。
+ * 行上另给 provider / model / providerLabel 拆分值；标签解析链仍按**请求名**查。
+ *
+ * 速率口径（fold.js::rateMetrics）：
+ *   TTFT = 首个内容时刻 − 请求起始时刻（step/start；重试取最后一条 llm/retry-started）
+ *   TPS  = Σ输出tokens / Σ生成时长（生成时长 = 事件时刻 − 首个内容时刻；聚合口径）
+ * 时间戳来自日志 assistant/message 的 data.stream；事实层用可选字段 `r = {f, g, o}`
+ * 承载，折叠游标 `state.start` 随账本持久化（保证增量与一次折完结果一致）。
+ * 老账本没有这些字段 → 该项速率不可测（「—」，不当 0），status 的 rateCoverage 如实
+ * 报覆盖度，点「重建全部」补齐。
  *
  * 事实来源（唯一口径 = 会话日志折叠，实时与回填共用 fold.js::foldEvents）：
  *   assistant/message.usage        → step       （主口径）
@@ -35,7 +48,7 @@
  * 存储：$DSH_HOME/usage-stats/{state.json,facts/<sessionId>.json}，原子写、游标幂等。
  *
  * 路由（均同源可用；写操作带同源守卫）：
- *   GET  /dsh-usage/summary?by=model|provider|session|day|week&range=all|1d|7d|30d
+ *   GET  /dsh-usage/summary?by=model|provider|group|session|day|week&range=all|1d|7d|30d
  *                           &from=YYYY-MM-DD|epochMs&to=…&tz=…&subagents=own|root
  *   GET  /dsh-usage/status
  *   POST /dsh-usage/rescan   {full?: boolean}
@@ -44,7 +57,7 @@
  * 组合行（profile 的 cordis.patch.yml）：
  *   - insert:
  *       - id: usage-stats
- *         name: ./plugins/dsh-usage-stats/entry-v10.js
+ *         name: ./plugins/dsh-usage-stats/entry-v11.js
  *         config: { timeZone: Asia/Shanghai, … }
  *
  * @module dsh-usage-stats
@@ -56,12 +69,13 @@ import path from 'node:path';
 
 import {
   aggregate, addAuxFact, dayKey, foldEvents, rangeStartKey,
-} from './fold.js?v=mirror-origin-1';
-import { FactStore, msg } from './store.js?v=mirror-origin-1';
+  MODEL_KEY_SEP, RATE_MIN_GEN_MS, RATE_MIN_OUTPUT_TOKENS, RATE_MAX_PLAUSIBLE_MS,
+} from './fold.js?v=rate-model-dim-3';
+import { FactStore, msg } from './store.js?v=rate-model-dim-3';
 import {
   inheritedCutFromEvents, readLogFile, sessionLogsFromZip, sessionMetaFromHeader, walkSessionRoot,
-} from './rawlog.js?v=mirror-origin-1';
-import { floorFromIndex, loadMirrorIndex, normalizeSessionId } from './mesh-mirror.js?v=mirror-origin-1';
+} from './rawlog.js?v=rate-model-dim-3';
+import { floorFromIndex, loadMirrorIndex, normalizeSessionId } from './mesh-mirror.js?v=rate-model-dim-3';
 
 export const name = 'dsh-usage-stats';
 // 别名辅助也导出，便于 selftest 直接校验（不影响运行时）；
@@ -469,6 +483,9 @@ export function createUsageStats(ctx, config = {}) {
     state.logFacts = [];
     state.gaps = { noUsageMessages: 0, searchRequests: 0, titleRequests: 0 };
     state.remoteSkipped = { facts: 0, tokens: 0 };
+    // 速率端点游标一并清掉：重折从事件 0 开始，起始标记必须重新由 step/start 建立，
+    // 否则会用上一次折叠留下的旧时刻算出错的 TTFT。
+    state.start = null;
     // 注意：auxFacts 是实时补记的、日志里没有，重折时必须保留。
   }
 
@@ -893,17 +910,49 @@ export function createUsageStats(ctx, config = {}) {
     const truncated = result.rows.length > limit;
     result.rows = result.rows.slice(0, limit);
     if (by === 'model') {
-      // key 保持请求名（悬停 / CSV / 接口都能看到原样），label 换成别名。
-      // 标注名优先级：config.modelAliases > 模型设置展示名（DSH 自带）> 内置表 > 兜底美化。
+      // key = 「供应商␟模型」复合键：分桶始终按 (供应商, 模型) 走，两家用量/单价/速率
+      // 都不会互相污染。**但供应商标注只加在撞名的模型上**（row.sharedModel）：
+      // 只有一个渠道在用的模型，名字本身就唯一，加「@ 渠道」是纯噪声。
+      // 展示名解析链不变（config.modelAliases > 模型设置展示名 > 内置表 > 兜底美化），
+      // 查「模型设置」展示名时用**本行的供应商**精确命中——同名模型在不同供应商下
+      // 可以各有展示名。供应商注记用 displayName（未配置就退回 provider key）。
+      // 行上永远保留 provider / model / sharedModel / modelProviders，CSV 与接口不丢信息。
       const lookup = settingsNameLookup(modelNamesState.names);
-      result.rows = result.rows.map((row) => {
-        const settingsName = lookup(row.key, row.providers) || null;
-        const alias = aliasForModel(row.key, opt.modelAliases, settingsName === null ? undefined : settingsName);
+      const providerLabel = (p) => {
+        if (typeof p !== 'string' || p === '') return null;
+        const dn = modelNamesState.providers[p];
+        return typeof dn === 'string' && dn.trim() !== '' ? dn.trim() : p;
+      };
+      // 第一遍：算出每行的展示名（别名链）。
+      const shaped = result.rows.map((row) => {
+        const provider = typeof row.provider === 'string' ? row.provider : null;
+        const requestName = typeof row.model === 'string' ? row.model : row.key;
+        const settingsName = lookup(requestName, provider === null ? row.providers : [provider]) || null;
+        const alias = aliasForModel(requestName, opt.modelAliases, settingsName === null ? undefined : settingsName);
         return Object.assign({}, row, {
-          model: row.key,
-          alias,
-          label: alias,
+          model: requestName,
+          provider,
+          providerLabel: providerLabel(provider),
           settingsName,
+          alias,
+        });
+      });
+      // 第二遍：**决定是否注明供应商的判据是「展示名在界面上是否唯一」**，不是「请求名是否跨渠道」。
+      // 本机实测两类撞名：
+      //   ① 同一请求名挂在多家供应商（step-5-preview 在 insidegate / local-gateway）；
+      //   ② 不同请求名解析出**同一个展示名**（deepseek-v4.1-flash、deepseek-ai/deepseek-v4.1-flash、
+      //      deepseek-ai/DeepSeek-V4.1-Flash 三个写法都叫「DeepSeek V4.1 Flash」）。
+      // 只按 ① 判会让 ② 里的行顶着相同的显示名却缺渠道后缀，看上去像「混在一起」。
+      const aliasCount = new Map();
+      for (const row of shaped) aliasCount.set(row.alias, (aliasCount.get(row.alias) || 0) + 1);
+      result.rows = shaped.map((row) => {
+        const shared = row.sharedModel === true || (aliasCount.get(row.alias) || 0) > 1;
+        const label = shared && row.providerLabel !== null && row.providerLabel !== undefined
+          ? `${row.alias} @ ${row.providerLabel}`
+          : row.alias;
+        return Object.assign({}, row, {
+          sharedLabel: shared,
+          label,
         });
       });
     } else if (by === 'provider') {
@@ -957,6 +1006,40 @@ export function createUsageStats(ctx, config = {}) {
         bySource: s.bySource,
       },
       facts: { log: s.logFacts, aux: s.auxFacts, total: s.logFacts + s.auxFacts },
+      // 速率覆盖度：账本里带 r 字段（速率样本）的事实条数占比。改版前折出来的老事实
+      // 没有这个字段 → 那部分调用不进 TTFT/TPS 统计（界面显示「—」，不当 0）。
+      // 与缓存占比的 coverage 同一套诚实口径：差多少、怎么补齐，都如实说。
+      rateCoverage: {
+        factsWithSamples: s.rateFacts,
+        factsTotal: s.logFacts + s.auxFacts,
+        share: (s.logFacts + s.auxFacts) > 0 ? s.rateFacts / (s.logFacts + s.auxFacts) : null,
+        note: '速率样本来自会话日志 stream 的时间戳；改版前写入的老事实没有该字段，'
+          + '点「重建全部」重折一次即可补齐（aux 实时补记与 token 总量不受影响）。',
+      },
+      // 速率口径（与 cache 块同款：把算法、阈值、裁剪与缺失语义一次讲清）
+      rate: {
+        metric: 'ttftAvg / ttftMedian / tpsAvg',
+        note: 'TTFT = 首个内容时刻 − 请求起始时刻（step/start，重试时取最后一条 llm/retry-started），单位秒；'
+          + 'TPS = Σ输出tokens / Σ生成时长（生成时长 = 事件时刻 − 首个内容时刻），单位 tokens/秒。'
+          + 'TPS 主数字用聚合式而非逐条算术平均：一次 0.3 秒的短回复与一次 40 秒的长回复不该等权；'
+          + '另给 tpsMean / tpsMedian 供对照，差距大说明调用时长很不均。'
+          + `阈值：生成时长 ≥ ${RATE_MIN_GEN_MS} ms 且输出 ≥ ${RATE_MIN_OUTPUT_TOKENS} tokens 才进 TPS 样本；`
+          + 'TTFT 不设下界。'
+          + `上界裁剪：TTFT / 生成时长 > ${RATE_MAX_PLAUSIBLE_MS} ms 的点不进均值`
+          + '（实测本机最长一条 3 小时，是会话挂起/接手留下的污染，裸平均会被极少数点拉飞），'
+          + '剔除条数在 ttftExcluded / tpsExcluded 里如实透出；同时给 ttftMedian（对长尾天然免疫）。'
+          + '无样本时各项为 null（界面显示「—」、CSV 留空），不当 0。'
+          + '每个桶按自己的样本各自计算（每个 供应商×模型 / 供应商 / 分组 / 会话 / 日 / 周）。'
+          + '来源：会话日志 assistant/message 的 data.stream 时间戳。',
+        minGenMs: RATE_MIN_GEN_MS,
+        minOutputTokens: RATE_MIN_OUTPUT_TOKENS,
+        maxPlausibleMs: RATE_MAX_PLAUSIBLE_MS,
+        modelKey: 'provider' + MODEL_KEY_SEP + 'model',
+        modelKeyNote: 'by=model 按「供应商 + 模型」分桶：同一模型挂在多个供应商下时各成一行并标注供应商，'
+          + '不再合并（本机实测 deepseek-v4.1-flash 同时在 opencode-go 与 trae 下出现，两家聚合 TPS 差 1.6 倍）。'
+          + 'key 含 U+241F 分隔符，行上另给 provider / model / providerLabel 拆分值；'
+          + '别名与模型设置展示名仍按**请求名**查，label 形如「DeepSeek-V4.1-Flash @ NewAPIGate」。',
+      },
       // 设备网格镜像：本机 sessions/ 里对端会话副本的来源边界（见 mesh-mirror.js）。
       // excludedFacts/excludedTokens = 按边界被排除的用量（对端发出的请求），
       // 它们不计入上面的 facts / 任何聚合，只在这里留痕供核对。
@@ -1073,9 +1156,18 @@ export function createUsageStats(ctx, config = {}) {
           await ensureModelNames();
           const url = new URL(req.url || '/', 'http://localhost');
           const payload = summaryPayload(url.searchParams);
-          // 新列一律**追加在末尾**：老的位置解析器（第 10 列 = sessions）不受影响。
+          // 新列一律**追加在末尾**：老的位置解析器（第 10 列 = sessions，第 12 列 =
+          // cacheCoverage）不受影响。速率列单位：秒 / tokens 每秒；无样本留空而不是 0
+          // （0 tok/s 是「慢到不动」，空白才是「没有可测数据」，与界面「—」同一口径）。
           const head = ['key', 'label', 'calls', 'input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'total', 'sessions',
-            'cacheShare', 'cacheCoverage'];
+            'cacheShare', 'cacheCoverage',
+            // 模型维的 key 是「供应商␟模型」复合键，另给两列人可读的拆分值（其它维度留空）。
+            'provider', 'model',
+            'ttftAvgSec', 'ttftMedianSec', 'ttftMinSec', 'ttftMaxSec', 'ttftSamples', 'ttftExcluded',
+            'tpsAvg', 'tpsMean', 'tpsMedian', 'tpsSamples', 'tpsExcluded'];
+          const sec = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(3) : '');
+          const rate = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : '');
+          const count = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
           const lines = [head.join(',')];
           for (const row of payload.rows) {
             lines.push([
@@ -1084,6 +1176,12 @@ export function createUsageStats(ctx, config = {}) {
               // 百分比两位小数；无实测流量（cacheShare=null）留空而不是 0。
               row.cacheShare === null || row.cacheShare === undefined ? '' : (row.cacheShare * 100).toFixed(2),
               row.cacheCoverage === null || row.cacheCoverage === undefined ? '' : (row.cacheCoverage * 100).toFixed(2),
+              row.provider === null || row.provider === undefined ? '' : row.provider,
+              payload.by === 'model' ? (row.model || '') : '',
+              sec(row.ttftAvg), sec(row.ttftMedian), sec(row.ttftMin), sec(row.ttftMax),
+              count(row.ttftSamples), count(row.ttftExcluded),
+              rate(row.tpsAvg), rate(row.tpsMean), rate(row.tpsMedian),
+              count(row.tpsSamples), count(row.tpsExcluded),
             ].map(csvEscape).join(','));
           }
           return text(res, 200, `${lines.join('\n')}\n`, {

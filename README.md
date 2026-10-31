@@ -75,7 +75,7 @@ dsh plugin --profile <profile> install
 | [dsh-settings-nav](plugins/dsh-settings-nav) | `settings-nav` | 界面 | 设置项分组收纳（可折叠、嵌套 5 层）、自由排序，热生效 |
 | [dsh-subagent-models](plugins/dsh-subagent-models) | `subagent-models` | 模型 | 会话级子代理模型链：多模型排序、逐模型限额，耗尽或失败自动回退 |
 | [dsh-ultracode](plugins/dsh-ultracode) | `ultracode` | 界面 | 还原 Claude Code 的 ultracode 思考强度，会话开关开启即注入对应提示段 |
-| [dsh-usage-stats](plugins/dsh-usage-stats) | `usage-stats` | 统计 | 按模型/供应商/分组/会话/日/周统计 token，可从历史日志与导出 ZIP 回填 |
+| [dsh-usage-stats](plugins/dsh-usage-stats) | `usage-stats` | 统计 | 按模型（区分供应商）/供应商/分组/会话/日/周统计 token 与平均速率（TTFT / TPS），可从历史日志与导出 ZIP 回填 |
 | [dsh-user-keep-compaction](plugins/dsh-user-keep-compaction) | `user-keep-compaction` | 界面 | 压缩时 user 消息逐字保留，只摘要其间的助手/工具内容 |
 | [dsh-workbench](plugins/dsh-workbench) | `workbench` | 界面 | 输入框工具行「工作箱」：勾选才注入对应上下文（Ultracode / REA），未选零注入 |
 | [@local/rea-mcp](plugins/rea-mcp) | `rea-mcp` | 工具 | REA 自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由 |
@@ -119,7 +119,7 @@ bundle、提示词注入形态，逆向自 2.1.287）更完整。它不是 DSH C
 ```bash
 cd plugins/dsh-device-mesh && node selftest.mjs   # 116 项
 cd plugins/dsh-settings-nav && node selftest.mjs  # 222 项
-cd plugins/dsh-usage-stats && node selftest.mjs   # 58 项（--quick 抽样）
+cd plugins/dsh-usage-stats && node selftest.mjs   # 57 项（--quick 抽样；C 段 zip 需 python3）
 ```
 
 各插件 README 记录了设计动机、边界与维护约定（热挂入口的 `entry-vN.js` 只是 specifier 别名，实现始终在 `index.js`）。

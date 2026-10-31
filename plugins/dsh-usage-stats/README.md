@@ -1,22 +1,25 @@
 # dsh-usage-stats — DSH 用量统计（含历史回填）
 
-按 **模型 / 供应商 / 分组 / 会话 / 每日 / 每周** 六个角度统计 token 用量（分组维度由
-`dsh-model-groups` 提供，未命中任何分组的落「未分组」桶；插件不在线时该页签会说明原因）。核心不是「从今天开始记账」，而是
+按 **模型 / 供应商 / 分组 / 会话 / 每日 / 每周** 六个角度统计 token 用量，并单独给一个
+**速率区**（平均 TTFT / TPS）。模型维度按 **「供应商 × 模型」**分桶：同一个模型挂在多家
+供应商下时**各成一行**，用量与速率都按渠道分开算，不会互相污染。
+核心不是「从今天开始记账」，而是
 **能把插件上线之前的用量算出来**：所有事实都来自折叠既有会话日志，实时记账与历史回填调用同一个
 `fold.js::foldEvents`，因此上线前后的数字天然可加、可对账（同一条日志折两次结果完全相同）。
 
 ```
 plugins/dsh-usage-stats/
-├── entry-v10.js       热挂入口（?v=mirror-origin-1；loader 按 specifier 缓存，改实现后靠它重挂）
+├── entry-v13.js       热挂入口（?v=rate-model-dim-3；loader 按 specifier 缓存，改实现后靠它重挂）
 ├── index.js           host 半边：实时折叠 / 回填 / 存储 / HTTP 路由 / 模型别名 / 缓存占比 / 网格镜像口径
-├── client.js          浏览器半边：设置页「用量统计」（六页签 + 三种图表 + 缓存占比逐项条）
-├── fold.js            纯折叠 + 六维聚合（无 I/O，host 与工具共用）
+├── client.js          浏览器半边：设置页「用量统计」（六页签 + 三种图表 + 命中率总表 + **速率区**）
+├── fold.js            纯折叠 + 六维聚合 + 复合模型键 + 速率样本（无 I/O，host 与工具共用）
 ├── store.js           账本持久化（原子写、每会话游标幂等）
 ├── mesh-mirror.js     设备网格镜像索引 → 会话来源边界（纯 node，运行时/离线共用）
 ├── rawlog.js          zstd 逐帧解码 / 极简 zip 读取 / sessions 目录遍历
 ├── charts-harness.mjs 无头渲染工具（自检与预览共用：假 window 装载 + 元素树 → HTML）
 ├── client-race-selftest.mjs  浏览器半边「过期响应」回归 9 项（切页签闪红字，见八点五）
-├── selftest.mjs       自检 58 项（合成 / 真实语料对账 / zip / 假环境全链路 / 图表结构 / 命中率弹窗与面板顺序 / 视图偏好持久化 / 别名 / 模型设置名称链 / 网格镜像来源边界）
+├── selftest.mjs       自检 58 项（A 合成 14 / B 真实语料对账 5 / C zip 1 / D 假环境全链路 9 /
+│                      E 浏览器半边 19 / F 网格镜像 10；本机 python3 不可用 → 跳过 C 段，跑满 57 项）
 ├── prewarm.mjs        离线重建账本（可脱离 DSH 单跑）
 └── preview.mjs        把账本渲染成单文件 HTML 预览（离线可看，含图表与别名）
 ```
@@ -29,11 +32,68 @@ plugins/dsh-usage-stats/
 | `assistant/attempt` 流内末尾 usage chunk | `attempt` | 失败/重试的调用同样计费 |
 | `compaction/summary.data.{provider,model,usage}` | `compaction` | 自带路由，不跟随当前会话路由 |
 | `request/header.data.header.config` | — | 更新「当前路由」；同一会话可中途换模型/供应商 |
+| `step/start` / `llm/retry-started` | — | 记「本次请求起始时刻」`state.start`（速率端点，见一·平均速率） |
 | `session/title` | — | 记录标题，供会话维度显示 |
 
 每条 `usage` 事实另记 `cacheKnown`（该条 usage 里是否真有缓存字段），供缓存占比区分「命中 0 次」与「无缓存数据」。
+带 `stream` 时间戳的事实另记 `r = {f, g, o}`（TTFT / 生成时长 / 参与 TPS 的输出 tokens），供速率统计。
 
 token 总数与 `dsh-model-pool` 同口径：`totalTokens` 存在就用它，否则 `输入+输出+缓存读+缓存写`。
+
+### 模型维度：按「供应商 × 模型」分桶
+
+统计键是 `provider + U+241F + model` 复合键（`fold.js::compositeModelKey`），行上再拆回
+`provider` / `model` / `modelProviders`。同一个模型挂在多家供应商下时**各成一行**，两家的
+用量、单价、速率都各算各的，不合并——本机实测 `deepseek-v4.1-flash` 同时在
+opencode-go（2.1 万次）与 trae（2.3 千次）下出现，合并成一行会抹平差异。
+分组、会话、日、周维度不受影响（仍按各自口径分桶）。
+
+**展示名是否注明供应商，看「展示名会不会撞车」**（`index.js` 两遍扫描 → 行上 `sharedLabel`）：
+
+| 情况 | 例 | label |
+| --- | --- | --- |
+| 展示名在当前视图里**唯一** | `spark-x2.6` 只有 loomy 在用 | `Spark-X2.6 正式版(限时免费) · x0.0` |
+| 同一请求名**跨渠道** | `step-5-preview` 在 insidegate 与 local-gateway | `Step-5-Preview · x0.48 @ insideGate` |
+| **不同请求名解析出同一展示名** | 三个 `deepseek…v4.1-flash` 写法都叫 `DeepSeek V4.1 Flash` | `DeepSeek V4.1 Flash @ local-gateway` |
+
+只按「请求名是否跨渠道」判是不够的——第三种情况会让四行里三行带 `@`、一行不带，
+看上去像混在一起（用户实测抓到的）。**分桶始终按 (供应商, 请求名)，标注只影响显示**：
+CSV 的 `provider` / `model` 两列、接口上的 `provider` / `model` / `sharedModel` / `sharedLabel` /
+`modelProviders` 永远给全，不因是否标注而丢信息。
+
+### 平均速率（TTFT / TPS）
+
+速率与用量**完全分区**：用量只在用量区（明细表、命中率总表、弹窗、图表副行），
+速率只在「速率区」（默认开，工具条可关，排在整块用量之后）。速率的分组口径与用量
+**完全一致**——同一批「供应商×模型」条目、同一套标注规则，逐条各算自己的速率。
+
+| 量 | 口径 | 单位 |
+| --- | --- | --- |
+| `ttftAvg` | `首个内容时刻 − 请求起始时刻` 的算术均值 | 秒 |
+| `ttftMedian` / `ttftMin` / `ttftMax` | 同批样本的中位数 / 界内极值 | 秒 |
+| `tpsAvg` | `Σ输出tokens / Σ生成时长`（聚合式，按耗时加权） | tokens/秒 |
+| `tpsMean` / `tpsMedian` | 逐条 tok/s 的算术均值 / 中位数（对照用） | tokens/秒 |
+| `ttftSamples` / `tpsSamples` | 实际进统计的调用条数 | 次 |
+| `ttftExcluded` / `tpsExcluded` | 被上界裁掉的条数 | 次 |
+
+端点来源：`assistant/message.data.stream` 里的记录时间戳（`{"type":"chunk","time":T}` 与
+`{"type":"text-chunks","time0":T,"dt":[...]}`），起点取 `step/start`（重试时取最后一条
+`llm/retry-started`——失败尝试的耗时不算进这一次的 TTFT）。本机实测 45,861 / 46,002 条
+assistant/message 带可用时间戳。
+
+- **阈值**：`生成时长 ≥ 500 ms` 且 `输出 ≥ 32 tokens` 才进 TPS 样本（短回复的 tok/s 是噪声，
+  一条 60 ms / 12 tok 的调用能算出 200 tok/s）。TTFT 不设下界。
+- **上界裁剪**：`TTFT / 生成时长 > 5 分钟` 的点不进均值——本机实测最长一条 3 小时
+  （会话挂起/接手留下的污染），裸平均会被极少数点整体拉飞。被剔除的条数在
+  `ttftExcluded` / `tpsExcluded` 里如实透出，不静默丢数据；同时给中位数（对长尾天然免疫）。
+- **缺失语义**：没有样本时一律 `null` → 界面显示「—」、CSV 留空，**不当 0**（0 tok/s 是
+  「慢到不动」，与「没有可测数据」是两件事）。
+- **老账本兼容**：改版前写入的事实没有 `r` 字段，这些条目不进速率统计，但 token 总量与
+  调用次数完全不受影响。`/dsh-usage/status` 的 `rateCoverage` 如实报覆盖度
+  （`factsWithSamples / factsTotal / share`），点「重建全部」重折一次即可补齐。
+  `aux`（实时补记）事实永远拿不回 `r`——与 `cacheKnown` 同样的既有边界。
+- **增量 == 全量**：`state.start` 随账本持久化（`store.js` 序列化），断点续折与一次折完的
+  速率样本逐位一致（selftest 有断言）。
 
 ### 缓存占比（v7，2026-10-09）
 
@@ -151,6 +211,9 @@ $DSH_HOME/usage-stats/
 
 ## 五、配置（组合行 `config`）
 
+分组维度由 `dsh-model-groups` 提供（未命中任何分组的落「未分组」桶；该插件不在线时
+「分组」页签会说明原因，接口不报错）。
+
 | 键 | 默认 | 含义 |
 | --- | --- | --- |
 | `timeZone` | `null`（跟随系统） | 日/周分桶所用 IANA 时区 |
@@ -179,28 +242,45 @@ GET  /dsh-usage/export.csv    与 summary 同参
 
 `summary` 返回 `{by,timeZone,weekStart,from,to,facts,rows[],totals,truncated}`；行含
 `key,calls,input,output,cacheRead,cacheWrite,reasoning,total,sessions,share,providers,kinds`
-以及**缓存占比字段** `cacheShare`（逐项实测，`null` = 无缓存数据）/`cacheCoverage`/`cacheUnknownInput`/`cacheKnown`（+`cacheFacts`），
+以及**缓存占比字段** `cacheShare`（逐项实测，`null` = 无缓存数据）/`cacheCoverage`/`cacheUnknownInput`/`cacheKnown`（+`cacheFacts`）
+与**速率字段** `ttftAvg/ttftMedian/ttftMin/ttftMax/ttftSamples/ttftExcluded`
+`tpsAvg/tpsMean/tpsMedian/tpsSamples/tpsExcluded`（口径见一·平均速率；`null` = 无数据，CSV 留空不当 0）；
 会话维度另带 `title/cwd/createdAt/parentSession/origin/archived`；
-`totals` 同样带 `cacheShare/cacheCoverage/cacheUnknownInput/cacheKnown/cached/billedInput/cacheFacts`（同口径的整体值，供概览卡片用）；
-模型维度另带 `model`（原始请求名）、`alias`（显示别名，同时写入 `label`）与
-`settingsName`（来自 DSH「模型设置」的展示名，未取到为 `null`）；
+`totals` 同样带上述两套字段（同口径的整体值，供概览卡片用）；
+模型维度另带 `model`（原始请求名）、`provider` / `providerLabel`（拆分值与 displayName）、
+`sharedModel`（同名请求是否跨渠道）、`sharedLabel`（展示名是否撞车，决定是否注明供应商）、
+`modelProviders`、`alias`（写入 `label`）与 `settingsName`（模型设置展示名，未取到为 `null`）；
 供应商维度的行带 `label` = 模型设置里的 provider displayName（未配置则等于 key）。
-`export.csv` 表头 12 列：**前 10 列与历史导出逐列一致**，末尾追加 `cacheShare`/`cacheCoverage`
-（百分比两位小数；占比无数据留空而不是 0；覆盖度在「有流量但全部不可测」时是真实的 0.00，
-在「连流量都没有」（billed=0，0/0 无意义）时同样留空）。
+`export.csv` 表头 25 列：**前 12 列与历史导出逐列一致**，第 13/14 列是 `provider`/`model` 拆分值，
+其后 13 列是速率（`ttftAvgSec/ttftMedianSec/ttftMinSec/ttftMaxSec/ttftSamples/ttftExcluded`
+`tpsAvg/tpsMean/tpsMedian/tpsSamples/tpsExcluded`）——新列一律**追加在末尾**，
+老的位置解析器（第 10 列 = sessions）不受影响；占比百分比两位小数，速率无样本留空而不是 0。
 `status` 另含 `mirrored`（网格镜像：`enabled/available/source/error/sessions/synced/devices/
 excludedSessions/excludedFacts/excludedTokens/note`——执行端对端会话副本按来源边界排除的量）、
 `config.modelAliases`（生效的别名表）、`config.modelNamesTtlMs`、
+`rate`（速率口径说明：`metric/note/minGenMs/minOutputTokens/maxPlausibleMs/modelKey/modelKeyNote`）、
+`rateCoverage`（速率样本覆盖度：`factsWithSamples/factsTotal/share/note`——老账本缺 `r` 字段时
+如实报差多少，并说明点「重建全部」补齐）、
 `cache`（缓存占比口径说明：`metric`/`note`/`hasFacts` —— `hasFacts` 只表示「已折叠到任何事实」，
 **不表示有缓存数据**）、`modelSettings`（`available/providers/models/names/updatedAt/error`——模型设置名称索引的
 回显）与 `backfill.recovered/notes`（原始日志回退记录）。
 
-## 七、浏览器半边（图表 + 别名）
+## 七、浏览器半边（用量区 + 速率区）
 
 设置页新增「用量统计」一节（`settings.section`，order 905）：六页签 + 时间范围 + 子代理归属切换 +
 刷新 / 增量回填 / 重建全部 / 导出 CSV，顶部卡片显示总 token、**缓存占比（合计）**、调用次数、会话数、
-已记账会话、实时补记条数，底部一行显示时区、周起始、已折叠会话、上次回填时间与已知缺口。
+已记账会话、实时补记条数，底部一行显示时区、周起始、已折叠会话、上次回填时间、速率样本覆盖度与已知缺口。
 合计卡是**当前范围所有行的整体值**（悬停会标出它覆盖了多少计费输入），逐项数字看下面的区块。
+
+**用量与速率完全分区**：`orderedPanels` 的版块顺序是
+`图表 → 命中率总表(可选) → 用量明细表(可选) → 速率区(可选) → 截断提示`。
+用量区只有 token 数值与缓存占比；速率区只有速率列，两区**互不混列**（selftest 有断言：
+速率表不得出现「输入/输出/缓存读/缓存写/推理/总计/缓存占比/会话/占比」任何一列）。
+
+**速率区（v13，默认开）**：合计两张卡（平均 TTFT / 平均 TPS，含中位数、样本数、剔除数悬停）+
+一张只有速率列的明细表（调用/样本/平均TTFT/中位TTFT/最快最慢TTFT/平均TPS/逐条均值TPS/中位TPS/剔除）。
+**分组口径与用量完全一致**：同一批「供应商×模型」条目、同一套标注规则（展示名撞车才注明渠道），
+逐条各算自己的速率——不是另起一套按供应商的分组。工具条「速率区」开关可关，选择会被记住。
 
 **单个模型的命中率 = 点名称弹窗（v10，2026-10-09）**：明细表与命中率总表里的
 **项名是可点按钮**（键盘可达、悬停变色），点开一个覆盖层弹窗讲清楚**这一项**：
@@ -385,7 +465,7 @@ const load = React.useCallback(async () => {
 ```bash
 cd ~/.dsh/profiles/web/plugins/dsh-usage-stats
 
-node selftest.mjs            # 58 项：合成 / 全语料对账 / zip 往返 / 假环境全链路 / 图表结构 / 命中率弹窗与面板顺序 / 视图偏好持久化 / 别名 / 模型设置名称链 / 网格镜像来源边界（F 段恒跑）
+node selftest.mjs            # 58 项：合成 / 全语料对账 / zip 往返 / 假环境全链路 / 图表结构 / 命中率弹窗与面板顺序 / 速率口径与分区 / 视图偏好持久化 / 别名 / 模型设置名称链 / 网格镜像来源边界（F 段恒跑）
 node selftest.mjs --quick    # 只抽样 12 会话（~1.6s）
 node selftest.mjs --limit 200 # 只抽样 200 会话跑 B~E 段（语料大时的省内存全链路）
 node client-race-selftest.mjs  # 9 项：浏览器半边「过期响应」回归（切页签不闪红字、不显示旧维度、轮询不乱序）
@@ -420,3 +500,31 @@ F 段是合成语料，任何情况下都跑。同目录里两代日志（v3+v4�
   实时补记 aux 17 条；缺口 noUsageMessages 23、titleRequests 14。
 - selftest 全量 **58/58** 通过（含缓存占比 4 项：逐项实测口径与覆盖度、混合项不稀释、
   分组维度同口径、UI 逐项构成条与「无缓存数据」不落到有数据的行）。
+
+## 十一、实测基线（2026-10-31，v13 模型分桶 + 平均速率）
+
+- 语料：277 个日志文件 / 303.4 MB（压缩态）/ 0 解析错误；280 会话入账。
+- 折叠事实 46,962 条（log 46,803 + aux 159），总计 10.21 B tokens、46,974 次调用。
+- **模型条目 23 条**（v10 口径 16 条——16 → 23 就是被拆开的同名跨渠道模型）：
+  `opencode-go/deepseek-v4.1-flash` 3.68 B / 21.4 k 次、`insidegate/step-5-preview` 3.28 B /
+  12.8 k 次、`loomy/spark-x2.6` 0.98 B、`zcode/GLM-5.3-Flash` 0.65 B、
+  `deepseek-account/deepseek-flash` 0.44 B、`trae/deepseek-v4.1-flash` 0.41 B。
+- **撞车组（展示名相同 → 一律注明渠道）**：
+  `DeepSeek V4.1 Flash` × 4（opencode-go / local-gateway / Our Free Model / local-gateway，
+  由 3 种不同请求名解析而来）、`GLM-5.3 · x0.78` × 3（trae / zai-coding-cn / zcode-cli）、
+  `Step-5-Preview · x0.48` × 2、`Qwen3.8-Flash · 免费` × 2。
+- **速率覆盖**：45,256 / 46,974 次调用（96.4%）带 stream 时间戳；
+  合计平均 TTFT 8.67 s（中位 4.37 s）、TPS 93.4 tok/s（逐条算术均值 137.5）；
+  剔除 20 条超 5 分钟的污染点（最长一条 3 小时）。
+  逐条示例：`opencode-go/deepseek-v4.1-flash` TTFT 8.33 s / TPS 126.7；
+  `insidegate/step-5-preview` TTFT 8.34 s / TPS 81.9；`loomy/spark-x2.6` TTFT 13.08 s / TPS 112.9。
+  `deepseek-official/deepseek-v4-pro` 141 次调用**全程无 stream 时间戳**（该渠道日志不记流内
+  时刻）→ 速率如实显示「无数据」，token 数字不受影响。
+- `sharedLabel` 交叉验证：按 live 接口 23 行逐行重算「展示名计数>1 或 sharedModel」，
+  与接口返回值 **0 处不一致**。
+- 回归：`node selftest.mjs` 全量 **57/57 通过**（本机 python3 不可用，C 段 1 项跳过）；
+  `client-race-selftest.mjs` **9/9 通过**；`prewarm.mjs --dry-run` 与 `preview.mjs` 离线通路正常。
+- 本次自检顺手修正了一条**基线就存在**的假失败：B 段「每条用量事件都带 time」把旧格式的
+  顶层流分块行（`text-chunks` 等，只有 `seq0/time0`、没有 `seq`，折叠本来就会跳过）也数进去了，
+  某会话 5,171 行导致恒红。改为「带 `seq` 的可折叠事件必须带 time」+ 点名断言速率端点
+  那几类事件必须有 time，旧格式行改为记入 notes 观测。
