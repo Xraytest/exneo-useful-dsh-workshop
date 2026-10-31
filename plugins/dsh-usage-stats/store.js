@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { createFoldState } from './fold.js?v=mirror-origin-1';
+import { createFoldState } from './fold.js?v=rate-model-dim-3';
 
 export const SCHEMA = 1;
 
@@ -106,6 +106,9 @@ export class FactStore {
           auxFacts: Array.isArray(rec.auxFacts) ? rec.auxFacts : [],
           gaps: rec.gaps && typeof rec.gaps === 'object' ? rec.gaps : undefined,
           remoteSkipped: rec.remoteSkipped,
+          // 速率端点游标（最近一次请求起始时刻）。老账本没有这个字段 → null，
+          // 该会话要等重折才有速率；不会因为读不到而报错。
+          start: rec.start && typeof rec.start === 'object' ? rec.start : null,
         });
         this.entries.set(entry.id, entry);
       } catch (error) {
@@ -132,6 +135,10 @@ export class FactStore {
 
   stats() {
     let logFacts = 0, auxFacts = 0, withFacts = 0, folded = 0;
+    // 带速率样本（r 字段）的事实条数：本插件改版前折出来的老事实没有这个字段，
+    // 用它算「速率覆盖度」，让界面如实说明平均 TTFT/TPS 覆盖了多少调用，
+    // 并提示「重建全部」补齐（与缓存占比的 coverage 同一套诚实口径）。
+    let rateFacts = 0;
     const gaps = { noUsageMessages: 0, searchRequests: 0, titleRequests: 0 };
     const remoteSkipped = { facts: 0, tokens: 0 };
     const bySource = {};
@@ -139,6 +146,8 @@ export class FactStore {
       const n = entry.state.logFacts.length + entry.state.auxFacts.length;
       logFacts += entry.state.logFacts.length;
       auxFacts += entry.state.auxFacts.length;
+      for (const f of entry.state.logFacts) if (f && f.r) rateFacts++;
+      for (const f of entry.state.auxFacts) if (f && f.r) rateFacts++;
       if (n > 0) withFacts++;
       if (entry.state.lastSeq >= 0) folded++;
       const g = entry.state.gaps || {};
@@ -151,7 +160,7 @@ export class FactStore {
       const src = entry.source || 'unknown';
       bySource[src] = (bySource[src] || 0) + 1;
     }
-    return { sessions: this.entries.size, withFacts, folded, logFacts, auxFacts, gaps, remoteSkipped, bySource };
+    return { sessions: this.entries.size, withFacts, folded, logFacts, auxFacts, rateFacts, gaps, remoteSkipped, bySource };
   }
 
   /* ------------------------------------------------------------ write ---- */
@@ -171,6 +180,8 @@ export class FactStore {
       title: entry.state.title,
       gaps: entry.state.gaps,
       remoteSkipped: entry.state.remoteSkipped,
+      // 速率端点游标（undefined 会被 JSON 丢掉，等价于「没有起始标记」）。
+      start: entry.state.start && typeof entry.state.start.t === 'number' ? entry.state.start : undefined,
       logFacts: entry.state.logFacts,
       auxFacts: entry.state.auxFacts,
     });

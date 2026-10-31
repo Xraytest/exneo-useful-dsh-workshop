@@ -17,7 +17,7 @@
         "@deepseek-ai/dsh-client-ui-slots"
       ]
     },
-    "description": "用量统计：按 模型/供应商/会话/每日/每周 统计 token 用量，并可从既有会话日志与导出归档 zip 回填插件上线前的历史用量",
+    "description": "用量统计：按 模型（区分供应商）/供应商/分组/会话/每日/每周 统计 token 用量与平均速率（TTFT / TPS），并可从既有会话日志与导出归档 zip 回填插件上线前的历史用量",
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
@@ -25,7 +25,7 @@
       "dsh": ">=0.2.0-rc.1"
     }
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
   "keywords": [
     "dsh",

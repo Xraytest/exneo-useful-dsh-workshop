@@ -138,7 +138,9 @@ window.__ModuleLoader__.load({
     }
 
     const TABS = [
-      { by: 'model', label: '模型' },
+      // 页签保持短标签（既有测试契约按文案精确查找，且短标签位不适合长文案）；
+      // 模型维已改成「供应商 × 模型」分桶，这一点写在 title 提示与行标签/副行里。
+      { by: 'model', label: '模型', hint: '按「供应商 × 模型」分桶：同一个模型挂在多家供应商下时各成一行并标注供应商' },
       { by: 'provider', label: '供应商' },
       { by: 'group', label: '分组' },
       { by: 'session', label: '会话' },
@@ -151,7 +153,10 @@ window.__ModuleLoader__.load({
       { range: '30d', label: '近 30 天' },
       { range: 'all', label: '全部' },
     ];
+    // **用量与速率完全分区**：明细表只列用量（含缓存占比），速率一律在「速率」区里看
+    // （见 RATE_COLS / RateBars），两张表互不混列。
     const COLS = ['调用', '输入', '输出', '缓存读', '缓存写', '推理', '总计', '缓存占比', '会话'];
+    const RATE_COLS = ['调用', '样本', '平均TTFT', '中位TTFT', '最快/最慢TTFT', '平均TPS', '逐条均值TPS', '中位TPS', '剔除'];
 
     /* ------------------------------------------------ 视图偏好持久化 ---- */
 
@@ -170,14 +175,17 @@ window.__ModuleLoader__.load({
       shareMode: ['bars', 'donut'],
       showTable: [true, false],
       showCache: [true, false],
+      showRate: [true, false],
     };
     const VIEW_DEFAULTS = {
       by: 'model', range: 'all', subagents: null,
       timeMode: 'bar', shareMode: 'bars',
       showTable: true,
-      // 命中率总表现在是**可选项**：逐项命中率改由「点名称弹窗」查看，
+      // 命中率总表是**可选项**：逐项命中率改由「点名称弹窗」查看，
       // 想同时铺开看所有项时再把这个开关打开（选择会被记住）。
       showCache: false,
+      // 速率区默认**开**：平均 TTFT / TPS 是本版新增主指标，独立成区便于横向比较。
+      showRate: true,
     };
     const VIEW_KEYS = Object.keys(VIEW_SPEC);
 
@@ -309,6 +317,69 @@ window.__ModuleLoader__.load({
       { k: 'cacheWrite', label: '缓存写', color: '#e8a33d' },
     ];
 
+    /* ---------------------------------------------------- 平均速率（TTFT/TPS） ---- */
+
+    // 口径（与 host 的 fold.js::rateMetrics 一一对应）：
+    //   TTFT = 首个内容时刻 − 请求起始时刻（秒）；TPS = Σ输出tokens / Σ生成时长（tokens/秒）。
+    // TPS 用**聚合式**：一次 0.3 秒的短回复与一次 40 秒的长回复不该等权，逐条算术平均
+    // 会被大量短调用带偏，所以主数字用聚合值，`tpsMean`（逐条算术均值）只在悬停里对照。
+    // 没有样本 → null → 显示「—」，绝不当 0（0 tok/s 是「慢到不动」，与「没有可测数据」
+    // 是两件事）。老账本（插件改版前折的）没有速率字段，重折一次即有。
+    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    /** 平均 TTFT（秒）；无样本 null。 */
+    const ttftOf = (r) => num(r && r.ttftAvg);
+    /** 平均 TPS（tokens/秒，聚合口径）；无样本 null。 */
+    const tpsOf = (r) => num(r && r.tpsAvg);
+    const secText = (v) => (v === null ? '—' : v.toFixed(v >= 10 ? 1 : 2) + ' s');
+    const tpsText = (v) => (v === null ? '—' : (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + ' tok/s');
+    /**
+     * 速率副标注：样本条数（分母不同才敢直接比）。
+     */
+    const rateSamples = (r) => {
+      const n = r && Number.isFinite(r.ttftSamples) ? r.ttftSamples : 0;
+      return n > 0 ? n + ' 样本' : null;
+    };
+
+    /**
+     * 这一行**需不需要注明供应商**：host 给的判据是「展示名在当前视图里是否唯一」
+     * （sharedLabel），它涵盖两类撞名——① 同一请求名挂在多家供应商；
+     * ② 不同写法/不同渠道的模型解析出**同一个展示名**（本机实测三个
+     * deepseek-v4.1-flash 变体都叫「DeepSeek V4.1 Flash」）。
+     * 只按 ① 判会让 ② 的行看起来「混在一起」。旧 host 没有 sharedLabel 时退回 sharedModel。
+     */
+    const showProvider = (r) => !!(r && (r.sharedLabel === true || r.sharedModel === true) && r.provider);
+
+    /**
+     * 副行文本（图表每行的第二行）：**只有需要注明供应商的行**才给「供应商 · 请求名」；
+     * 独家模型不标注渠道（用户要求：只有一个渠道在用时，名字本身就唯一，加了是噪声）。
+     */
+    const subLine = (r, fallback) => {
+      if (showProvider(r)) {
+        const pn = r.providerLabel || r.provider;
+        const nm = rawName(r);
+        return (nm ? pn + ' · ' + nm : String(pn));
+      }
+      return fallback;
+    };
+
+    /** 速率悬停：极值 + 逐条算术均值 + 样本数，一句话交代这个数字的来源。 */
+    const rateTitle = (r) => {
+      const t = ttftOf(r);
+      const p = tpsOf(r);
+      const bits = [];
+      if (t === null && p === null) return '无速率数据（该范围没有任何带时间戳的 stream；重折日志后可得）';
+      if (t !== null) {
+        bits.push('平均 TTFT ' + secText(t) + '（' + fmt(r.ttftSamples) + ' 次）');
+        if (num(r.ttftMin) !== null) bits.push('最快 ' + secText(r.ttftMin) + ' / 最慢 ' + secText(r.ttftMax));
+      }
+      if (p !== null) {
+        bits.push('平均 TPS ' + tpsText(p) + '（Σ输出 ' + fmt(r.tpsSamples) + ' 次调用聚合）');
+        const mean = num(r.tpsMean);
+        if (mean !== null) bits.push('逐条算术均值 ' + tpsText(mean) + '（差距大说明调用时长不均）');
+      }
+      return bits.join(' · ');
+    };
+
     /**
      * 行的显示名：别名/标签 > 统计键 > 兜底占位。host 永远给 key，但前端**不该**
      * 把 undefined 画到屏幕上（空对象行曾在弹窗标题里渲染出「模型 · undefined」）。
@@ -366,7 +437,7 @@ window.__ModuleLoader__.load({
           // charts-harness 的静态渲染与 preview.mjs 才能展开出名称文本。
           h('div', { className: 'ust-hlabel' }, KeyCell({ row: r, onPick: props.onPick })),
           h('div', { className: 'ust-hmeta', title: hoverTitle(r) },
-            (r.model ? rawName(r) + ' · ' : '') + fmt(r.calls) + ' 次'),
+            subLine(r, fmt(r.calls) + ' 次')),
         ),
         share === null
           ? h('div', { className: 'ust-cnone' }, '无缓存数据')
@@ -412,6 +483,108 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 速率 · 明细表一行（**与用量表完全分区**：这里只有速率列，不掺 token 数）。
+     * 无样本一律「—」，不当 0（0 tok/s 是「慢到不动」，与「没有可测数据」是两件事）。
+     */
+    function RateTableRow(props) {
+      const r = props.row;
+      const t = ttftOf(r);
+      const p = tpsOf(r);
+      const excluded = (r.ttftExcluded || 0) + (r.tpsExcluded || 0);
+      const num = (v, text) => h('td', { title: v === null ? '无速率数据（该范围没有带 stream 时间戳的样本）' : rateTitle(r) }, text);
+      return h('tr', { key: r.key },
+        h('td', { className: 'l' },
+          h('div', { className: 'ust-key' },
+            // 直接调用（不是 h(KeyCell, …)）：KeyCell 无 hooks，直接调用后元素树是平的。
+            KeyCell({ row: r, onPick: props.onPick, hint: '查看该项的速率详情' })),
+          h('div', { className: 'ust-meta' }, subLine(r, '')),
+        ),
+        h('td', null, fmt(r.calls)),
+        h('td', null, fmt(r.ttftSamples || 0)),
+        h('td', { title: t === null ? '无速率数据' : '平均 ' + secText(t) + ' · 中位 ' + secText(r.ttftMedian) + ' · ' + rateTitle(r) },
+          t === null ? '—' : secText(t)),
+        h('td', null, r.ttftMedian === null || r.ttftMedian === undefined ? '—' : secText(r.ttftMedian)),
+        h('td', { title: '界内极值（超 5 分钟的污染点不进统计）' },
+          (r.ttftMin === null || r.ttftMin === undefined || r.ttftMax === null || r.ttftMax === undefined)
+            ? '—' : secText(r.ttftMin) + ' / ' + secText(r.ttftMax)),
+        h('td', { title: p === null ? '无满足阈值的可测样本（生成 ≥ 500 ms 且输出 ≥ 32 tokens）' : rateTitle(r) },
+          p === null ? '—' : tpsText(p)),
+        h('td', { title: '逐条 tok/s 的算术均值（对照聚合值：差距大说明调用时长不均）' },
+          r.tpsMean === null || r.tpsMean === undefined ? '—' : tpsText(r.tpsMean)),
+        h('td', { title: '逐条 tok/s 的中位数' },
+          r.tpsMedian === null || r.tpsMedian === undefined ? '—' : tpsText(r.tpsMedian)),
+        h('td', { title: excluded > 0 ? '被上界（5 分钟）裁掉的样本条数：TTFT ' + fmt(r.ttftExcluded || 0) + ' · TPS ' + fmt(r.tpsExcluded || 0) : undefined },
+          excluded > 0 ? fmt(excluded) : '0'),
+      );
+    }
+
+    /**
+     * 速率区（**独立于用量区**）：合计两张卡 + 逐项速率明细表。
+     * 默认显示（速率是本轮新增的主诉求）；关掉后只剩用量区。
+     */
+    function RatePanel(props) {
+      const rows = props.rows;
+      const shown = rows.slice(0, props.limit || 50);
+      const totals = props.totals || {};
+      const t = ttftOf(totals);
+      const p = tpsOf(totals);
+      const measured = rows.filter((r) => tpsOf(r) !== null).length;
+      const keyHead = props.isTime ? (props.by === 'day' ? '日期' : '周起始') : '键';
+      return h('div', { className: 'ust-chart-card' },
+        h('div', { className: 'ust-chart-head' },
+          h('div', { className: 'ust-chart-title' }, props.title || '速率（平均 TTFT / TPS）'),
+          h('div', { className: 'ust-legend' },
+            h('span', { className: 'ust-legend-i' }, '可测速率 ' + fmt(measured) + ' / ' + fmt(rows.length) + ' 项'),
+            h('span', { className: 'ust-legend-i' }, '单位：秒 · tokens/秒'),
+          ),
+        ),
+        // 合计两张卡：当前范围全部速率样本的整体值（逐项看下面的表）
+        h('div', { className: 'ust-cards' },
+          h('div', { className: 'ust-card' },
+            h('div', { className: 'ust-card-k' }, '平均 TTFT（合计）'),
+            h('div', { className: 'ust-card-v',
+              title: '首个内容时刻 − 请求起始时刻（step/start；重试取最后一条 retry-started）的算术均值'
+                + (totals.ttftMedian === null || totals.ttftMedian === undefined
+                  ? '' : '；中位 ' + secText(totals.ttftMedian))
+                + (totals.ttftSamples ? '；样本 ' + fmt(totals.ttftSamples) + ' / ' + fmt(totals.calls) + ' 次调用' : '')
+                + (totals.ttftExcluded ? '；剔除 ' + fmt(totals.ttftExcluded) + ' 条超 5 分钟的污染点' : '')
+                + '。逐项速率看下面的表。' },
+              t === null ? '无数据' : secText(t))),
+          h('div', { className: 'ust-card' },
+            h('div', { className: 'ust-card-k' }, '平均 TPS（合计）'),
+            h('div', { className: 'ust-card-v',
+              title: 'Σ输出tokens / Σ生成时长（聚合口径，按耗时加权）'
+                + (totals.tpsMean === null || totals.tpsMean === undefined
+                  ? '' : '；逐条算术均值 ' + tpsText(totals.tpsMean))
+                + (totals.tpsMedian === null || totals.tpsMedian === undefined
+                  ? '' : '；逐条中位 ' + tpsText(totals.tpsMedian))
+                + (totals.tpsSamples ? '；样本 ' + fmt(totals.tpsSamples) + ' 次调用' : '')
+                + (totals.tpsExcluded ? '；剔除 ' + fmt(totals.tpsExcluded) + ' 条超长生成' : '')
+                + '。生成 < 500 ms 或输出 < 32 tokens 的调用不进 TPS 样本。' },
+              p === null ? '无数据' : tpsText(p))),
+        ),
+        rows.length === 0
+          ? h('div', { className: 'ust-empty' }, '该范围没有用量记录。')
+          : h('div', { className: 'ust-table-wrap' },
+              h('table', { className: 'ust-table' },
+                h('thead', null, h('tr', null,
+                  h('th', { className: 'l' }, keyHead),
+                  RATE_COLS.map((c) => h('th', { key: c }, c)),
+                )),
+                h('tbody', null, shown.map((row) => RateTableRow({ row, onPick: props.onPick })))),
+            ),
+        h('div', { className: 'ust-sub' },
+          '口径：TTFT = 首个内容时刻 − 请求起始时刻（step/start；重试取最后一条 retry-started）。'
+          + 'TPS = Σ输出tokens / Σ生成时长（聚合式，按耗时加权；逐条算术均值与中位数并列给出，'
+          + '差距大说明调用时长不均）。'
+          + '样本阈值：生成 ≥ 500 ms 且输出 ≥ 32 tokens 才进 TPS；'
+          + 'TTFT / 生成时长 > 5 分钟的点不进均值（实测本机最长一条 3 小时，是会话挂起/接手留下的污染），'
+          + '被剔除的条数在「剔除」列如实标出。「—」= 无数据，不是 0。'
+          + '本区与上面的用量区**互不混列**：token 数看用量表，速率看这里。'),
+      );
+    }
+
+    /**
      * 命中率详情弹窗（点名称打开）：把**一项**的命中率讲清楚——
      * 实测占比 + 覆盖度 + 可测构成 + 未上报流量 + 各项 token。
      * 纯函数（无 hooks），可无头渲染断言；关闭：右上角按钮 / 点背景 / Esc。
@@ -447,9 +620,17 @@ window.__ModuleLoader__.load({
       stats.push(kv('总计', fmt(r.total || 0)));
       const extras = [];
       if (props.by === 'model') {
+        // 展示名会撞车（同名多渠道 / 多个请求名解析出同一展示名）才说明是哪一家；
+        // 独家模型的名字本身就唯一，不额外标注渠道（与列表、副行同一判据）。
         if (r.model) extras.push(kv('请求名', r.model));
         if (r.settingsName) extras.push(kv('模型设置名', r.settingsName));
-        if (r.providers) extras.push(kv('供应商', r.providers.join(', ')));
+        if (showProvider(r)) {
+          extras.push(kv('供应商（展示名会与其他条目撞车）', r.providerLabel || r.provider));
+          if (Array.isArray(r.modelProviders) && r.modelProviders.length > 1) {
+            extras.push(kv('同名渠道', r.modelProviders.join(', '),
+              '这个请求名同时挂在多个供应商下，已按渠道各算各的（用量与速率都不混算）'));
+          }
+        }
       } else if (props.by === 'session') {
         if (r.cwd) extras.push(kv('工作目录', r.cwd));
         extras.push(kv('来源', r.origin === 'subagent' ? '子代理' : '主会话'));
@@ -518,26 +699,53 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 页面版块顺序（纯函数，便于无头断言）：
-     *   数值表 / 图表 → 命中率总表（可选项）→ 明细表（可选项）→ 截断提示
-     * 「命中率总表」默认不显示（逐项命中率走点名称的弹窗）；打开后落在
-     * 「数值表之后、明细表之前」。
+     * 页面版块顺序（纯函数，便于无头断言）——**用量与速率完全分区**：
+     *   用量区：数值表/图表 → 命中率总表（可选）→ 用量明细表（可选）
+     *   速率区：速率面板（合计卡 + 速率明细表，默认开，可关）
+     *   收尾：截断提示
+     * 两块各自成表、互不混列：token 数只出现在用量区，TTFT/TPS 只出现在速率区。
      */
     function orderedPanels(props) {
       const out = [];
       if (props.chartCard) out.push(props.chartCard);
       if (props.showCache === true && props.cacheCard) out.push(props.cacheCard);
       if (props.showTable === true && props.table) out.push(props.table);
+      if (props.showRate === true && props.rateCard) out.push(props.rateCard);
       if (props.tail) out.push(props.tail);
       return out;
     }
 
     /**
-     * 行的「请求名」：模型维显示别名，原始请求名只在悬停与副行里露出。
-     * 非模型维没有别名，返回 key 本身。
+     * 行的「请求名」：模型维 host 给的是**拆分后**的纯模型请求名（r.model），
+     * 而统计键 r.key 是「供应商␟模型」复合键——绝不能把带分隔符的 key 画到屏幕上。
+     * 非模型维没有别名，返回 key 本身（同样先挡掉复合键，防御旧 host）。
      */
-    const rawName = (r) => String((r && (r.model || r.key)) || '');
-    const hoverTitle = (r) => (r && r.model ? '请求名：' + r.model : String((r && r.key) || ''));
+    const rawName = (r) => {
+      if (!r) return '';
+      if (r.model) return String(r.model);
+      const k = typeof r.key === 'string' ? r.key : '';
+      return k.indexOf('␟') < 0 ? k : '';
+    };
+
+    /**
+     * 悬停提示：模型维**只在展示名会撞车时**摊开供应商（同名多渠、或多个请求名解析出
+     * 同一展示名）——那才是分不清的关键；独家模型的名字本身就唯一，不标注渠道。
+     * 其余维度给 key。
+     */
+    const hoverTitle = (r) => {
+      if (!r) return '';
+      const bits = [];
+      const name = rawName(r);
+      if (name !== '') bits.push('请求名：' + name);
+      if (showProvider(r)) {
+        const also = Array.isArray(r.modelProviders) && r.modelProviders.length > 1
+          ? '（同名渠道：' + r.modelProviders.join(', ') + '）'
+          : '';
+        bits.push('供应商：' + (r.providerLabel || r.provider) + also);
+      }
+      if (r.settingsName) bits.push('模型设置名：' + r.settingsName);
+      return bits.length > 0 ? bits.join(' · ') : String(r.key || '');
+    };
 
     /* ------------------------------------------------------------ 图表 ---- */
 
@@ -669,14 +877,15 @@ window.__ModuleLoader__.load({
       const max = Math.max(1, ...rows.map(sum));
       return h('div', { className: 'ust-hrows' }, rows.map((r, i) => {
         const total = sum(r);
-        const meta = fmt(r.calls) + ' 次'
+        // **用量图不掺速率**（速率看独立的「速率」区）；副行只在撞名模型上标渠道。
+        const meta = subLine(r, fmt(r.calls) + ' 次'
           + (r.sessions ? ' · ' + fmt(r.sessions) + ' 会话' : '')
           + (r.archived ? ' · 已归档' : '')
-          + (r.origin === 'subagent' ? ' · 子代理' : '');
+          + (r.origin === 'subagent' ? ' · 子代理' : ''));
         return h('div', { className: 'ust-hrow', key: r.key },
           h('div', { className: 'ust-hinfo' },
             h('div', { className: 'ust-hlabel', title: hoverTitle(r) }, (i + 1) + '. ' + displayName(r)),
-            h('div', { className: 'ust-hmeta', title: hoverTitle(r) }, r.model ? rawName(r) : meta),
+            h('div', { className: 'ust-hmeta', title: hoverTitle(r) }, meta),
           ),
           h('div', { className: 'ust-htrack', title: fmt(r.total) + ' tokens' },
             h('div', { className: 'ust-hfill', style: { width: Math.max(0.4, (total / max) * 100) + '%' } },
@@ -762,11 +971,12 @@ window.__ModuleLoader__.load({
         + '　',
         SERIES.map((s) => h('span', { key: s.k },
           h('em', null, s.label + ' '), fmt(r[s.k]), '　')),
-        r.reasoning > 0 ? h('span', null, h('em', null, '推理 '), fmt(r.reasoning)) : null,
+        r.reasoning > 0 ? h('span', null, h('em', null, '推理 '), fmt(r.reasoning), '　') : null,
         // 与逐项横条、明细表同一套规矩：share 为 null 时只说「无缓存数据」，
         // 不再补「（覆盖 0.00%）」——那是同一件事说两遍。
         h('span', null, h('em', null, '缓存占比 '), pctText(cacheShareOf(r)),
           cacheShareOf(r) === null || coverageHint(r) === null ? null : '（' + coverageHint(r) + '）'),
+        // 用量图的悬停**不带速率**（分区）：平均 TTFT / TPS 看下面独立的「速率」区。
       );
     }
 
@@ -783,6 +993,7 @@ window.__ModuleLoader__.load({
       const [shareMode, setShareMode] = React.useState(saved.shareMode);  // bars | donut
       const [showTable, setShowTable] = React.useState(saved.showTable);
       const [showCache, setShowCache] = React.useState(saved.showCache);
+      const [showRate, setShowRate] = React.useState(saved.showRate);
       // 弹窗存的是**行的键**而不是行对象快照：刷新 / 回填完成 / 自动刷新后
       // 行对象会被整个替换，存快照会让弹窗一直显示刷新前的旧数字。
       const [detailKey, setDetailKey] = React.useState(null);
@@ -845,8 +1056,8 @@ window.__ModuleLoader__.load({
       // 「查看的页面与选项」落盘：任何一项变化都写回（失败静默——存储不可用时
       // 页面照常工作，只是下次打开回到默认视图）。
       React.useEffect(() => {
-        writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache });
-      }, [by, range, subagents, timeMode, shareMode, showTable, showCache]);
+        writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache, showRate });
+      }, [by, range, subagents, timeMode, shareMode, showTable, showCache, showRate]);
 
       // 详情弹窗开着时按 Esc 关闭（window 上没有 addEventListener 的环境直接跳过）。
       React.useEffect(() => {
@@ -918,7 +1129,9 @@ window.__ModuleLoader__.load({
         h('div', null,
           h('div', { className: 'ust-title' }, '用量统计'),
           h('div', { className: 'ust-sub' },
-            '按 模型 / 供应商 / 会话 / 每日 / 每周 统计 token。事实来自会话日志折叠：'
+            '按 模型（区分供应商）/ 供应商 / 分组 / 会话 / 每日 / 每周 统计 token 与平均速率（TTFT / TPS）。'
+            + '模型维按「供应商 + 模型」成行——同一个模型挂在多家供应商下时各算各的，不合并。'
+            + '事实来自会话日志折叠：'
             + '插件上线前的历史对话与导出归档（zip）都能回填，与实时记账同一口径，可加可对账。'),
         ),
         h('div', { className: 'ust-bar' },
@@ -949,6 +1162,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ust-card' },
           h('div', { className: 'ust-card-k' }, '调用次数'),
           h('div', { className: 'ust-card-v' }, fmt(totals.calls))),
+        // 用量区卡片**只有用量**：速率的合计与逐项都在下面独立的「速率」区里。
         h('div', { className: 'ust-card' },
           h('div', { className: 'ust-card-k' }, '会话数'),
           h('div', { className: 'ust-card-v' }, fmt(totals.sessions))),
@@ -964,6 +1178,7 @@ window.__ModuleLoader__.load({
         TABS.map((t) => h('button', {
           key: t.by,
           className: 'ust-tab' + (by === t.by ? ' is-on' : ''),
+          title: t.hint,
           onClick: () => changeQuery(t.by !== by, () => setBy(t.by)),
         }, t.label)),
         h('div', { className: 'ust-sep' }),
@@ -1000,14 +1215,19 @@ window.__ModuleLoader__.load({
         }),
         h('div', { className: 'ust-sep' }),
         h('button', {
+          className: 'ust-tab' + (showRate ? ' is-on' : ''),
+          onClick: () => setShowRate(!showRate),
+          title: '速率区：平均 TTFT / TPS 的合计卡与逐项速率表（**与用量表分开成区，互不混列**，排在整个用量区之后）。默认开，选择会被记住。',
+        }, '速率区'),
+        h('button', {
           className: 'ust-tab' + (showCache ? ' is-on' : ''),
           onClick: () => setShowCache(!showCache),
-          title: '逐项命中率总表（放在数值表之后、明细表之前）；单个模型的命中率点名称弹窗查看。默认关，选择会被记住。',
+          title: '逐项命中率总表（用量区内，排在数值表之后、明细表之前）；单个模型的命中率点名称弹窗查看。默认关，选择会被记住。',
         }, '命中率总表'),
         h('button', {
           className: 'ust-tab' + (showTable ? ' is-on' : ''),
           onClick: () => setShowTable(!showTable),
-          title: '明细表：每行的 token 数值与缓存占比。选择会被记住。',
+          title: '用量明细表：每行的 token 数值与缓存占比（不含速率——速率看「速率区」）。选择会被记住。',
         }, '明细表'),
       );
 
@@ -1034,6 +1254,18 @@ window.__ModuleLoader__.load({
         isTime ? h(HoverLine, { row: hovered, cumulative }) : null,
       );
 
+      // **速率区**（与用量区分开，默认显示）：合计两张卡 + 逐项速率明细表，
+      // 里面只有速率列，不掺 token 数。模型维按「供应商×模型」成行，
+      // 速率也按这个口径分桶（同模型不同家不混算）。
+      const rateCard = rows.length === 0
+        ? null
+        : h(RatePanel, {
+            rows: rows.slice(), limit: 50, totals, by,
+            isTime: by === 'day' || by === 'week',
+            title: '速率 · ' + dimName + '（平均 TTFT / TPS）',
+            onPick: (row) => setDetailKey(row.key),
+          });
+
       // 命中率总表（逐项口径，**可选项**）：每一行各自算自己的占比，按当前维度取前 20。
       // 渲染位置由 orderedPanels 决定：数值表之后、明细表之前。
       const cacheCard = rows.length === 0
@@ -1044,6 +1276,7 @@ window.__ModuleLoader__.load({
             onPick: (row) => setDetailKey(row.key),
           });
 
+      // **用量明细表**（只列 token 与缓存占比；速率一律在下面独立的「速率」区看，两区互不混列）
       const table = h('div', { className: 'ust-table-wrap' },
         h('table', { className: 'ust-table' },
           h('thead', null, h('tr', null,
@@ -1069,7 +1302,10 @@ window.__ModuleLoader__.load({
                 : h('div', { className: 'ust-meta' },
                     by === 'group'
                       ? (row.ungrouped === true ? '未命中任何分组' : (row.providers ? '供应商：' + row.providers.join(', ') : ''))
-                      : (row.model ? row.model : (row.providers ? row.providers.join(', ') : ''))),
+                      // 模型维副行：只有展示名会撞车的行才标「供应商 · 请求名」，其余只给请求名。
+                      : (showProvider(row)
+                        ? ((row.providerLabel || row.provider) + ' · ' + rawName(row))
+                        : (row.model ? row.model : (row.providers ? row.providers.join(', ') : '')))),
             ),
             h('td', null, fmt(row.calls)),
             h('td', null, fmt(row.input)),
@@ -1085,6 +1321,7 @@ window.__ModuleLoader__.load({
               return h('span', { title: hint === null ? '实测缓存占比' : '实测缓存占比；' + hint + ' 的计费输入带缓存字段' },
                 (share * 100).toFixed(1) + '%', hint === null ? null : h('span', { className: 'ust-ccover' }, ' · ' + hint));
             })()),
+            // 速率两列**不在这里**（用量与速率分区）：平均 TTFT / TPS 看下面独立的「速率」区。
             h('td', null, fmt(row.sessions)),
             h('td', null, h('span', {
               className: 'ust-share',
@@ -1100,6 +1337,16 @@ window.__ModuleLoader__.load({
             + ' · 已折叠 ' + fmt(status.sessions.folded) + ' 会话 · 事实 ' + fmt(status.facts.total)
             + (status.backfill && status.backfill.last && status.backfill.last.finishedAt
               ? ' · 上次回填 ' + fmtTime(status.backfill.last.finishedAt)
+              : '')
+            // 速率覆盖度：账本里带 stream 时间戳的事实占比。改版前折的老事实没有，
+            // 这里如实提示还差多少、以及怎么补齐（不当成 0）。
+            + (status.rateCoverage && status.rateCoverage.share !== null && status.rateCoverage.share !== undefined
+              ? (status.rateCoverage.share < 0.9995
+                ? ' · 速率样本覆盖 ' + (status.rateCoverage.share * 100).toFixed(1) + '%（'
+                  + fmt(status.rateCoverage.factsWithSamples) + '/' + fmt(status.rateCoverage.factsTotal)
+                  + ' 条事实带 stream 时间戳；其余是老账本或日志未记录流内时刻的渠道，'
+                  + '点「重建全部」可补齐老账，不可测的项显示「—」而不是 0）'
+                : ' · 速率样本覆盖全部事实')
               : '')
             + (status.gaps && status.gaps.searchRequests > 0
               ? ' · 联网搜索调用 ' + fmt(status.gaps.searchRequests) + ' 次（无用量可恢复）'
@@ -1125,9 +1372,11 @@ window.__ModuleLoader__.load({
         cards,   // 数值卡片
         loading && rows.length === 0 ? h('div', { className: 'ust-empty' }, '加载中…') : null,
         !loading && rows.length === 0 ? h('div', { className: 'ust-empty' }, '该范围内没有用量记录。') : null,
-        // 数值表/图表 → 命中率总表（可选项）→ 明细表（可选项）→ 截断提示
+        // 用量区：数值表/图表 → 命中率总表（可选）→ 用量明细表（可选）；然后**速率区**（独立成区）；截断提示收尾
         ...orderedPanels({
           chartCard,
+          rateCard,
+          showRate,
           cacheCard,
           showCache,
           showTable: showTable && rows.length > 0,
@@ -1158,6 +1407,9 @@ window.__ModuleLoader__.load({
     exports.__charts = {
       css: PAGE_CSS, SERIES, INPUT_SERIES, Legend, TimeChart, HBars, Donut, HoverLine,
       CacheRow, CacheBars, CacheDetail, KeyCell, inputBar, orderedPanels, rowByKey, displayName,
+      RatePanel, RateTableRow, COLS, RATE_COLS,
+      ttftOf, tpsOf, secText, tpsText, rateTitle, rateSamples, subLine,
+      rawName, hoverTitle,
       cacheShareOf, cacheCoverageOf, coverageHint, pctText,
       readView, writeView, VIEW_KEY, VIEW_DEFAULTS, niceMax, shortNum,
     };

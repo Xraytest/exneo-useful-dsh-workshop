@@ -72,6 +72,8 @@ function foldLogInto(entry, header, events, source, sizeBytes, force, mirror) {
     entry.state.logFacts = [];
     entry.state.gaps = { noUsageMessages: 0, searchRequests: 0, titleRequests: 0 };
     entry.state.remoteSkipped = { facts: 0, tokens: 0 };
+    // 速率端点游标也要清：重折从事件 0 开始，起点必须由新的 step/start 建立。
+    entry.state.start = null;
   }
   if (floor >= 0) entry.remoteBelow = floor; else delete entry.remoteBelow;
   const inheritedBelow = inheritedCutFromEvents(events);
@@ -171,6 +173,12 @@ function main() {
   say('');
   say(`会话 ${fmt(stats.sessions)}（有账单 ${fmt(stats.withFacts)}）· 事实 ${fmt(stats.logFacts + stats.auxFacts)}（其中实时补记 ${fmt(stats.auxFacts)}）`);
   say(`总计 ${fmt(byModel.totals.total)} tokens · ${fmt(byModel.totals.calls)} 次调用 · 时区 ${TZ} · 周起始 ${WEEK_START === 1 ? '周一' : '周日'}`);
+  // 速率覆盖率：样本 / 调用。偏低说明这批日志的 stream 没记时间戳（老日志或某些渠道
+  // 不写流内时刻），此时平均 TTFT / TPS 不可测——显示「—」，不是 0。
+  say(`速率：平均 TTFT ${byModel.totals.ttftAvg === null ? '—' : byModel.totals.ttftAvg.toFixed(2) + ' s'}`
+    + ` · 平均 TPS ${byModel.totals.tpsAvg === null ? '—' : byModel.totals.tpsAvg.toFixed(1) + ' tok/s'}`
+    + `（样本 ${fmt(byModel.totals.ttftSamples)} / ${fmt(byModel.totals.calls)} 次调用`
+    + (byModel.totals.ttftExcluded > 0 ? `，另有 ${fmt(byModel.totals.ttftExcluded)} 条超 5 分钟被剔除` : '') + '）');
   say(`新折叠 ${fmt(addedFacts)} 条事实 · 解析失败行 ${fmt(badLines)} · 失败文件 ${fmt(failed)}`);
   if (MIRROR.available) {
     say(`网格镜像：${fmt(MIRROR.byId.size)} 条对端会话副本，按来源边界排除 ${fmt(stats.remoteSkipped.facts)} 次调用 / ${fmt(stats.remoteSkipped.tokens)} tokens（请求由对端设备发出）`);
@@ -178,12 +186,15 @@ function main() {
   say('');
   say('供应商：');
   for (const row of byProvider.rows) {
-    say(`  ${row.key.padEnd(20)} ${fmt(row.total).padStart(14)} tokens  ${fmt(row.calls).padStart(8)} 次  ${row.sessions} 会话`);
+    say(`  ${row.key.padEnd(20)} ${fmt(row.total).padStart(14)} tokens  ${fmt(row.calls).padStart(8)} 次  ${row.sessions} 会话  TTFT ${(row.ttftAvg === null ? '—' : row.ttftAvg.toFixed(2) + 's').padStart(7)}  TPS ${(row.tpsAvg === null ? '—' : row.tpsAvg.toFixed(1)).padStart(7)}`);
   }
   say('');
-  say('模型 top 10：');
+  // 模型维按「供应商␟请求名」复合键成行：同一模型挂在多家供应商下时各算各的，
+  // 速率与单价都不同，合起来看会掩盖真实差异（故这里两列都印出来）。
+  say(`模型 top 10（供应商 × 请求名，共 ${byModel.rows.length} 个条目）：`);
   for (const row of byModel.rows.slice(0, 10)) {
-    say(`  ${row.key.padEnd(34)} ${fmt(row.total).padStart(14)} tokens  ${fmt(row.calls).padStart(8)} 次`);
+    const label = `${String(row.provider || '?')} / ${String(row.model || '?')}`;
+    say(`  ${label.padEnd(52)} ${fmt(row.total).padStart(14)} tokens  ${fmt(row.calls).padStart(8)} 次  TTFT ${(row.ttftAvg === null ? '—' : row.ttftAvg.toFixed(2) + 's').padStart(7)}  中位 ${(row.ttftMedian === null ? '—' : row.ttftMedian.toFixed(2) + 's').padStart(7)}  TPS ${(row.tpsAvg === null ? '—' : row.tpsAvg.toFixed(1)).padStart(7)}  样本 ${fmt(row.ttftSamples).padStart(7)}`);
   }
   say('');
   say(`按日（${byDay.rows.length} 天）：`);

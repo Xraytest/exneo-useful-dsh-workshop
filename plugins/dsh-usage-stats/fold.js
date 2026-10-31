@@ -57,6 +57,191 @@ export function hasCacheFields(usage) {
   return 'cacheReadTokens' in usage || 'cacheWriteTokens' in usage;
 }
 
+/* ---------------------------------------------------------- 复合模型键 ---- */
+
+/**
+ * 「供应商 + 模型」复合键的分隔符（U+241F 单位分隔符图形）。
+ *
+ * 为什么需要它：同一个模型名经常同时挂在多个供应商下（本机实测
+ * `deepseek-v4.1-flash` 既有 opencode-go 2.1 万次、又有 trae 2.3 千次，
+ * 两者速率与单价完全不同）。只按模型名分桶会把它们合成一行，看不出是谁家的。
+ * 用 U+241F 而不是 `:` / `/` / `@` 是因为这些字符**会**真实出现在模型请求名里
+ * （`z-ai/glm-5.3`、`qwen/qwen3.8-27b:free`），拼进去就拆不回来了。
+ */
+export const MODEL_KEY_SEP = '␟';
+
+/** 供应商 + 模型 → 复合统计键。 */
+export function compositeModelKey(provider, model) {
+  return `${String(provider === undefined || provider === null ? 'unknown' : provider)}${MODEL_KEY_SEP}${String(model === undefined || model === null ? 'unknown' : model)}`;
+}
+
+/**
+ * 复合键 → { provider, model }；不含分隔符时 provider=null（表示这是旧的「只按模型名」键）。
+ * 只拆**第一个**分隔符：模型名里万一含该字符也不至于丢信息。
+ */
+export function splitCompositeModelKey(key) {
+  const text = String(key === undefined || key === null ? '' : key);
+  const at = text.indexOf(MODEL_KEY_SEP);
+  if (at < 0) return { provider: null, model: text };
+  return { provider: text.slice(0, at), model: text.slice(at + MODEL_KEY_SEP.length) };
+}
+
+/* ------------------------------------------------------------ 速率样本 ---- */
+
+/** 不参与「首个内容时刻」的 chunk 类型（记账/收尾信号，不是模型真正吐出的内容）。 */
+const NON_CONTENT_CHUNKS = new Set(['usage', 'finish', 'error', undefined, null]);
+
+/**
+ * 从一条 assistant/message 的 stream 记录里取**第一个内容时刻**（TTFT 的分子端点）。
+ *
+ * stream 的实测形状（2026-10-31 本机 45,861 条调用普查）：
+ *   {"type":"chunk","time":T,"chunk":{"type":"block-start",...}}      ← 块边界
+ *   {"type":"text-chunks","time0":T,"dt":[...],"texts":[...]}          ← 文本增量（含 reasoning/tool-call 变体）
+ *   {"type":"chunk","time":T,"chunk":{"type":"usage"|"finish",...}}     ← 记账与收尾，不算内容
+ * 老日志（stream 记录不带 time/time0）返回 null → 这条调用不进速率样本。
+ */
+export function firstContentTime(stream) {
+  if (!Array.isArray(stream)) return null;
+  let best = null;
+  for (const rec of stream) {
+    if (!rec || typeof rec.type !== 'string') continue;
+    let t = null;
+    if (rec.type === 'chunk') {
+      const ct = rec.chunk && rec.chunk.type;
+      if (NON_CONTENT_CHUNKS.has(ct)) continue;
+      if (typeof rec.time === 'number') t = rec.time;
+    } else if (rec.type === 'text-chunks' || rec.type === 'reasoning-chunks' || rec.type === 'tool-call-chunks') {
+      if (typeof rec.time0 === 'number') t = rec.time0;
+    }
+    if (t === null || !Number.isFinite(t)) continue;
+    if (best === null || t < best) best = t;
+  }
+  return best;
+}
+
+/**
+ * 速率样本阈值（低于这两条的 TPS 是噪声，不是真实解码速度）：
+ *   - 生成时长 ≥ 500 ms：更短的样本里，网络尾部抖动与 1~2 个 token 的量都够把
+ *     算出来的 tok/s 推到几百甚至上千（实测一条 60 ms / 12 tok 的调用会报 200 tok/s）。
+ *   - 输出 ≥ 32 tokens：短回复（一个工具名、一句「好的」）同样不是稳态解码速度。
+ * TTFT 不设下界——首 token 延迟对每次调用都有意义，哪怕回复很短。
+ */
+export const RATE_MIN_GEN_MS = 500;
+export const RATE_MIN_OUTPUT_TOKENS = 32;
+
+/**
+ * 速率样本**上界**裁剪（默认 5 分钟）。
+ *
+ * 为什么必须裁：实测本机 45,838 条可算样本里 TTFT 最大一条是 10,838,132 ms
+ * （3 小时）——那是会话被挂起/接手、或 stream 端点跨了用户空闲期留下的污染点，
+ * 不是模型响应慢。裸平均会被这类极少数点整体拉飞（均值对尾部无抵抗）。
+ * 处理方式：**均值只算界内样本**，被剔除的条数如实计入 `ttftExcluded` /
+ * `tpsExcluded` 透出（不静默丢数据）；同时给出**中位数**（对尾部天然免疫），
+ * 两者一起看才是可信的「平均速率」。
+ * 5 分钟是刻意留宽的下手：p90 实测 19.7 s，正常长队列也不会稳过这个量级。
+ */
+export const RATE_MAX_PLAUSIBLE_MS = 300000;
+
+/**
+ * 一条调用的速率样本：
+ *   ttft = 首个内容时刻 − 请求起始时刻（step/start 或 llm/retry-started）
+ *   gen  = 事件时刻 − 首个内容时刻（本次调用的生成区间）
+ * 拿不到端点就返回 null（该条不进速率样本，不硬算）。
+ */
+export function rateSample(startMs, firstContentMs, endMs, outputTokens) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(firstContentMs) || !Number.isFinite(endMs)) return null;
+  const ttft = firstContentMs - startMs;
+  // 端点错乱（时钟回跳 / 增量路径下起始标记错位）一律丢样本，不产出负数延迟。
+  if (!(ttft >= 0)) return null;
+  const gen = endMs - firstContentMs;
+  const out = Number.isFinite(outputTokens) ? outputTokens : 0;
+  const measurable = gen >= RATE_MIN_GEN_MS && out >= RATE_MIN_OUTPUT_TOKENS;
+  return { ttft, gen: measurable ? gen : 0, out: measurable ? out : 0, measurable };
+}
+
+/**
+ * 速率累加器：保留**原始样本**（不是只留和），因为中位数需要分布。
+ * 单次查询最多几万条数字，内存代价可忽略；聚合仍是一次线性扫描。
+ *   ttft    — 界内 TTFT 样本（ms）
+ *   spans   — 界内 [生成时长 ms, 输出 tokens] 对（用于聚合式 TPS 与逐条分布）
+ *   *Excluded — 被上界裁掉的条数（透出给界面，不静默丢数据）
+ */
+function emptyRate() {
+  return { ttft: [], spans: [], ttftExcluded: 0, tpsExcluded: 0 };
+}
+
+/** 往速率累加器里加一条样本（上界裁剪见 RATE_MAX_PLAUSIBLE_MS）。 */
+function addRate(acc, s) {
+  if (!s) return;
+  if (s.ttft <= RATE_MAX_PLAUSIBLE_MS) acc.ttft.push(s.ttft);
+  else acc.ttftExcluded++;
+  if (!s.measurable) return;
+  if (s.gen <= RATE_MAX_PLAUSIBLE_MS) acc.spans.push([s.gen, s.out]);
+  else acc.tpsExcluded++;
+}
+
+/** 把一份速率累加器合并进另一份（totals 逐行合并用）。 */
+export function mergeRate(target, src) {
+  const t = target;
+  const s = src;
+  if (!s) return t;
+  if (Array.isArray(s.ttft)) for (const v of s.ttft) t.ttft.push(v);
+  if (Array.isArray(s.spans)) for (const v of s.spans) t.spans.push(v);
+  t.ttftExcluded += s.ttftExcluded || 0;
+  t.tpsExcluded += s.tpsExcluded || 0;
+  return t;
+}
+
+/** 最近秩分位数（p 取 0..1；空数组返回 null）。升序副本，不改调用方的数组。 */
+function quantile(values, p) {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const rank = Math.max(0, Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1));
+  return sorted[rank];
+}
+
+/**
+ * 速率展示口径（单位：秒、tokens/秒）。
+ *
+ * **TPS 主数字用聚合式**：`Σ输出tokens / Σ生成时长`（等价于按耗时加权的吞吐），
+ * 而不是「逐条 tok/s 再求算术平均」——后者会让一次 0.3 秒的短回复和一次
+ * 40 秒的长回复权重相同。同时给出 `tpsMean`（逐条算术均值）与 `tpsMedian`（逐条中位数）
+ * 供对照：三者差距大就说明该项调用时长很不均。
+ *
+ * TTFT 给 `ttftAvg`（界内算术均值）+ `ttftMedian`（界内中位数）+ 极值，
+ * 并把被上界裁掉的条数如实透出（`ttftExcluded` / `tpsExcluded`）。
+ *
+ * 没有样本时全部返回 null（显示「—」），不当 0——0 tok/s 是「慢到不动」，
+ * 与「没有可测数据」是两件不同的事。
+ */
+export function rateMetrics(rate) {
+  const r = rate || emptyRate();
+  const ttft = Array.isArray(r.ttft) ? r.ttft : [];
+  const spans = Array.isArray(r.spans) ? r.spans : [];
+  const sum = (list) => list.reduce((a, v) => a + v, 0);
+  const genSum = spans.reduce((a, sp) => a + sp[0], 0);
+  const outSum = spans.reduce((a, sp) => a + sp[1], 0);
+  const perCallTps = spans.filter((sp) => sp[0] > 0).map((sp) => sp[1] / (sp[0] / 1000));
+  return {
+    ttftSamples: ttft.length,
+    ttftExcluded: r.ttftExcluded || 0,
+    ttftAvg: ttft.length > 0 ? sum(ttft) / ttft.length / 1000 : null,
+    ttftMedian: (() => { const q = quantile(ttft, 0.5); return q === null ? null : q / 1000; })(),
+    ttftP90: (() => { const q = quantile(ttft, 0.9); return q === null ? null : q / 1000; })(),
+    ttftMin: (() => { const q = quantile(ttft, 0); return q === null ? null : q / 1000; })(),
+    ttftMax: (() => { const q = quantile(ttft, 1); return q === null ? null : q / 1000; })(),
+    tpsSamples: perCallTps.length,
+    tpsExcluded: r.tpsExcluded || 0,
+    tpsAvg: genSum > 0 ? outSum / (genSum / 1000) : null,
+    tpsMean: perCallTps.length > 0 ? sum(perCallTps) / perCallTps.length : null,
+    tpsMedian: quantile(perCallTps, 0.5),
+    tpsP90: quantile(perCallTps, 0.9),
+    minGenMs: RATE_MIN_GEN_MS,
+    minOutputTokens: RATE_MIN_OUTPUT_TOKENS,
+    maxPlausibleMs: RATE_MAX_PLAUSIBLE_MS,
+  };
+}
+
 /** 与 dsh-model-pool 同一口径：有 totalTokens 用总账，否则四项相加。 */
 export function mixedTotal(u) {
   if (!u) return 0;
@@ -79,6 +264,9 @@ export function makeFact(kind, time, provider, model, usage, extra) {
     tt: mixedTotal(usage),
     // 缓存字段是否存在：用于区分「命中 0 次」与「没有缓存数据」（老日志）。
     cacheKnown: hasCacheFields(usage),
+    // 速率样本 r = { f: TTFT 毫秒, g: 生成时长毫秒, o: 参与 TPS 的输出 tokens }。
+    // 只有拿得到时序端点的调用才有这个字段（缺省 = 该条不进速率样本）；
+    // g/o 为 0 表示「TTFT 可测、TPS 不可测」（短回复/超短生成，见 RATE_MIN_* 阈值）。
     ...(extra || {}),
   };
 }
@@ -104,6 +292,11 @@ export function createFoldState(seed) {
     // 设备网格镜像的来源边界（见 mesh-mirror.js）：边界内的 usage 事实是**对端设备
     // 发出的请求**，被排除并在这里留痕（observation only）。老账本没有这个字段。
     remoteSkipped: normalizeRemoteSkipped(seed && seed.remoteSkipped),
+    // 最近一次「请求起始」标记（step/start，或重试时最后一条 llm/retry-started）。
+    // 只存一条：事件按 seq 递增处理，assistant/message 一定紧跟它自己的起始标记；
+    // 增量路径（逐事件折叠）跨调用也靠这条留住端点，故随账本一起持久化。
+    // 形状 { t: epochMs, k: 'turn:step' }；k 用于校验没有跨越到别的 step。
+    start: (seed && seed.start && typeof seed.start.t === 'number') ? seed.start : null,
   };
 }
 
@@ -148,6 +341,15 @@ export function foldEvents(state, events, opts = {}) {
         }
         break;
       }
+      // 速率端点①：一次 LLM 请求的开始。step/start 是常规起点；重试（llm/retry-started）
+      // 覆盖它——TTFT 应该量「这一次实际成功的那次请求」的排队+首包，而不含前面失败
+      // 尝试的耗时（那是另一回事，由 llm/retry 计数体现）。
+      case 'step/start':
+      case 'llm/retry-started': {
+        const d = ev.data || {};
+        state.start = { t: ev.time, k: `${d.turn}:${d.step}` };
+        break;
+      }
       case 'session/title': {
         const t = ev.data && ev.data.title;
         if (typeof t === 'string' && t) state.title = t;
@@ -167,7 +369,7 @@ export function foldEvents(state, events, opts = {}) {
           if (remote) skipRemoteFact(state, usage);
           else {
             const r = state.route || {};
-            state.logFacts.push(makeFact(K_STEP, ev.time, r.provider, r.model, usage));
+            state.logFacts.push(makeFact(K_STEP, ev.time, r.provider, r.model, usage, rateExtra(state, ev)));
             added++;
           }
         }
@@ -180,7 +382,7 @@ export function foldEvents(state, events, opts = {}) {
           if (remote) skipRemoteFact(state, usage);
           else {
             const r = state.route || {};
-            state.logFacts.push(makeFact(K_ATTEMPT, ev.time, r.provider, r.model, usage));
+            state.logFacts.push(makeFact(K_ATTEMPT, ev.time, r.provider, r.model, usage, rateExtra(state, ev)));
             added++;
           }
         }
@@ -192,7 +394,7 @@ export function foldEvents(state, events, opts = {}) {
         if (remote) { skipRemoteFact(state, usage); break; }
         const p = (ev.data && ev.data.provider) || 'unknown';
         const m = (ev.data && ev.data.model) || 'unknown';
-        state.logFacts.push(makeFact(K_COMPACTION, ev.time, p, m, usage));
+        state.logFacts.push(makeFact(K_COMPACTION, ev.time, p, m, usage, rateExtra(state, ev)));
         added++;
         break;
       }
@@ -202,6 +404,28 @@ export function foldEvents(state, events, opts = {}) {
     state.lastSeq = ev.seq;
   }
   return added;
+}
+
+/**
+ * 从「起始标记 + 本事件」推出一条速率样本（makeFact 的 extra）。
+ *
+ * 只有 assistant/message 与 assistant/attempt 的 stream 里带时间戳，因此这两类
+ * 事实才有速率；compaction/summary 不带 stream → 返回 undefined，事实形状不变。
+ * 起始标记缺失（插件上线前就已结束的老日志、或跨 step 错配）同样返回 undefined。
+ */
+function rateExtra(state, ev) {
+  const stream = ev.data && ev.data.stream;
+  if (!Array.isArray(stream) || stream.length === 0) return undefined;
+  const first = firstContentTime(stream);
+  if (first === null) return undefined;
+  const start = state.start;
+  if (!start || typeof start.t !== 'number') return undefined;
+  // 起始标记必须属于同一个 turn:step（增量折叠时上一事件可能不是本 step 的起点）。
+  const d = ev.data || {};
+  if (typeof start.k === 'string' && start.k !== `${d.turn}:${d.step}`) return undefined;
+  const s = rateSample(start.t, first, ev.time, d.usage && d.usage.outputTokens);
+  if (s === null) return undefined;
+  return { r: { f: Math.round(s.ttft), g: Math.round(s.gen), o: Math.round(s.out) } };
 }
 
 /** 被来源边界排除的一条事实：只累计到 observation 计数（不改变任何统计聚合）。 */
@@ -335,6 +559,10 @@ const EMPTY_ROW = () => ({
   // >0 = 有数据（哪怕读/写都是 0，那也是真实命中的 0）。命中率只用这部分算。
   cacheKnownFacts: 0,
   cacheBilledInput: 0,
+  // 速率累加器（TTFT / TPS，见 rateMetrics）：保留原始样本而非只留和，因为中位数
+  // 需要分布；合并用 mergeRate（逐行合并成合计样本集），故 totals 也是精确值。
+  // 无样本时保持空累加器 → 展示为 null（不当 0）。
+  _rate: emptyRate(),
 });
 
 function addToRow(row, fact) {
@@ -353,6 +581,18 @@ function addToRow(row, fact) {
     // 只有这部分事实进入命中率的分母（见 cacheMetrics）。
     row.cacheBilledInput += (fact.it || 0) + (fact.cr || 0) + (fact.cw || 0);
   }
+  // 速率样本（f = TTFT ms；g/o = 可测 TPS 的生成时长与输出）。老账本没有 r 字段，
+  // 由「重建全部」重折日志补齐；重折前这些项如实显示「无数据」，不硬算。
+  const r = fact.r;
+  if (r && Number.isFinite(r.f) && r.f >= 0) {
+    addRate(row._rate, {
+      ttft: r.f,
+      gen: Number.isFinite(r.g) && r.g > 0 ? r.g : 0,
+      out: Number.isFinite(r.o) && r.o > 0 ? r.o : 0,
+      measurable: Number.isFinite(r.g) && r.g >= RATE_MIN_GEN_MS
+        && Number.isFinite(r.o) && r.o >= RATE_MIN_OUTPUT_TOKENS,
+    });
+  }
   if (fact.p) {
     if (!row.providers) row.providers = new Set();
     row.providers.add(fact.p);
@@ -364,10 +604,12 @@ function addToRow(row, fact) {
 }
 
 /**
- * 五维聚合。
+ * 六维聚合。
  * sessions: [{ id, meta:{title,cwd,createdAt,parentSession,origin,archived}, logFacts, auxFacts }]
  * opts: { by, fromKey, toKey, timeZone, weekStart, attributeSubagents,
  *         groupOf, groupLabels, ungroupedKey, ungroupedLabel }   // by=group 用
+ * by=model 的分桶键是「供应商␟模型」复合键（同一模型挂在多个供应商下时各成一行），
+ * 行上再拆回 provider / model；任何维度都给 ttftAvg / tpsAvg 等速率字段（见 rateMetrics）。
  */
 export function aggregate(sessions, opts = {}) {
   const by = opts.by || 'model';
@@ -399,7 +641,7 @@ export function aggregate(sessions, opts = {}) {
       factsSeen++;
       touched = true;
       let key;
-      if (by === 'model') key = f.m;
+      if (by === 'model') key = compositeModelKey(f.p, f.m);
       else if (by === 'provider') key = f.p;
       else if (by === 'group') key = (groupOf === null ? null : groupOf(f.p, f.m)) || ungroupedKey;
       else if (by === 'session') key = sid;
@@ -420,7 +662,19 @@ export function aggregate(sessions, opts = {}) {
     if (touched && by === 'session') metaByKey.set(sid, s.meta || {});
   }
 
-  const rows = [...map.values()].map((row) => {
+  const internalRows = [...map.values()];
+  // 模型维：**哪些请求名同时挂在多个供应商下**（只有这些才需要在显示名上注明供应商；
+  // 独家模型加「@ 渠道」是纯噪声）。跨全部桶统计，不看 limit 截断后的视图。
+  const providersByModel = by === 'model' ? new Map() : null;
+  if (providersByModel !== null) {
+    for (const row of internalRows) {
+      const parts = splitCompositeModelKey(row.key);
+      const set = providersByModel.get(parts.model) || new Set();
+      set.add(parts.provider === null ? '' : parts.provider);
+      providersByModel.set(parts.model, set);
+    }
+  }
+  const rows = internalRows.map((row) => {
     const out = {
       key: row.key,
       calls: row.calls,
@@ -431,6 +685,8 @@ export function aggregate(sessions, opts = {}) {
       reasoning: row.reasoning,
       total: row.total,
     };
+    // 速率（平均 TTFT / TPS）：每个桶按自己的样本算，见 rateMetrics。
+    Object.assign(out, rateMetrics(row._rate));
     // 模型缓存占比（逐项口径，见 cacheMetrics）：分母只用带缓存字段的事实，
     // 另外给出覆盖度与「未上报缓存状态」的输入量。
     const metrics = cacheMetrics(row);
@@ -455,6 +711,18 @@ export function aggregate(sessions, opts = {}) {
       out.sessions = seenSessions.has(row.key) ? seenSessions.get(row.key).size : 0;
       if (row.providers && (by === 'model' || by === 'group')) out.providers = [...row.providers];
       if (row.kinds && by !== 'session') out.kinds = row.kinds;
+      if (by === 'model') {
+        // 复合键拆回供应商与模型请求名：同一个模型挂在多个供应商下时**各成一行**
+        // （旧数据的 key 不含分隔符 → provider=null）。
+        const parts = splitCompositeModelKey(row.key);
+        const sameName = providersByModel.get(parts.model);
+        out.provider = parts.provider;
+        out.model = parts.model;
+        // sharedModel：这个请求名是否同时挂在**多个**供应商下。只有为 true 时显示层才
+        // 注明供应商（用户要的「分开并标注」针对的是撞名；独家模型加「@ 渠道」是噪声）。
+        out.sharedModel = sameName !== undefined && sameName.size > 1;
+        out.modelProviders = sameName !== undefined ? [...sameName].sort() : [];
+      }
       if (by === 'group') {
         out.ungrouped = row.key === ungroupedKey;
         out.label = out.ungrouped ? ungroupedLabel : ((groupLabels !== null && groupLabels[row.key]) || row.key);
@@ -464,8 +732,17 @@ export function aggregate(sessions, opts = {}) {
   });
 
   const timeDim = by === 'day' || by === 'week';
-  rows.sort((a, b) => (timeDim ? (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) : b.total - a.total));
+  // 模型维：总量相同时（同名模型拆成多行很容易撞车）按 供应商 → 请求名 稳定排序，
+  // 保证刷新前后行的顺序一致。
+  if (by === 'model') {
+    rows.sort((a, b) => (b.total - a.total)
+      || String(a.provider || '').localeCompare(String(b.provider || ''))
+      || String(a.model || '').localeCompare(String(b.model || '')));
+  } else {
+    rows.sort((a, b) => (timeDim ? (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) : b.total - a.total));
+  }
 
+  const totalsRate = internalRows.reduce((acc, row) => mergeRate(acc, row._rate), emptyRate());
   const totals = rows.reduce(
     (acc, r) => {
       acc.calls += r.calls; acc.input += r.input; acc.output += r.output;
@@ -489,6 +766,7 @@ export function aggregate(sessions, opts = {}) {
   totals.billedInput = totalsMetrics.billedInput;
   totals.cached = totalsMetrics.cached;
   totals.cacheFacts = totals.cacheKnownFacts;
+  Object.assign(totals, rateMetrics(totalsRate));
   const sessionIds = new Set();
   for (const s of sessions) {
     if (root) sessionIds.add(rootOf(s, sessions));
