@@ -736,7 +736,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "f4ea6e7ca1b22c0310eb04daf0c5969a1122d620",
             "path": "plugins/dsh-usage-stats"
           },
           "engines": {
