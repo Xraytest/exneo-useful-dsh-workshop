@@ -14,7 +14,19 @@ const check = (label, condition) => {
 // ── fake 基座 ───────────────────────────────────────────────────────────────
 
 /** host 半边当前发布的入口（换 entry 文件名 = 强制热更；自测必须跟它走）。 */
-const ENTRY = './entry-v18.js';
+const ENTRY = './entry-v19.js';
+
+/** 往 fake 会话里补一个已提交事件（seq 自动递增）。 */
+const appendEvent = (agent, event) => {
+  const seq = agent.__snapshot.length === 0 ? 0 : (agent.__snapshot.at(-1).seq ?? 0) + 1;
+  const full = { seq, time: Date.now(), ...event };
+  agent.__snapshot.push(full);
+  agent.session.seq = seq + 1;
+  return full;
+};
+/** 在 fake 会话里落一个「上一个回合」的结局（completed / error）。 */
+const seedTurnEnd = (agent, reason) => appendEvent(agent, { type: 'turn/end', data: { turn: 1, reason } });
+const SYSTEMIC_ERROR = { message: 'provider "our-free-model" model "deepseek-ai/deepseek-v4.1-flash" does not support reasoning effort "max"', code: 'UNSUPPORTED_REASONING_EFFORT' };
 
 function makeAgent(id) {
   const listeners = new Map(); // 事件名 → Set<listener>
@@ -920,7 +932,7 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
   const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s27', 'GET')).json;
   check('ghost running is no longer reported as executing', st.phase === 'armed', `phase=${st.phase}`);
   check('ghost status keeps the recorded child id for diagnosis', st.childId === 'gone-child', `child=${st.childId}`);
-  check('ghost status exposes the build marker', st.build === '3.5.0+reconcile', String(st.build));
+  check('ghost status exposes the build marker', st.build === '3.5.1+preflight', String(st.build));
   await sleep(40);
   const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
   check('ghost running converges to armed on disk',
@@ -1030,6 +1042,80 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
   await sleep(60);
   const notices = followupTexts(agent).filter((text) => text.includes('没有回到主上下文'));
   check('two instances settle the same ghost exactly once', notices.length === 1, `n=${notices.length}`);
+}
+
+// ── v19：执行者继承坏配置（用户报障「主线程给出要求后子代理未正确产生」） ──────────
+
+// ㉛ 孵化前体检：主上下文自己上一个回合就因配置类错误收场 → 不压制、不孵化，
+//     让主线程自己把内核错误摆给用户（不再造一个必死的僵尸 child）。
+{
+  const sf = join(dir, 'preflight.json');
+  const agent = makeAgent('s32');
+  const sub = fakeSubagents(async () => ({ childId: 'c32' }));
+  const ctx = await startPlugin(sf, new Map([['s32', agent]]), sub);
+  await call(ctx, '/dsh-dual-agent/action', 'POST', { sessionId: 's32', enabled: true });
+  // 预置「上一个回合就是配置错收场」（真实现场：reasoningEffort 不被模型支持）。
+  seedTurnEnd(agent, { kind: 'error', error: SYSTEMIC_ERROR });
+  agent.__emitEvent(humanUserMessage('做个导出功能', 0));
+  await sleep(40);
+  const hatches = sub.__calls.filter((c) => c.provider !== undefined);
+  check('systemic parent failure blocks the hatch', hatches.length === 0, `hatches=${hatches.length}`);
+  check('blocked hatch does not cancel the main turn', agent.__cancels.length === 0, `cancels=${agent.__cancels.length}`);
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s32', 'GET')).json;
+  check('status note names the blocking reason', String(st.note).includes('reasoning effort') && String(st.note).includes('暂不孵化'), String(st.note).slice(0, 60));
+  // 主上下文一旦有回合正常收场 → 体检解封，下一条消息照常孵化。
+  seedTurnEnd(agent, { kind: 'completed' });
+  agent.__emitEvent(humanUserMessage('再试一次', 1));
+  await sleep(40);
+  const hatches2 = sub.__calls.filter((c) => c.provider !== undefined);
+  check('a healthy turn unblocks the hatch', hatches2.length === 1, `hatches=${hatches2.length}`);
+}
+
+// ㉜ 执行者死于系统性错误 → 不注入评估轮、不重试、不投兜底说明（旧行为：主会话连错三次）。
+{
+  const sf = join(dir, 'systemic.json');
+  const agent = makeAgent('s33');
+  const agentsById = new Map([['s33', agent]]);
+  const sub = fakeSubagents(async () => ({ childId: 'c33' }));
+  const ctx = await startPlugin(sf, agentsById, sub);
+  await call(ctx, '/dsh-dual-agent/action', 'POST', { sessionId: 's33', enabled: true });
+  agent.__emitEvent(humanUserMessage('任务 F', 0));
+  await sleep(30);
+  agent.__followups.length = 0;
+  // 执行者异常中止：真实内核给的 result 只有 {output, stopReason}，死因要从它会话里读。
+  const child = agentsById.get('c33');
+  seedTurnEnd(child, { kind: 'error', error: SYSTEMIC_ERROR });
+  sub.__settle('c33', { output: [], stopReason: 'error' });
+  await sleep(60);
+  check('systemic executor failure injects no evaluation round',
+    agent.__followups.length === 0, `followups=${agent.__followups.length} ${JSON.stringify(agent.__followups.map((m) => (m.content[0]?.text ?? '').slice(0, 40)))}`);
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s33', 'GET')).json;
+  check('status note carries the executor failure', st.phase === 'armed' && String(st.note).includes('异常中止'), String(st.note).slice(0, 60));
+  const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
+  check('systemic settlement still converges the record', onDisk.sessions.s33?.phase === 'armed' && onDisk.sessions.s33?.childId === undefined,
+    JSON.stringify(onDisk.sessions?.s33 ?? null));
+}
+
+// ㉝ 评估轮自己遇到系统性错误：不重试、不再投兜底说明（每条都会再造一个错误回合）。
+{
+  const sf = join(dir, 'criticblock.json');
+  const agent = makeAgent('s34');
+  const sub = fakeSubagents(async () => ({ childId: 'c34' }));
+  const ctx = await startPlugin(sf, new Map([['s34', agent]]), sub);
+  await call(ctx, '/dsh-dual-agent/action', 'POST', { sessionId: 's34', enabled: true });
+  agent.__emitEvent(humanUserMessage('任务 G', 0));
+  await sleep(30);
+  sub.__emitSubagentEnd({ id: 'c34', stopReason: 'completed' });
+  await sleep(20);
+  const injected = agent.__followups.filter((m) => (m.content[0]?.text ?? '').includes('【挑刺者评估】'));
+  check('critic round injected before the systemic failure', injected.length === 1);
+  agent.__followups.length = 0;
+  agent.__emitEvent({ type: 'turn/end', seq: 9, data: { turn: 2, reason: { kind: 'error', error: SYSTEMIC_ERROR } } });
+  await sleep(40);
+  check('systemic critic failure does not retry', agent.__followups.length === 0, `followups=${agent.__followups.length}`);
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s34', 'GET')).json;
+  check('status note explains the suppressed evaluation',
+    String(st.note).includes('没有注入评估轮'), String(st.note).slice(0, 60));
 }
 
 rmSync(dir, { recursive: true, force: true });
