@@ -97,9 +97,47 @@ const CRITIQUE_HISTORY_ITEM_LIMIT = 2_000;
 const HATCH_GIVE_UP_MS = 180_000;
 const ADOPT_POLL_MS = 1_000;
 const ADOPT_IDLE_TICKS = 2;
+/**
+ * 回扫会话事件找「最后一个 turn/end」的窗口。执行者一个回合几百条事件是常态
+ * （实测单回合 640+ 条），窗口太小会把本回合的结局漏掉，导致体检/死因读取失效。
+ * 只在异常路径上读一次，取 5000 换取确定性。
+ */
+const TURN_SCAN_WINDOW = 5_000;
+
+/**
+ * 系统性失败判据（v19，2026-10-31 用户报障「主线程给出要求后子代理未正确产生」）。
+ *
+ * 现场：用户把模型切成 `deepseek-v4.1-flash + reasoningEffort:"max"`（该模型不支持
+ * 这个组合）。于是执行者继承同一配置，第一步就 `UNSUPPORTED_REASONING_EFFORT` 死掉；
+ * 结算后编排照常注入挑刺评估轮，主会话用的是**同一套坏配置**，于是主会话里连出
+ * 三条 error 回合（评估 / 重试 / 兜底说明）——用户看到的就是「直接结束、什么也没干」。
+ *
+ * 结论：这类错误对父子是**共用**的（provider/model/effort/额度/上下文窗口都一样），
+ * 再注入评估轮只是把同一个错误在主会话里重复播放。判定为系统性失败时：
+ *   · 孵化前体检不过 → 不压制、不孵化，让主线程自己把内核的真实错误摆给用户；
+ *   · 结算/评估轮失败 → 不重试、不再投兜底说明，只把原因写进 status note。
+ * 宁可少说话，也不要制造一连串看起来像插件坏了的错误回合。
+ */
+const SYSTEMIC_FAILURE_PATTERNS = [
+  /unsupported[_\s-]?reasoning[_\s-]?effort/i,
+  /reasoning effort/i,
+  /does not support|not support/i,
+  /model (?:not found|does not exist|unavailable|is not available)/i,
+  /unknown model|invalid model/i,
+  /invalid api key|unauthorized|authentication|forbidden|permission denied/i,
+  /quota|insufficient (?:balance|credit|quota)|rate limit|too many requests/i,
+  /no available|all channels|provider .*(?:unavailable|error|failed)/i,
+  /context (?:length|window)|too many tokens|maximum context|context_length_exceeded/i,
+];
+
+/** 一段错误文本是否属于「父子都会犯」的系统性失败。 */
+const isSystemicFailure = (text) => {
+  if (typeof text !== 'string' || text === '') return false;
+  return SYSTEMIC_FAILURE_PATTERNS.some((pattern) => pattern.test(text));
+};
 
 /** 供 status 透出的构建标识（诊断用：确认进程里跑的是哪一版）。 */
-const BUILD = '3.5.0+reconcile';
+const BUILD = '3.5.1+preflight';
 
 // ── 挑刺者人格与提示段 ─────────────────────────────────────────────────────
 
@@ -669,6 +707,11 @@ export function apply(ctx, config = {}) {
       hatchAt: undefined,
       hatchStartedAt: undefined,
       recovering: false,
+      // 孵化被前置体检拦下的原因（主上下文自己配置就在报错）；主上下文一旦有回合
+      // 正常完成就清空（见 session/event 的 turn/end 分支）。
+      blockedBy: undefined,
+      // 执行者异常中止的真实死因（status note 用它说话，不再编评估轮）。
+      lastExecutorFailure: undefined,
       criticPending: false,
       criticRetried: false,
       lastCriticText: undefined,
@@ -787,9 +830,63 @@ export function apply(ctx, config = {}) {
   const lastTurnStopReasonOfAgent = (child) => {
     try {
       const seq = typeof child?.session?.seq === 'number' ? child.session.seq : 0;
-      const from = Math.max(0, seq - 400);
+      const from = Math.max(0, seq - TURN_SCAN_WINDOW);
       return lastTurnStopReasonOfEvents(child.session?.snapshotEvents?.(from) ?? []);
     } catch { return undefined; }
+  };
+
+  /**
+   * 主 Agent **最近一个回合**的失败文本（没有失败就是 undefined）。
+   *
+   * 为什么看这个：执行者继承父会话的 provider/model/reasoningEffort，父自己都在
+   * 报的配置错，孩子必然一模一样地报——孵出来也只是个必死的僵尸 child，前台还会
+   * 一直显示「执行中」。所以孵化前先问一句「你上一个回合成没成」。
+   * 只看最后一个 turn/end：它一旦 completed，就说明配置已经恢复，自动解封。
+   */
+  const lastTurnFailureOf = (agent) => {
+    try {
+      const seq = typeof agent?.session?.seq === 'number' ? agent.session.seq : 0;
+      const events = agent.session?.snapshotEvents?.(Math.max(0, seq - TURN_SCAN_WINDOW)) ?? [];
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (event?.type !== 'turn/end') continue;
+        const reason = event.data?.reason;
+        if (reason?.kind !== 'error') return undefined;
+        const message = reason.error?.message;
+        if (typeof message === 'string' && message !== '') return message;
+        const code = reason.error?.code;
+        return typeof code === 'string' && code !== '' ? code : '未知错误';
+      }
+    } catch { /* 读不到就不拦：宁可试一次 */ }
+    return undefined;
+  };
+
+  /** 执行者会话里最后一个回合的失败文本（它已死时只能从持久化读）。 */
+  const executorFailureOf = async (childId) => {
+    const liveChild = childAgentOf(childId);
+    if (liveChild !== undefined) return lastTurnFailureOf(liveChild);
+    const query = (() => { try { return ctx.get('sessionQuery'); } catch { return undefined; } })();
+    if (typeof query?.observeSession !== 'function') return undefined;
+    let observation;
+    try {
+      observation = await query.observeSession(childId, { signal: new AbortController().signal });
+      const events = observation?.events ?? [];
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (event?.type !== 'turn/end') continue;
+        const reason = event.data?.reason;
+        if (reason?.kind !== 'error') return undefined;
+        const message = reason.error?.message;
+        if (typeof message === 'string' && message !== '') return message;
+        const code = reason.error?.code;
+        return typeof code === 'string' && code !== '' ? code : '未知错误';
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    } finally {
+      try { observation?.[Symbol.dispose]?.(); } catch { /* 尽力 */ }
+    }
   };
 
   /**
@@ -854,16 +951,32 @@ export function apply(ctx, config = {}) {
     deliver(agent, criticText);
   };
 
-  /** 结算：报告到手 → 回待命 + 评估轮（只由兑现结算令牌的那一方投递）。 */
-  const settleWithReport = (sessionId, agent, run, childId, stopReason, reportText) => {
+  /**
+   * 结算的唯一收口：把 running 收回 armed，并按失败性质决定「投不投评估轮」。
+   * @param failureText 执行者最后一个回合的失败文本（stopReason!=='completed' 时才有）。
+   * @returns 是否由本次调用兑现（跨实例互斥）；`suppressed` 表示因系统性失败而
+   *   故意不注入评估轮（原因已写进 run.lastExecutorFailure，由 status note 交代）。
+   */
+  const settleExecutor = (sessionId, agent, run, childId, stopReason, reportText, failureText) => {
     const { claimed } = releaseRun(sessionId, agent, run);
     if (claimed !== true) {
       ctx.logger?.debug?.(`dsh-dual-agent: 结算已由别处兑现（session=${sessionId} child=${childId}），不重复投递`);
-      return false;
+      return { claimed: false, suppressed: false };
+    }
+    if (stopReason !== 'completed' && isSystemicFailure(failureText)) {
+      // 父子共用同一套 provider/model/effort：这一样会把主上下文的评估轮也打挂。
+      // 不注入、不重试、不再投兜底说明——只把原因留给 status note（不烧回合）。
+      run.lastExecutorFailure = failureText;
+      ctx.logger?.warn?.(`dsh-dual-agent: 执行者系统性失败，跳过评估轮（session=${sessionId} child=${childId}）：${failureText}`);
+      return { claimed: true, suppressed: true };
     }
     deliverCritic(agent, run, childId, stopReason, reportText);
-    return true;
+    return { claimed: true, suppressed: false };
   };
+
+  /** 结算：报告到手 → 回待命 + 评估轮（只由兑现结算令牌的那一方投递）。 */
+  const settleWithReport = (sessionId, agent, run, childId, stopReason, reportText, failureText) =>
+    settleExecutor(sessionId, agent, run, childId, stopReason, reportText, failureText).claimed;
 
   /** 「报告丢了」的统一口径：说清发生了什么、现在是什么状态、下一步怎么走。 */
   const lostNotice = (childId) => `【双主智能编排】执行者（subagent ${childId}）已经结束，但它的报告没有回到主上下文（编排在插件重载/进程重启时丢了在途结算，会话里也没能读回报告）。已回到待命：键入下一条消息即可重新开工。`;
@@ -921,8 +1034,9 @@ export function apply(ctx, config = {}) {
       const report = await readExecutorReport(childId);
       if (runs.get(sessionId) !== run || run.phase !== 'running' || run.childId !== childId) return;
       const stopReason = report?.stopReason ?? lastTurnStopReasonOfAgent(child) ?? 'completed';
+      const failureText = stopReason === 'completed' ? undefined : await executorFailureOf(childId);
       settleWithReport(sessionId, agent, run, childId, stopReason,
-        reportTextOf({ output: [{ type: 'text', text: report?.text ?? '' }] }));
+        reportTextOf({ output: [{ type: 'text', text: report?.text ?? '' }] }), failureText);
     };
     setTimeout(() => { void tick(); }, 0);
   };
@@ -947,6 +1061,8 @@ export function apply(ctx, config = {}) {
       recoveredFrom: null,
       hatchStartedAt: undefined,
       recovering: false,
+      blockedBy: undefined,
+      lastExecutorFailure: undefined,
       adopted: true,
     };
     runs.set(sessionId, adopted);
@@ -1121,6 +1237,18 @@ export function apply(ctx, config = {}) {
       // 纯文本为空但有附件（截图/文档）时**也要**孵化：否则这条消息会被吞掉。
       if (taskBlocks.length === 0) return;
       if (current.hatchedSeq === event.seq) return;
+      // 前置体检（v19）：执行者继承父会话的 provider/model/reasoningEffort。主上下文
+      // 自己上一个回合就因配置类错误收场时，孵化出来的执行者必然同样地死——用户看到
+      // 的就是「要求发出去了，子代理没产生，主线程直接结束」。此时**不压制、不孵化**：
+      // 让主 Agent 照常处理这条消息，把内核那条可操作的错误（哪个模型不支持哪档
+      // 推理）直接摆到用户面前。主上下文一旦有回合正常完成，体检自动解封。
+      const blocker = lastTurnFailureOf(agent);
+      if (blocker !== undefined && isSystemicFailure(blocker)) {
+        current.blockedBy = blocker;
+        ctx.logger?.warn?.(`dsh-dual-agent: 主上下文上一回合即因配置类错误收场，本轮不孵化执行者（session=${sessionId}）：${blocker}`);
+        return;
+      }
+      current.blockedBy = undefined;
       current.hatchedSeq = event.seq;
       current.phase = 'running';
       current.hatchStartedAt = Date.now(); // 孵化窗口起点：reconcile 据此判定卡死
@@ -1184,8 +1312,11 @@ export function apply(ctx, config = {}) {
           const st = runs.get(sessionId);
           if (st === undefined || st.childId !== childId) return; // 手动停止/disarm/替换：不挑刺
           const stopReason = typeof settled?.stopReason === 'string' ? settled.stopReason : 'completed';
-          // 结算收口（含跨实例互斥）与评估注入共用同一条实现，见 settleWithReport。
-          settleWithReport(sessionId, agent, st, childId, stopReason, reportTextOf(settled));
+          // 执行者异常中止时把它的真实死因读出来：系统性失败（模型配置/额度）就不该
+          // 再往主会话里投一条必然失败的评估轮——那正是用户看到的「连错三次」。
+          const failureText = stopReason === 'completed' ? undefined : await executorFailureOf(childId);
+          // 结算收口（含跨实例互斥）与评估注入共用同一条实现，见 settleExecutor。
+          settleWithReport(sessionId, agent, st, childId, stopReason, reportTextOf(settled), failureText);
         } catch (cause) {
           const now = runs.get(sessionId);
           if (now === undefined || now.phase !== 'running' || now.hatchedSeq !== event.seq) return;
@@ -1234,10 +1365,14 @@ export function apply(ctx, config = {}) {
           if (run.critiqueHistory.length > CRITIQUE_HISTORY_DEPTH) run.critiqueHistory.shift();
         }
       } else if (event.type === 'turn/end') {
+        const run = runs.get(sessionId);
+        // 主上下文自己有回合正常收场 → 前置体检封禁解除（用户已把模型/额度修好）。
+        if (run !== undefined && run.blockedBy !== undefined && event.data?.reason?.kind === 'completed') {
+          run.blockedBy = undefined;
+        }
         // 评估轮兜底：注入【挑刺者评估】后，若这一轮以 error/aborted 收场且没产出
         // 任何 assistant 正文，用户只会看见一条内部注入消息而没有回复。给它一次
         // 自动重试；再失败就用编排消息把情况讲明白（报告已送达、评估暂时不可用）。
-        const run = runs.get(sessionId);
         if (run === undefined || !run.criticPending) return;
         const reason = event.data?.reason?.kind;
         if (reason === 'completed') { run.criticPending = false; return; }
@@ -1247,6 +1382,17 @@ export function apply(ctx, config = {}) {
         const wroteText = ((agent.session?.snapshotEvents?.(run.criticBase ?? 0) ?? [])
           .some((ev) => ev.type === 'assistant/message'));
         if (wroteText) return; // 已经有正文（哪怕回合收尾异常），不打扰
+        // 系统性失败（模型配置/额度/上下文窗口）：重试和兜底说明都只会把同一个错误
+        // 在主会话里再放一遍。把原因留给 status note，一个多余回合都不造。
+        // ⚠ 内核把错误放在 `reason.error`（turn/end 的 data.reason = {kind:'error',
+        //   error:{message,code}}），`data.error` 只是兼容旧形态的兜底。
+        const failure = event.data?.reason?.error ?? event.data?.error;
+        const failureText = failure?.message ?? failure?.code;
+        if (isSystemicFailure(failureText)) {
+          run.lastExecutorFailure = typeof failureText === 'string' && failureText !== '' ? failureText : '未知错误';
+          ctx.logger?.warn?.(`dsh-dual-agent: 评估轮因系统性失败中止，不重试不兜底（session=${sessionId}）：${run.lastExecutorFailure}`);
+          return;
+        }
         if (!run.criticRetried && typeof run.lastCriticText === 'string') {
           run.criticRetried = true;
           run.criticPending = true;
@@ -1426,13 +1572,17 @@ export function apply(ctx, config = {}) {
       note: phase === 'off'
         ? null
         : phase === 'armed'
-          ? (run?.recoveredFrom === 'running'
-            ? '上次的后台执行者已结束（结算在插件重载/进程重启时丢失，报告未取回）。已回到待命：键入下一条消息即可重新开工。'
-            : anglesUsed > 0
-              ? `已评估 ${anglesUsed} 轮，最近点名角度：「${lastAngle}」。键入下一条消息继续修正（执行者会带着这几轮结论开工）。`
-              : hatch.ready
-                ? '已武装：请键入本任务的初始指令（下一条你发出的消息就是任务）。'
-                : `已武装，但暂时无法孵化执行者：${hatch.reason ?? '没有可用的非继承型 provider'}。键入任务会尝试孵化并在失败时说明。`)
+          ? (typeof run?.blockedBy === 'string' && run.blockedBy !== ''
+            ? `执行者暂不孵化：主上下文上一个回合就因同类错误收场（${run.blockedBy}）。执行者继承同一套模型配置，孵化出来也会立刻失败。请先切换模型/推理档位或补额度，再键入指令。`
+            : typeof run?.lastExecutorFailure === 'string' && run.lastExecutorFailure !== ''
+              ? `上一轮执行者异常中止：${run.lastExecutorFailure}。这类错误同样会影响主上下文，因此没有注入评估轮（避免连报同样的错）。请先修模型/额度，再键入下一条消息继续。`
+              : (run?.recoveredFrom === 'running'
+                ? '上次的后台执行者已结束（结算在插件重载/进程重启时丢失，报告未取回）。已回到待命：键入下一条消息即可重新开工。'
+                : anglesUsed > 0
+                  ? `已评估 ${anglesUsed} 轮，最近点名角度：「${lastAngle}」。键入下一条消息继续修正（执行者会带着这几轮结论开工）。`
+                  : hatch.ready
+                    ? '已武装：请键入本任务的初始指令（下一条你发出的消息就是任务）。'
+                    : `已武装，但暂时无法孵化执行者：${hatch.reason ?? '没有可用的非继承型 provider'}。键入任务会尝试孵化并在失败时说明。`))
           : orphan
             ? `记录显示上次任务仍在进行，但该会话不在本进程（执行者随重启消亡）。重新打开该会话即可恢复为待命并重试。${liveSuffix}`
             : `执行者独立工作中，主对话已让位（保持安静是正常的）；你此时键入的补充会转达给执行者，交报告后挑刺者在主上下文评估。${liveSuffix}`,
@@ -1475,6 +1625,7 @@ export function apply(ctx, config = {}) {
       pendingSupplements: [],
       hatchedSeq: undefined, watchDispose: undefined, hatchDispose: undefined, hatchAt: undefined,
       hatchStartedAt: undefined, recovering: false,
+      blockedBy: undefined, lastExecutorFailure: undefined,
       criticPending: false, criticRetried: false, lastCriticText: undefined, criticBase: 0,
       critiqueHistory: [],
       recoveredFrom: null,

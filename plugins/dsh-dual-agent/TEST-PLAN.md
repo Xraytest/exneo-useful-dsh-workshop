@@ -216,6 +216,43 @@ apply() 时刻 `ctx.get('webServer')` 为 **undefined**（webserver 条目后激
   且只注入一次。
 - **已知边界**：`used`/`critiqueHistory` 仍是内存态，重载后归零（失忆但不再卡死）。
 
+## 孵化前体检（round 28 / v19，2026-10-31）
+
+**报障**：「依旧存在直接结束的问题。主线程给出要求后子代理未正确产生」。
+
+**实测取证**（本机 GUI profile，`session-5b52cfc8`，解压 `.zstd` 逐事件回放）：
+
+```
+10-30 21:44:25  model/selection  our-free-model/deepseek-v4.1-flash  effort=max
+10-31 09:23:56  turn/end aborted(hook 执行者接管) → HATCH 5d7688ad
+10-31 10:01:03  turn/end aborted(hook 执行者接管) → HATCH d5af5aa0
+10-31 11:29:55  turn=29/30/31 全部 error：provider ... does not support reasoning effort "max"
+10-31 11:53:56  model/selection  our-free-model/stepfun-ai/step-5-preview effort=balanced
+10-31 11:54:09  turn/end aborted(hook) → HATCH cec9e660（之后正常干活，step 40+）
+```
+
+孩子 `d5af5aa0` 的最后一条事件就是 `turn/end error UNSUPPORTED_REASONING_EFFORT`；
+主会话那 3 条 error 回合分别是「评估轮 → 自动重试 → 兜底说明」，全部由编排注入。
+
+**根因**：执行者继承父会话的 provider/model/reasoningEffort，父自己在报的配置错孩子
+必然同样报；编排不看失败性质照常注入评估轮，于是一个配置错误被播放成三次。
+
+**修复**：`lastTurnFailureOf` 孵化前体检 + `isSystemicFailure` 失败分级（命中则不注入、
+不重试、不兜底，只写 status note）+ 两个可操作 note 文案。
+
+**验证**：
+
+- `host-selftest.mjs` 扩到 **154 断言**，新增 ㉛～㉝ 共 11 条：
+  - ㉛ 主上下文上一回合配置错 → 不孵化、**不 cancel 主回合**、note 点名原因；
+    下一回合 completed 后自动解封并照常孵化；
+  - ㉜ 执行者异常中止且死因系统性 → 0 条注入、记录仍收敛 armed、note 带死因；
+  - ㉝ 评估轮自身撞系统性错误 → 不重试、不投兜底说明、note 说明为何没评估。
+  - 回归捕获一个真 bug：内核把错误放在 `turn/end.data.reason.error`（不是 `data.error`），
+    旧取法会让系统性判定永远落空。
+- 真实宿主：热挂 `entry-v19`（`build:3.5.1+preflight`）后三个会话口径全部正确，其中
+  `session-5b52cfc8` 的 `childLive:true / childStatus:"running"`（执行者确实在跑），
+  `session-37e5dd61` 走 orphan 口径不谎报。
+
 ## 一键复跑
 
 ```powershell
