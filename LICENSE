@@ -1,8 +1,13 @@
 Copyright (C) 2026 ExNeo
 
 This repository is licensed under the GNU Lesser General Public License v3.0
-(LGPL-3.0), except for plugins/dsh-zcode-cli-proxy, which remains AGPL-3.0
-(a vendored fork of kyle123740/dsh-zcode-cli-proxy; see its own LICENSE).
+(LGPL-3.0), except for plugins/eac-design-world, which remains AGPL-3.0
+(a modified fork of Ebony-Vinyl/EAC-design-world; see its own LICENSE).
+
+Third-party mirrors bundled under plugins/ keep their upstream licenses:
+plugins/dsh-blender-plugin is BSD-3-Clause (sixtysevenlf/dsh-blender-plugin),
+plugins/dsh-free-search is MIT (DDDMUC/dsh-free-search). Each carries an
+UPSTREAM.md recording the upstream repository and the exact revision.
 
 ================================================================================
 

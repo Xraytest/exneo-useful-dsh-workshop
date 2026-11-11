@@ -5,8 +5,8 @@
     "zh": "ExNeo 的 DSH 插件工作箱"
   },
   "description": {
-    "en": "26 installable DSH bundle plugins by ExNeo.",
-    "zh": "ExNeo 自研/整理的 26 个可安装 DSH bundle 插件。"
+    "en": "37 installable DSH bundle plugins by ExNeo.",
+    "zh": "ExNeo 自研/整理的 37 个可安装 DSH bundle 插件。"
   },
   "metadata": {
     "categories": {
@@ -96,7 +96,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/eac-design-world"
           },
           "engines": {
@@ -128,7 +128,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-archived-sessions"
           },
           "engines": {
@@ -160,7 +160,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-device-mesh"
           },
           "engines": {
@@ -192,7 +192,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-image-unload"
           },
           "engines": {
@@ -224,7 +224,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-message-branches"
           },
           "engines": {
@@ -256,7 +256,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-mobile-fullscreen"
           },
           "engines": {
@@ -288,7 +288,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-model-capabilities"
           },
           "engines": {
@@ -320,7 +320,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-model-groups"
           },
           "engines": {
@@ -352,7 +352,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-model-pool"
           },
           "engines": {
@@ -384,7 +384,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-model-retry"
           },
           "engines": {
@@ -416,7 +416,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-ms-multimodal-retry"
           },
           "engines": {
@@ -448,7 +448,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-plugin-autoupdate"
           },
           "engines": {
@@ -480,7 +480,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-safefull"
           },
           "engines": {
@@ -512,7 +512,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-schema-fix"
           },
           "engines": {
@@ -544,7 +544,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-session-done-notify"
           },
           "engines": {
@@ -576,7 +576,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-session-import"
           },
           "engines": {
@@ -608,7 +608,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-session-title-context"
           },
           "engines": {
@@ -640,7 +640,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-settings-nav"
           },
           "engines": {
@@ -672,7 +672,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-subagent-models"
           },
           "engines": {
@@ -704,7 +704,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-ultracode"
           },
           "engines": {
@@ -736,7 +736,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f4ea6e7ca1b22c0310eb04daf0c5969a1122d620",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-usage-stats"
           },
           "engines": {
@@ -768,7 +768,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-user-keep-compaction"
           },
           "engines": {
@@ -795,12 +795,12 @@
       },
       "versions": [
         {
-          "version": "1.8.0",
-          "publishTimestamp": 1793358754,
+          "version": "1.11.0",
+          "publishTimestamp": 1794399685,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f2d3b7a347d9e08d830e24f46dc87510b0e88929",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-workbench"
           },
           "engines": {
@@ -832,7 +832,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-workspace-context"
           },
           "engines": {
@@ -864,7 +864,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-workspace-plugins"
           },
           "engines": {
@@ -896,7 +896,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "8ae91e18c22e46bb5e32c18489d543e496469478",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/rea-mcp"
           },
           "engines": {
@@ -928,7 +928,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f2d3b7a347d9e08d830e24f46dc87510b0e88929",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-our-free-model"
           },
           "engines": {
@@ -955,12 +955,12 @@
       },
       "versions": [
         {
-          "version": "1.0.6",
-          "publishTimestamp": 1793358754,
+          "version": "1.2.0",
+          "publishTimestamp": 1794399685,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f2d3b7a347d9e08d830e24f46dc87510b0e88929",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-admin-channel"
           },
           "engines": {
@@ -987,12 +987,12 @@
       },
       "versions": [
         {
-          "version": "3.6.0",
-          "publishTimestamp": 1793435337,
+          "version": "4.1.0",
+          "publishTimestamp": 1794399685,
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "5379b48c7e69c23cdb2c449b65f156f0fe4c3fcc",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-dual-agent"
           },
           "engines": {
@@ -1024,7 +1024,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f2d3b7a347d9e08d830e24f46dc87510b0e88929",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-blender-plugin"
           },
           "engines": {
@@ -1056,7 +1056,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "f2d3b7a347d9e08d830e24f46dc87510b0e88929",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-ofm-compat"
           },
           "engines": {
@@ -1091,11 +1091,176 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-            "commit": "e8875683a14c74a3c87ed6a17c47b388ee351d1d",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
             "path": "plugins/dsh-free-search"
           },
           "engines": {
             "dsh": ">=0.1.7-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-bilibili",
+      "description": "Bilibili 搜索与读取：搜视频/专栏、读完整视频信息（简介/标签/分P）、读专栏正文（Quill Delta → 文本/Markdown）、读评论；自带 WBI 签名与 buvid 引导。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-bilibili"
+      },
+      "metadata": {
+        "category": "tooling",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794399685,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
+            "path": "plugins/dsh-bilibili"
+          },
+          "engines": {
+            "dsh": ">=0.1.7-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-provider-alias",
+      "description": "自定义模型供应商：在「设置 → 模型」声明 endpoint / 协议 / 模型 / 自有 API Key，并可按协议配置各自的端点路径（内置 opencode-go 的 per-request session header 规格）。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-provider-alias"
+      },
+      "metadata": {
+        "category": "model",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.4.0",
+          "publishTimestamp": 1794399685,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
+            "path": "plugins/dsh-provider-alias"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-session-orb",
+      "description": "会话悬浮球：Web UI 右下角一颗可拖动的半透明黑球，任何会话跑完时在球上方弹出会话名，点一下跳回该会话；透明度、尺寸与提示停留时长在「设置 → 会话悬浮球」里调。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/dsh-session-orb"
+      },
+      "metadata": {
+        "category": "ui",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794399685,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
+            "path": "plugins/dsh-session-orb"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "prts-omni-bridge",
+      "description": "让 PRTS Omni Android 客户端通过带令牌校验的本机 HTTP + WebSocket 桥接访问 DSH 的会话、智能体与工具，并注册模型工具 prts_omni。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/prts-omni-bridge"
+      },
+      "metadata": {
+        "category": "multi-device",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794399685,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
+            "path": "plugins/prts-omni-bridge"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@local/workspace-plus",
+      "description": "把工作区当项目：一个主路径 + 多个次要路径，活动项目的完整路径集合注入会话运行时上下文，让模型跨目录当成同一个项目读写；配一组项目工具与侧边栏 / 设置页的工作区面板。",
+      "author": "ExNeo",
+      "homepage": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "directory": "plugins/workspace-plus"
+      },
+      "metadata": {
+        "category": "workspace",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.1.0",
+          "publishTimestamp": 1794399685,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+            "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817",
+            "path": "plugins/workspace-plus"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.1"
           }
         }
       ]
