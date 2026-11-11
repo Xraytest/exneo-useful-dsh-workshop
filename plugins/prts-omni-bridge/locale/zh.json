@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "title": "PRTS Omni 桥接",
+    "description": "通过带令牌校验的本机 HTTP + WebSocket 桥接，把 DSH 的会话、智能体与工具开放给 PRTS Omni 安卓客户端。"
+  },
+  "log": {
+    "ready": "prts-omni-bridge: 已监听 {endpoint}（局域网 {lan}）；配对令牌已就绪，请填入 PRTS Omni。",
+    "stopped": "prts-omni-bridge: 服务已停止。",
+    "lanDenied": "prts-omni-bridge: bindHost \"{host}\" 需要 allowLan=true，桥接保持停用。",
+    "tokenReady": "prts-omni-bridge: 配对令牌已写入 {path}。"
+  },
+  "errors": {
+    "unauthorized": "缺少或错误的配对令牌",
+    "loopbackOnly": "该端点只接受本机回环请求",
+    "bodyTooLarge": "请求体超过 64 KiB 上限",
+    "badJson": "请求体不是 JSON 对象",
+    "toolExecutionDisabled": "工具执行未开启（config.allowToolExecution=false）",
+    "internal": "prts-omni-bridge 内部错误",
+    "notFound": "路由不存在",
+    "methodNotAllowed": "方法不被允许",
+    "sessionNotFound": "本 Host 进程中不存在会话 \"{id}\"",
+    "missingAgent": "没有可用的在线 Agent 来授权本次操作",
+    "noAgents": "本 Host 进程没有注册任何在线 Agent",
+    "wsBadToken": "WebSocket 升级被拒绝：缺少或错误的配对令牌",
+    "wsBacklog": "WebSocket 已关闭：未确认消息超过 1000 条",
+    "wsTimeout": "WebSocket 已关闭：心跳超时",
+    "wsTooLarge": "WebSocket 已关闭：帧超过大小上限",
+    "wsProtocol": "WebSocket 已关闭：协议错误"
+  }
+}

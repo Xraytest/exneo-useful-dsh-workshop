@@ -1,7 +1,7 @@
 /**
  * 沙盒生命周期测试（无 UAC、无桌面操作）：
  * 用注入的 launcher 直接起 **非提权** broker，跑完整的 host 管理器路径：
- *   启动 → 握手 → admin_exec → 并发上限 → 关闭清理 → 空闲自动关闭 → 审计。
+ *   启动 → 握手 → admin_exec → 并发上限 → 关闭清理 → 空闲自动关闭 → 不限时 → 审计。
  *
  * 生产 launcher（UAC 那条）不在这里跑；它需要用户在真实桌面点一次「是」，
  * 已在 2026-10-29 的实测中验证（见 README「实测」）。
@@ -130,7 +130,43 @@ check('空闲超时自动关闭', manager.statusOf(session).phase === 'off');
 await sleep(800);
 check('空闲关闭后 broker 退出', alive(idlePid) === false);
 
-// 7. 执行长命令期间关闭：cancel 文件必须让 broker 杀掉命令并退出
+// 7. 不限时（idleTimeoutMs = 0）：超过原空闲窗口也不自动关闭
+{
+  const forever = createAdminChannelManager({
+    ctx: {},
+    config: {
+      requireElevation: false,
+      uacTimeoutMs: 20_000,
+      idleTimeoutMs: 0,
+      maxChannels: 1,
+      execTimeoutMs: 20_000,
+    },
+    launch: async ({ specPath }) => {
+      const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', BROKER, '-Spec', specPath], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      launched.push(child.pid);
+      return child;
+    },
+  });
+  check('idleTimeoutMs=0 解析为不限时', forever.settings.idleTimeoutMs === 0);
+  await forever.start(session);
+  await until(() => forever.statusOf(session).phase === 'running', 20_000, '不限时通道就绪');
+  const foreverPid = forever.statusOf(session).brokerPid;
+  check('status 透出 idleTimeoutMs=0', forever.statusOf(session).idleTimeoutMs === 0);
+  // 原空闲窗口是 6s，这里等 9s：若仍跑着就说明没有空闲计时器。
+  await sleep(9_000);
+  check('超过空闲窗口仍未自动关闭', forever.statusOf(session).phase === 'running');
+  check('broker 仍在运行', alive(foreverPid) === true);
+  await forever.stop(session, 'sandbox-test');
+  check('不限时通道可手动关闭', forever.statusOf(session).phase === 'off');
+  await sleep(800);
+  check('不限时通道关闭后 broker 退出', alive(foreverPid) === false);
+  await forever.disposeAll();
+}
+
+// 8. 执行长命令期间关闭：cancel 文件必须让 broker 杀掉命令并退出
 await manager.start(session);
 await until(() => manager.statusOf(session).phase === 'running', 20_000, '第三次就绪');
 const longPid = manager.statusOf(session).brokerPid;
@@ -145,7 +181,7 @@ check('执行中的命令在关闭时被取消', outcome === 'rejected' || outco
 await sleep(800);
 check('执行中关闭后 broker 退出', alive(longPid) === false, String(longPid));
 
-// 8. 审计落盘
+// 9. 审计落盘
 {
   const auditPath = join(HOME, 'admin-channel', 'audit.jsonl');
   check('审计文件存在', existsSync(auditPath));
@@ -153,6 +189,95 @@ check('执行中关闭后 broker 退出', alive(longPid) === false, String(longP
   const events = new Set(lines.map((entry) => entry.event));
   check('审计含 start/exec/stop', events.has('start') && events.has('exec') && events.has('stop'), [...events].join(','));
   check('审计命令为原文', lines.some((entry) => entry.event === 'exec' && String(entry.command).includes('sandbox-ok')));
+}
+
+// 10. uacTimeoutMs = 0：一直等 UAC，不再有「2 分钟授权超时」（v9）
+//     launcher 故意起一个**不服务管道**的进程，模拟用户迟迟不点「是」。
+{
+  const patient = createAdminChannelManager({
+    ctx: {},
+    config: {
+      requireElevation: false,
+      uacTimeoutMs: 0,
+      idleTimeoutMs: 0,
+      maxChannels: 1,
+    },
+    launch: async () => {
+      // 活着的进程，但永远不建管道：等价于「UAC 还挂着，broker 没起来」。
+      const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      launched.push(child.pid);
+      return child;
+    },
+  });
+  await patient.start(session);
+  check('不限时启动：先进入 starting', patient.statusOf(session).phase === 'starting');
+  // 旧实现在 120s 后抛「等待 UAC 授权超时」并把 phase 转 error；这里等 12s 观察
+  // 它仍是 starting（没有掐表），并且 note/hint 说的是「不限时」。
+  await sleep(12_000);
+  const waiting = patient.statusOf(session);
+  check('等待 UAC 期间不被时间限制掐掉', waiting.phase === 'starting', waiting.phase);
+  check('hint 说明不限时', String(waiting.hint).includes('不限时'), String(waiting.hint));
+  await patient.stop(session, 'sandbox-test');
+  check('不限时的等待可以被用户拨关取消', patient.statusOf(session).phase === 'off');
+  await patient.disposeAll();
+}
+
+// 11. execTimeoutMs 默认 0：模型不传 timeout_ms 时不再被 120s 截断（v9）
+{
+  const forever2 = createAdminChannelManager({
+    ctx: {},
+    config: { requireElevation: false, uacTimeoutMs: 20_000, idleTimeoutMs: 0, maxChannels: 1 },
+    launch: async ({ specPath }) => {
+      const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', BROKER, '-Spec', specPath], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      launched.push(child.pid);
+      return child;
+    },
+  });
+  check('execTimeoutMs 默认解析为 0（不限时）', forever2.settings.execTimeoutMs === 0);
+  check('maxExecTimeoutMs 默认解析为 0（不设上限）', forever2.settings.maxExecTimeoutMs === 0);
+  await forever2.start(session);
+  await until(() => forever2.statusOf(session).phase === 'running', 20_000, '默认不限时通道就绪');
+  const slow = await forever2.exec(session, { command: 'Start-Sleep -Seconds 6; Write-Output "slow-ok"' });
+  check('不传 timeout_ms 的长命令不被默认上限杀掉', slow.exitCode === 0 && String(slow.stdout).includes('slow-ok'), JSON.stringify({ out: slow.stdout, exit: slow.exitCode }));
+  const capped = await forever2.exec(session, { command: 'Start-Sleep -Seconds 5', timeoutMs: 1500 });
+  check('模型显式给的 timeout_ms 仍然生效（超时被杀）', capped.timedOut === true, JSON.stringify({ timedOut: capped.timedOut }));
+  await forever2.disposeAll();
+}
+
+// 12. 超大 timeout_ms 不得被 Node 计时器溢出成 1ms（v10 自审修正）
+//     旧写法把 1e12 直接交给 setTimeout → TimeoutOverflowWarning → 1ms → 命令秒退
+//     → exec-failure 分支连带关掉整条通道。现在 >24h 的正数按「不限时」处理。
+{
+  const overflow = createAdminChannelManager({
+    ctx: {},
+    config: { requireElevation: false, uacTimeoutMs: 20_000, idleTimeoutMs: 0, maxChannels: 1 },
+    launch: async ({ specPath }) => {
+      const child = spawn(PS, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', BROKER, '-Spec', specPath], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      launched.push(child.pid);
+      return child;
+    },
+  });
+  await overflow.start(session);
+  await until(() => overflow.statusOf(session).phase === 'running', 20_000, '溢出用例通道就绪');
+  const huge = await overflow.exec(session, {
+    command: 'Start-Sleep -Seconds 3; Write-Output "huge-ok"',
+    timeoutMs: 1e12,
+  });
+  check('timeout_ms=1e12 视为不限时且命令完整跑完', huge.exitCode === 0 && String(huge.stdout).includes('huge-ok'), JSON.stringify({ exit: huge.exitCode, out: huge.stdout, timedOut: huge.timedOut }));
+  check('超大超时不会把通道打死（exec 后仍 running）', overflow.statusOf(session).phase === 'running', overflow.statusOf(session).phase);
+  // 同样的值不能污染通道：broker 侧 [Int64] 解析，不抛异常。
+  const stillUsable = await overflow.exec(session, { command: 'Write-Output "still-usable"' });
+  check('超大超时之后通道继续可用', stillUsable.exitCode === 0 && String(stillUsable.stdout).includes('still-usable'));
+  await overflow.disposeAll();
 }
 
 await manager.disposeAll();

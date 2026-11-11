@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="WorkSpacePlus">
+  <defs>
+    <linearGradient id="wsp-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f8cff"/>
+      <stop offset="1" stop-color="#1f5fd0"/>
+    </linearGradient>
+    <linearGradient id="wsp-body2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6fb0ff"/>
+      <stop offset="1" stop-color="#3f7ad0"/>
+    </linearGradient>
+  </defs>
+  <!-- back folder (secondary path) -->
+  <path d="M6 20 a4 4 0 0 1 4-4 h12 l5 5 h9 a4 4 0 0 1 4 4 v6 H6 Z" fill="url(#wsp-body2)"/>
+  <!-- front folder (primary path) -->
+  <path d="M6 27 a4 4 0 0 1 4-4 h34 a4 4 0 0 1 4 4 v22 a4 4 0 0 1-4 4 H10 a4 4 0 0 1-4-4 Z" fill="url(#wsp-body)"/>
+  <!-- plus badge (multiple paths / add) -->
+  <circle cx="45" cy="45" r="13" fill="#12b76a" stroke="#ffffff" stroke-width="3"/>
+  <path d="M45 38.5 v13 M38.5 45 h13" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+</svg>

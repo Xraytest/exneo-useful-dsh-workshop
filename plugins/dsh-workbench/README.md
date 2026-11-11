@@ -30,6 +30,44 @@ v3.4（2026-10-30，用户指令「主页面不要用已停止，用执行中」
 try/catch，宿主内部结构若变则静默降级。`client-selftest-v3.mjs` 覆盖 14 项
 （改写/还原/不漂移/结构异常不抛）。
 
+v3.5（2026-11-01，用户指令「将 UAC 插件授权时长改为无限」）：属主
+dsh-admin-channel 的 `idleTimeoutMs` 改为 0（授权时长不限、不因空闲自动关闭），
+工作箱里管理员权限通道的描述同步改为「授权时长不限，随会话结束或手动拨关关闭」。
+
+## v9（2026-11-03）：可进入的二级菜单
+
+用户指令：「在当前的工作箱 UI 内创建可进入的二级菜单（开关也保留）」——起因是
+dsh-dual-agent 与 dsh-subagent-models 合并成「双智能指导」，需要一个地方选子代理
+用的模型，而入口仍要在工具行的工作箱里。
+
+分工（这次新增的关键设计）：
+
+| 谁 | 做什么 |
+|---|---|
+| 属主插件（如双智能指导） | 出内容：`GET <menu.route>?sessionId=…` 回**声明式 spec**；`POST <menu.route>` 收 `{sessionId, op, …}` 并回**新 spec** |
+| 工作箱 | 画通用件，不认识任何属主的语义；`heading / note / switch / select(支持 optgroup) / text / rows(带 chips+进度条+行内按钮) / form / buttons` 八种 |
+
+为什么不是「属主插件往工作箱里注一个 React 组件」：那要跨插件 `require` 对方模块，
+装载顺序与 HMR 都会咬人；而 HTTP JSON 契约跟其它条目一样，属主没起来就明说打不开，
+工作箱不为任何一个属主特化一次代码。
+
+行为约束（client 侧）：
+
+- 行上的**开关照旧**，「进入」小按钮 `stopPropagation`——点它绝不误拨开关；
+- 只有属主 status 回了 `menu.route`（或 ACTIONS 里静态声明）才画这颗按钮；
+- 进入后列表整块让位；`‹ 返回` 与 Esc 第一段都回列表，再 Esc 才收起浮层；
+  点浮层外或再点胶囊 → 一并清空子视图（下次打开从列表开始）；
+- 子视图按 spec 的 `refreshMs` 轮询（下限 1500ms），op 在飞时禁用交互；
+- op 失败**显示属主原文**（400/409 的校验话术就是给用户看的），并顺带刷一次工作箱状态；
+- 遇到不认识的 `kind` 明说「工作箱不识别的条目类型：X」，不静默丢条目。
+
+host 侧改动：ACTIONS 的 dual-agent 行随属主更名「双主智能」→「双智能指导」并加
+`menu` 声明；`/status` 的 actionStates 白名单加 `menu` 一项（不加就透不出去）。
+**row id、route、开关语义全部不变**——属主改名字不动我们的转发。
+
+自测：`node plugins/dsh-workbench/client-selftest-v4.mjs`（二级菜单专项）；
+原有 `host-selftest.mjs` / `client-selftest{,-v2,-v3}.mjs` 全部照旧跑。
+
 ## 界面
 
 - 座位：`conversation.input.left`，**order 23**（正是原 Ultracode 胶囊的位置）。
@@ -62,8 +100,8 @@ try/catch，宿主内部结构若变则静默降级。`client-selftest-v3.mjs` �
 |---|---|---|
 | Ultracode | 开关 | 勾选转发 `/dsh-ultracode/set {active:true}`——装配期直注 Ultracode 段并改写 `tool:workflow` 段；未勾选转发 `{active:false}`——注入收口段 |
 | REA | 开关 | 勾选经 `/dsh-rea-mcp/workbench {on:true}` 打开 `masterEnabled`；未勾选 → rea-mcp 用 `tools.restrict()` 摘除全部 `mcp__rea__*` + 本插件在 `system-prompt/assemble` 瀑布里删掉 `mcp:rea` 提示段 |
-| 双主智能 | **开关** | 拨开转发 `/dsh-dual-agent/action { sessionId, enabled:true }` → 武装待命（键入初始指令才孵化执行者）；拨关转发 `{ enabled:false }` → 中断执行者（不挑刺）并解除。语义全在 dsh-dual-agent，本插件只画开关 |
-| 管理员权限通道 | **开关** | 拨开转发 `/dsh-admin-channel/action { sessionId, enabled:true }` → 属主弹一次 UAC 并拉起常驻提权进程；拨关 → `{ enabled:false }` 结束提权进程。勾选态/阶段/说明/悬停提示全来自属主 `/dsh-admin-channel/status`；本插件不实现提权 |
+| 双智能指导 | **开关 + 二级菜单** | 拨开转发 `/dsh-dual-agent/action { sessionId, enabled:true }` → 使能（主智能只判断、下一条消息交给后台执行者）；拨关 `{ enabled:false }` → 中断执行者（不挑刺）并解除。行尾「子代理模型与规则 ▸」进二级菜单（选子代理模型链、限额、约束力度、核验开关）。语义全在 dsh-dual-agent，本插件只画开关与通用件 |
+| 管理员权限通道 | **开关** | 拨开转发 `/dsh-admin-channel/action { sessionId, enabled:true }` → 属主弹一次 UAC 并拉起常驻提权进程；拨关 → `{ enabled:false }` 结束提权进程。授权时长不限（属主 `idleTimeoutMs=0`，无空闲自动关闭）。勾选态/阶段/说明/悬停提示全来自属主 `/dsh-admin-channel/status`；本插件不实现提权 |
 
 「零上下文」的两件事缺一不可，这就是为什么 REA 的摘除分两处：
 工具 schema 在 rea-mcp（它持有 `tools.restrict` 的白名单状态），
@@ -101,7 +139,7 @@ node plugins/dsh-workbench/client-selftest-v2.mjs    # 40 项：开关渲染/乐
 - `client.js`：内容哈希供包，改完**刷新页面**。
 - `index.js`：Loader 按 specifier 缓存——新写 `entry-v<N+1>.js`（`?v=` +1），
   把 `cordis.patch.yml` 里 `workbench` 行的 name 指过去（**row id 不变**），
-  再 remove → install 本 bundle。当前：**entry-v3.js / ?v=wb-5**。
+  再 remove → install 本 bundle。当前：**entry-v9.js / ?v=wb-11**。
 
 ## 相关插件
 
@@ -110,3 +148,16 @@ node plugins/dsh-workbench/client-selftest-v2.mjs    # 40 项：开关渲染/乐
 - `dsh-dual-agent`（v2 动作条目的第一个属主：双主智能启动/停止）
 - `dsh-plugin-autoupdate`（设置页「插件更新」，本插件的新版本同样会被它监看）
 
+
+## v10（2026-11-03）：行内描述不再随状态改写 + 浮层高度封顶
+
+两条用户指令：
+
+1. **启用后不要更改底下的描述**：动作行原先会在描述下面多渲染一行「阶段说明」
+   （属主 note + 运行时长），启用/执行中就会把描述区顶掉。现在这一行**不再渲染**，
+   阶段说明只进悬停 `title`（`title = hint；note+elapsed`）。行内始终只剩属主给的
+   那一句静态描述，徽标（待命中/运行中）仍在标签行右侧。
+2. **二级菜单顶出屏幕**：浮层原本没有任何高度上限，只有内部 `.wb-sub-body` 在滚
+   （64vh），内容一多就整块长出屏幕。现在浮层 `max-height: min(calc(100vh - 220px),
+   420px)`，子视图 `max-height: calc(100vh - 260px)` 且 `flex:1 1 auto; min-height:0`；
+   列表态整层可滚（`[data-pop-scroll]`）。540–900px 视口下推演均不出屏。

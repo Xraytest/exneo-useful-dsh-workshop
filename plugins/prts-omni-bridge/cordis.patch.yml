@@ -1,0 +1,10 @@
+- insert:
+    - id: prts-omni-bridge
+      name: 'prts-omni-bridge'
+      config:
+        enabled: true
+        bindHost: 127.0.0.1
+        port: 8787
+        allowLan: false
+        allowToolExecution: false
+        maxSessions: 50

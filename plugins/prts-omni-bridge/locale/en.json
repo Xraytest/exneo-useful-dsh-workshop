@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "title": "PRTS Omni Bridge",
+    "description": "Expose this Harness's sessions, agents and tools to the PRTS Omni Android client over a token-guarded local HTTP + WebSocket bridge."
+  },
+  "log": {
+    "ready": "prts-omni-bridge: listening on {endpoint} (LAN {lan}); pairing token is ready — enter it in PRTS Omni.",
+    "stopped": "prts-omni-bridge: server stopped.",
+    "lanDenied": "prts-omni-bridge: bindHost \"{host}\" needs allowLan=true; the bridge stays disabled.",
+    "tokenReady": "prts-omni-bridge: pairing token stored at {path}."
+  },
+  "errors": {
+    "unauthorized": "missing or invalid pairing token",
+    "loopbackOnly": "this endpoint only accepts loopback requests",
+    "bodyTooLarge": "request body exceeds the 64 KiB limit",
+    "badJson": "request body is not a JSON object",
+    "toolExecutionDisabled": "tool execution is disabled (config.allowToolExecution=false)",
+    "internal": "prts-omni-bridge internal error",
+    "notFound": "no such route",
+    "methodNotAllowed": "method not allowed",
+    "sessionNotFound": "session \"{id}\" was not found in this Host process",
+    "missingAgent": "no live Agent is available to authorize this action",
+    "noAgents": "no live Agent is registered in this Host process",
+    "wsBadToken": "websocket upgrade rejected: missing or invalid pairing token",
+    "wsBacklog": "websocket closed: unacknowledged backlog exceeded 1000 messages",
+    "wsTimeout": "websocket closed: heartbeat timed out",
+    "wsTooLarge": "websocket closed: frame exceeds the size limit",
+    "wsProtocol": "websocket closed: protocol error"
+  }
+}

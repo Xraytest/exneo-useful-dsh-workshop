@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Custom providers",
+    "description": "Declare your own model providers — endpoint, protocol, and models, plus per-protocol endpoints for a gateway that serves more than one wire API — each optionally following a request spec such as OpenCode Go's per-request session header."
+  }
+}

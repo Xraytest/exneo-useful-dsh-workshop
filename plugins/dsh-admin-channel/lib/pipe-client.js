@@ -147,6 +147,8 @@ export class PipeClient {
 
   /**
    * 等一条满足条件的**无 id** 消息（ready/pong/stopped/error）。
+   * `timeoutMs <= 0` = 不限时：不设本地计时器，靠连接自身收敛（socket 关闭 / broker
+   * 检测到 owner 退出都会让这里的等待以错误结束）。
    * @param {(message: any) => boolean} predicate
    * @param {number} timeoutMs
    * @param {string} label
@@ -160,6 +162,9 @@ export class PipeClient {
     }
     if (this.#closed) return Promise.reject(this.#closeError ?? new Error('提权通道已关闭'));
     return new Promise((resolve, reject) => {
+      // timeoutMs <= 0 = 不限时：不设计时器，靠连接自身收敛（socket 关闭、broker
+      // 检测到 owner 退出都会让这条等待以错误结束）。
+      let timer;
       const waiter = {
         check: () => {
           const index = this.#events.findIndex((message) => predicate(message));
@@ -167,25 +172,27 @@ export class PipeClient {
             this.#waiters.push(waiter);
             return;
           }
-          clearTimeout(timer);
+          if (timer !== undefined) clearTimeout(timer);
           const [message] = this.#events.splice(index, 1);
           resolve(message);
         },
         fail: (error) => {
-          clearTimeout(timer);
+          if (timer !== undefined) clearTimeout(timer);
           reject(error);
         },
       };
-      const timer = setTimeout(() => {
-        this.#waiters = this.#waiters.filter((candidate) => candidate !== waiter);
-        reject(new Error(`等待${label}超时`));
-      }, timeoutMs);
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        timer = setTimeout(() => {
+          this.#waiters = this.#waiters.filter((candidate) => candidate !== waiter);
+          reject(new Error(`等待${label}超时`));
+        }, timeoutMs);
+      }
       this.#waiters.push(waiter);
     });
   }
 
   /**
-   * 发一个有 id 的请求并等对应响应。
+   * 发一个有 id 的请求并等对应响应。`timeoutMs <= 0` = 不限时（不设计时器）。
    * @param {any} payload
    * @param {number} timeoutMs
    * @param {string} label
@@ -195,15 +202,18 @@ export class PipeClient {
     if (this.#socket === null || this.#closed) return Promise.reject(new Error('提权通道未连接'));
     const id = randomUUID();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pending.delete(id);
-        reject(new Error(`${label}超时（${Math.round(timeoutMs / 1000)} 秒）`));
-      }, timeoutMs);
+      let timer;
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        timer = setTimeout(() => {
+          this.#pending.delete(id);
+          reject(new Error(`${label}超时（${Math.round(timeoutMs / 1000)} 秒）`));
+        }, timeoutMs);
+      }
       this.#pending.set(id, { resolve, reject, timer });
       try {
         this.send({ ...payload, id });
       } catch (error) {
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
         this.#pending.delete(id);
         reject(error);
       }

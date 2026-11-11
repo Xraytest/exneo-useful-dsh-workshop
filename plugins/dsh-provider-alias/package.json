@@ -1,0 +1,63 @@
+{
+  "name": "dsh-provider-alias",
+  "version": "0.4.0",
+  "description": "Declare your own model providers with an optional request spec, plus per-protocol endpoints so one gateway can serve several wire APIs at their own paths — opencode-go's per-request session header and its Google side, for one.",
+  "keywords": [
+    "dsh",
+    "dsh-bundle",
+    "dsh-plugin",
+    "llm",
+    "provider",
+    "custom-provider",
+    "spec",
+    "opencode"
+  ],
+  "license": "MIT",
+  "author": "Xraytest",
+  "type": "module",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.0",
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-llm": "^0.2.0",
+    "@deepseek-ai/dsh-llm-pi-ai": "^0.2.0",
+    "@deepseek-ai/dsh-credentials": "^0.2.0",
+    "@deepseek-ai/dsh-launch-environment": "^0.2.0",
+    "@deepseek-ai/dsh-util-values": "^0.2.0",
+    "@deepseek-ai/dsh-timeout": "^0.2.0",
+    "@earendil-works/pi-ai": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ]
+}

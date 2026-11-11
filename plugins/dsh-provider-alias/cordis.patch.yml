@@ -1,0 +1,47 @@
+# dsh-provider-alias — composition patch.
+#
+# One config line, and it belongs to this plugin only: the `provider-alias`
+# namespace with its `aliases` dict. It deliberately does not touch the
+# `llm-pi-ai` line or any other plugin's fields — a patch replaces the whole
+# `config:` block it writes, so restating someone else's field here would strand
+# that field's owner when this plugin is disabled.
+#
+# `aliases` ships empty on purpose: with no route declared, this plugin registers
+# nothing at all — no adapter, no directory entries — so installing it changes
+# nothing about the models you already have. Declare routes on the Models page
+# ("Custom providers" card, below the built-in add-provider block), or write them
+# into this dict.
+#
+# Shape of one route (all fields optional except `api` and `baseURL`):
+#
+#   opencode-go-2:
+#     displayName: "OpenCode Go (pool 2)"
+#     apiKeyEnv: "OPENCODE_GO_2_API_KEY"   # credential ref; the card derives it
+#                                          # from the route name when creating
+#     api: "openai-completions"            # openai-completions |
+#                                          # openai-responses | anthropic-messages
+#     baseURL: "https://opencode.ai/zen/go/v1"
+#     spec: "opencode-go"                  # optional: a named request discipline.
+#                                          # `opencode-go` adds the per-request
+#                                          # `x-opencode-session` header the
+#                                          # endpoint demands; omit for a plain
+#                                          # OpenAI/Anthropic-compatible endpoint.
+#     models:
+#       - id: "claude-haiku-5-5"
+#         name: "Claude Haiku 5.5"
+#         contextWindow: 100000
+#         maxTokens: 128000
+#         input: ["text", "image"]
+#     # Further profile fields are accepted host-side but have no card in the
+#     # settings UI yet: headers, defaultContextWindow, defaultMaxTokens,
+#     # defaultInput, reasoning, thinkingBudgets, cacheRetention, transport,
+#     # timeoutMs, retryPolicy, and the image-budget knobs.
+#
+# The key is lowercase-hyphenated and is the route id models are addressed by,
+# so it must not collide with a provider pi-ai already ships.
+
+- insert:
+    - id: provider-alias
+      name: dsh-provider-alias
+      config:
+        aliases: {}

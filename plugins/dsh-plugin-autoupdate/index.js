@@ -230,7 +230,12 @@ export function apply(ctx, config = {}) {
 
   let running = false;
   let lastCheck = null;
-  const notes = [];
+  /**
+   * 提示条：**每轮检查重置**（不是无限累积）。
+   * 累积会让上一轮的「有 N 个可更新但未应用」在更新成功后仍挂在界面上，
+   * 看起来像更新没生效——2026-10-31 沙箱实测到的显示缺陷。
+   */
+  let notes = [];
   const note = (message) => {
     notes.push(message);
     if (notes.length > 30) notes.splice(0, notes.length - 30);
@@ -271,6 +276,10 @@ export function apply(ctx, config = {}) {
    * link: 源不比版本——link 本来就是活的（源目录改了，重装就拿到新的）；
    * 但**记录**它当前版本，供 git/npm 对比与 UI 展示。git/npm 源才比
    * 「安装账本里的版本」与「远端 latest」。
+   *
+   * ⚠ 本函数**只读**：绝不写账本。账本的推进只发生在 check() 的收尾处，且只在
+   * 「没有待更新」或「更新已成功应用」时——否则用户点一次「检查更新」就会把待更新
+   * 状态基线化掉，再点「检查并应用」时什么都不会发生（2026-10-31 沙箱实测的缺陷）。
    */
   async function runCheck(applyUpdates) {
     const dependencies = readDependencies();
@@ -339,6 +348,7 @@ export function apply(ctx, config = {}) {
   const check = async (applyUpdates) => {
     if (running) return { busy: true };
     running = true;
+    notes = []; // 每轮检查的提示条从零开始，不把上一轮的结论挂在界面上
     try {
       const results = await runCheck(applyUpdates);
       const applied = [];
@@ -362,16 +372,40 @@ export function apply(ctx, config = {}) {
           }
         }
       }
-      // 账本更新为「检查时刻的已知版本」
+      // 账本推进：只有「没有待更新」或「这一轮真的应用成功了」才把版本往前推。
+      // 留着力不推：待更新状态必须留着，否则用户下次点「检查并应用」时检测不到
+      // 任何更新（沙箱实测：先 check(false) 再 check(true) → applied 空）。
       const entries = readLedger(ledger);
       for (const entry of results) {
         if (entry.kind === 'link' || entry.kind === 'npm') {
-          entries[entry.name] = { spec: entry.spec, version: entry.current || entry.latest, at: Date.now() };
+          const appliedNow = applied.find((a) => a.name === entry.name);
+          if (appliedNow !== undefined) {
+            entries[entry.name] = { spec: entry.spec, version: entry.current, at: Date.now() };
+          } else if (entry.updateAvailable === true) {
+            // 有更新但没应用：保留旧记录，让待更新状态继续可见。
+            continue;
+          } else if (entries[entry.name] === undefined) {
+            // 首次见到（全新安装/新加入的 bundle）：建立基线。
+            entries[entry.name] = { spec: entry.spec, version: entry.current || entry.latest, at: Date.now() };
+          }
         } else if (entry.kind === 'git') {
-          entries[entry.name] = { spec: entry.spec, version: entry.current, sha: entry.latest, at: Date.now() };
+          const appliedNow = applied.find((a) => a.name === entry.name);
+          if (appliedNow !== undefined || entries[entry.name] === undefined) {
+            entries[entry.name] = { spec: entry.spec, version: entry.current, sha: entry.latest, at: Date.now() };
+          }
         }
       }
       writeLedgerAtomic(ledger, entries);
+      // 「有更新但一个都没应用」必须说出来：静默是最差的反馈（用户会以为点了没用）。
+      const pending = results.filter((entry) => entry.updateAvailable === true && !applied.some((a) => a.name === entry.name));
+      if (pending.length > 0) {
+        const manual = pending.filter((entry) => entry.kind === 'git');
+        const blocked = pending.filter((entry) => entry.kind === 'npm' && autoApplyRemote !== true);
+        const parts = [];
+        if (manual.length > 0) parts.push(`${manual.map((e) => e.name).join('、')} 需手动点「更新」`);
+        if (blocked.length > 0) parts.push(`${blocked.map((e) => e.name).join('、')} 需在 host config 打开 autoApplyRemote`);
+        note(parts.length > 0 ? `有 ${pending.length} 个插件可更新但未应用：${parts.join('；')}` : `有 ${pending.length} 个插件可更新但未应用`);
+      }
       lastCheck = { at: Date.now(), results, applied, failures };
       if (applied.length > 0) log('info', `已应用 ${applied.length} 个插件更新：${applied.map((a) => a.name).join(', ')}`);
       if (failures.length > 0) note(`上轮更新失败：${failures.join('；')}`);
@@ -450,11 +484,18 @@ export function apply(ctx, config = {}) {
     const spec = dependencies[name];
     if (spec === undefined) return json(404, { error: `bundle ${name} 不在依赖表里` });
     try {
+      notes = [];
       const result = await applyUpdate(name, spec);
       recordHistory(history, { name, spec, at: Date.now(), ok: result.application === 'applied' });
+      if (result.application !== 'applied' && result.application !== 'restart-required') {
+        note(`${name} 更新未生效：${result.application}${result.error?.code ? `（${result.error.code}）` : ''}`);
+      } else {
+        note(`${name} 已更新`);
+      }
       return json(200, { ...status(), install: result });
     } catch (cause) {
       recordHistory(history, { name, spec, at: Date.now(), ok: false, error: errorText(cause) });
+      note(`${name} 更新失败：${errorText(cause)}`);
       return json(500, { error: `更新失败：${errorText(cause)}` });
     }
   });

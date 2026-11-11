@@ -1,0 +1,28 @@
+{
+  "name": "@local/workspace-plus",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Understand the workspace as projects: one primary path plus multiple secondary paths, shared with the agent and manageable through project tools — plus a Workspace settings surface (name + supported directories) in the sidebar row menu and the settings panel.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    },
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "engines": { "dsh": ">=0.2.0-rc.1" }
+  }
+}

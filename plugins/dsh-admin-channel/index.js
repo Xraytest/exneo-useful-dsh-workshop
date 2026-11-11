@@ -23,7 +23,12 @@
 
 // 版本化 specifier：Loader / Node ESM 按完整 URL 缓存模块，改过 lib/channel.js 后
 // 必须让这条 import 的 URL 也跟着 entry-vN 一起换，否则旧 index 会继续用旧 channel。
-import { createAdminChannelManager } from './lib/channel.js?v=ac-7';
+// v10（2026-11-07）：超大 timeout_ms 按不限时处理（防 Node 计时器溢出成 1ms），
+//   execTimeoutMs / maxExecTimeoutMs 上限放宽到 24h，与 broker 夹取区间一致。
+// v9（2026-11-07 用户指令「去除隧道提权时间限制」）：uacTimeoutMs / idleTimeoutMs /
+//   execTimeoutMs / maxExecTimeoutMs 全部支持 0 = 不限时，且**默认 0**；broker.ps1 的
+//   等连接与单命令 deadline 同步改为「0 = 不掐表」（并修掉「0 被夹成 1 秒」的隐患）。
+import { createAdminChannelManager } from './lib/channel.js?v=ac-11';
 
 export const name = 'admin-channel';
 
@@ -119,15 +124,22 @@ function readJsonBody(req) {
 function toolDescription() {
   return [
     'Run a PowerShell command with full administrator rights through the administrator channel of THIS session.',
-    'The channel is opened only by the user: they flip "管理员权限通道" in the workbench (输入框工具行 → 工作箱),',
-    'which raises exactly one UAC prompt. After that, commands sent here run in a resident elevated process and',
-    'no further UAC prompts appear until the channel is closed (session end, idle timeout, or the user turns it off).',
+    'The channel is opened only by the user: they flip "管理员权限通道" in the workbench (输入框工具行 → 工作箱).',
+    'With startup consent enabled (the default) DSH already raised its ONE UAC at startup and keeps a resident',
+    'elevated process; the user flipping the switch afterwards just attaches to it - no prompt at all. With',
+    'startup consent disabled, flipping the switch raises exactly one UAC for that session.',
+    'Either way, once the channel reads running, commands sent here run in that resident elevated process and',
+    'no further UAC prompts appear until the channel is closed (session end, plugin reload, or the user turns it off).',
+    'The tunnel has NO time limits: the UAC wait, the idle auto-close and the per-command timeout are all',
+    'unlimited by default, and a command may run as long as it needs to.',
     'Use this tool only when an ordinary pwsh/bash command fails because it needs administrator rights',
     '(Access denied, requires elevation, service/registry/driver/system changes).',
     'If the channel is not running the tool fails with instructions: ask the user to enable it in the workbench;',
     'never try to elevate with runas, scheduled tasks, services or other tricks, and never retry in a loop.',
-    'Each call runs in a fresh hidden Windows PowerShell process. Pass cwd to set the working directory and',
-    'timeout_ms for long commands. Output is UTF-8; large output is truncated at the configured limit.',
+    'Each call runs in a fresh hidden Windows PowerShell process. Pass cwd to set the working directory. Pass',
+    'timeout_ms only when you want a hard ceiling on one command (0 or omitted = no ceiling); a timeout kills',
+    'the command process tree but leaves the channel open. Output is UTF-8; large output is truncated at the',
+    'configured byte limit.',
     'The reported exit code is the PowerShell process exit code: end the command with `exit N` to report a',
     'failure explicitly (a non-terminating PowerShell error alone still exits 0).',
   ].join(' ');
@@ -349,7 +361,7 @@ export function apply(ctx, config = {}) {
         },
         timeout_ms: {
           type: 'number',
-          description: 'Timeout in milliseconds for this command (default 120000, capped at 1800000). The channel remains open after a timeout.',
+          description: 'Hard ceiling in milliseconds for THIS command only. Omit it or pass 0 for no limit (the default: the tunnel has no time limits). A positive value kills that command\'s process tree when exceeded; the channel itself stays open regardless.',
         },
       },
       required: ['command'],
@@ -416,7 +428,18 @@ export function apply(ctx, config = {}) {
 
   ctx.effect(() => ctx.tools.register(definition), 'dsh-admin-channel: admin_exec tool');
 
+  // ── 启动授权（v11，用户指令 2026-11-07）───────────────────────────────
+  // DSH 一起来就请求一次 UAC，拉起**常驻**提权进程；之后任意会话拨开关只是
+  // 挂载到它上面，不再弹窗。startupConsent: false 时这里什么都不做，回到
+  // 「会话拨开关才弹一次」的旧行为。
+  // 只读 config（不写盘、不弹浏览器可触达的路由）：拨动 startupConsent 请改
+  // cordis.patch.yml 的 config，由 Loader 重启本插件生效。
+  const authorityBoot = manager.bootstrapAuthority();
+  log('info', `dsh-admin-channel: 启动授权 ${authorityBoot.enabled ? `已发起（phase=${authorityBoot.phase}）` : '未启用（startupConsent=false，回到每会话一次 UAC）'}`);
+
   // 会话销毁 → 关闭该会话的通道（提权进程只跟会话同寿）。
+  // 注意：v11 之后「挂载在启动授权上的会话」销毁时只摘挂载，常驻授权继续活着——
+  // 它属于 DSH 进程，不属于任何会话（stop() 内部按 attached 判定）。
   // 事件契约是 payload { agent }（cordis_inspect_query 的 Event 签名）；这里同时
   // 兼容「直接传 Agent」的形状，避免版本差异导致销毁时漏关。
   ctx.on('agent/disposed', (payload) => {
@@ -433,5 +456,8 @@ export function apply(ctx, config = {}) {
   // 插件卸载/重载 → 关闭全部通道。
   ctx.effect(() => () => manager.disposeAll(), 'dsh-admin-channel: dispose every channel');
 
-  log('info', `dsh-admin-channel: 就绪（maxChannels=${manager.settings.maxChannels} idle=${Math.round(manager.settings.idleTimeoutMs / 60_000)}min audit=${manager.auditFile}）`);
+  const idleText = manager.settings.idleTimeoutMs > 0
+    ? `${Math.round(manager.settings.idleTimeoutMs / 60_000)}min`
+    : 'off（不限时）';
+  log('info', `dsh-admin-channel: 就绪（maxChannels=${manager.settings.maxChannels} idle=${idleText} audit=${manager.auditFile}）`);
 }

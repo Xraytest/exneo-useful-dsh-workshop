@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Administrator Channel",
-    "description": "After one UAC approval from the workbench, this session can run elevated commands through a local named pipe into a resident elevated helper; the channel closes with the session or after idle timeout."
+    "description": "DSH raises one UAC prompt at startup to establish a resident elevation authority; sessions then attach to it by flipping the workbench switch with no further prompt. Elevated commands run through a local named pipe inside the resident helper. The tunnel has no time limits: the UAC wait, the idle auto-close and the per-command timeout are unlimited by default. The helper exits with the DSH host; turning a session's switch off only detaches it."
   }
 }

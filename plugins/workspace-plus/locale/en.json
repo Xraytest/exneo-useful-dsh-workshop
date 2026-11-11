@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WorkSpacePlus",
+    "description": "Understand the workspace as projects: each project has one primary path and multiple secondary paths, shared with the agent through the system prompt and manageable through project tools."
+  }
+}

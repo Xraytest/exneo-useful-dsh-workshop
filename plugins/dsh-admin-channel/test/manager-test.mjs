@@ -58,7 +58,10 @@ const ctx = {
 };
 
 const plugin = await import('../index.js?v=test-1');
-plugin.apply(ctx, { maxChannels: 1, idleTimeoutMs: 60_000 });
+// startupConsent: false 是**本测试的硬要求**：apply() 会调用 bootstrapAuthority()，
+// 而这里没有注入 fake launcher —— 让它跑生产 defaultLaunch 就等于在测试时真弹一次
+// UAC。启动授权本身的逻辑在 sandbox-lifecycle.mjs 用注入的 fake launcher 覆盖。
+plugin.apply(ctx, { maxChannels: 1, idleTimeoutMs: 60_000, startupConsent: false });
 
 let passed = 0;
 const pending = [];
@@ -71,6 +74,34 @@ const check = (name, condition, detail) => {
   console.error(`  FAIL ${name}${detail === undefined ? '' : `：${detail}`}`);
   process.exitCode = 1;
 };
+
+// v9（2026-11-07 用户指令「去除隧道提权时间限制」）：默认值必须全是 0 = 不限时，
+// 且显式 0 不被回落到旧默认；显式正数仍然生效（上限仍可配置）。
+{
+  const { createAdminChannelManager } = await import('../lib/channel.js?v=test-1');
+  const defaults = createAdminChannelManager({ ctx: {}, config: {} }).settings;
+  check('默认 uacTimeoutMs=0（不限时）', defaults.uacTimeoutMs === 0, String(defaults.uacTimeoutMs));
+  check('默认 idleTimeoutMs=0（不限时）', defaults.idleTimeoutMs === 0, String(defaults.idleTimeoutMs));
+  check('默认 execTimeoutMs=0（不限时）', defaults.execTimeoutMs === 0, String(defaults.execTimeoutMs));
+  check('默认 maxExecTimeoutMs=0（不设上限）', defaults.maxExecTimeoutMs === 0, String(defaults.maxExecTimeoutMs));
+
+  const explicit = createAdminChannelManager({
+    ctx: {},
+    config: { uacTimeoutMs: 0, idleTimeoutMs: 0, execTimeoutMs: 0, maxExecTimeoutMs: 0 },
+  }).settings;
+  check('显式 0 保持不限时（不回落到旧默认）', explicit.uacTimeoutMs === 0 && explicit.idleTimeoutMs === 0
+    && explicit.execTimeoutMs === 0 && explicit.maxExecTimeoutMs === 0, JSON.stringify(explicit));
+
+  const bounded = createAdminChannelManager({
+    ctx: {},
+    config: { uacTimeoutMs: 60_000, idleTimeoutMs: 90_000, execTimeoutMs: 5_000, maxExecTimeoutMs: 30_000 },
+  }).settings;
+  check('显式正数仍是上限', bounded.uacTimeoutMs === 60_000 && bounded.idleTimeoutMs === 90_000
+    && bounded.execTimeoutMs === 5_000 && bounded.maxExecTimeoutMs === 30_000, JSON.stringify(bounded));
+
+  const junk = createAdminChannelManager({ ctx: {}, config: { uacTimeoutMs: 'abc', idleTimeoutMs: null } }).settings;
+  check('非法值回落不限时', junk.uacTimeoutMs === 0 && junk.idleTimeoutMs === 0, JSON.stringify(junk));
+}
 
 const tool = tools[0];
 check('注册了且只注册了 admin_exec', tools.length === 1 && tool?.name === 'admin_exec');
@@ -174,7 +205,7 @@ check('注册了 status / action 路由', routes.has('/dsh-admin-channel/status'
 {
   const result = await callRoute('/dsh-admin-channel/status', {
     url: '/dsh-admin-channel/status?sessionId=live-session',
-    remoteAddress: '192.168.1.50',
+    remoteAddress: '203.0.113.50',
   });
   check('非回环来源被拒绝', result.status === 403 && String(result.json.error).includes('回环'));
 }

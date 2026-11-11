@@ -1,0 +1,11 @@
+# dsh-bilibili — bilibili.com 搜索与完整阅读工具
+#
+# 插件行 id：bilibili-tools；包名 dsh-bilibili。
+# 无必填配置；可选 config（见 index.js Config）：
+#   cookie: ''        # 可选登录 cookie（SESSDATA=...），提升风控容忍度、解锁字幕
+#   timeoutMs: 20000  # 单请求超时
+#   maxComments: 30   # 评论单次返回上限
+- insert:
+    - id: bilibili-tools
+      name: 'dsh-bilibili'
+      config: {}

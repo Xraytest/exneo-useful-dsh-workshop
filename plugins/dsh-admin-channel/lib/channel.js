@@ -8,9 +8,14 @@
  * 关闭条件（任一满足）：
  *   · 用户在工作箱里拨关；
  *   · 会话被销毁（agent/disposed）；
- *   · 空闲超时（idleTimeoutMs，默认 30 分钟）；
+ *   · 空闲超时（idleTimeoutMs；**默认 0 = 不限时**，不自动关闭）；
  *   · 插件卸载 / 重载；
  *   · broker 退出或管道断开（状态转为 error，等用户重新开启）。
+ *
+ * v9（2026-11-07 用户指令「去除隧道提权时间限制」）：uacTimeoutMs / idleTimeoutMs /
+ * execTimeoutMs / maxExecTimeoutMs 默认全部为 0 = 不限时——UAC 可以慢慢点、通道不因
+ * 闲置过期、单条命令不掐表。时间不再是生命周期边界：cancel 文件、spec 删除、
+ * ownerPid 消失、管道断开仍会让提权进程退出。
  *
  * 状态只在内存里按 SessionId 保存（不落盘、不跨进程复活）：host 进程退出后
  * broker 的管道断开即自行退出，不会留下“无人接管”的提权进程。
@@ -26,7 +31,7 @@ import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PipeClient } from './pipe-client.js';
+import { PipeClient } from './pipe-client.js?v=ac-11';
 
 /** 本包根目录（lib/ 的上一级）。 */
 const PLUGIN_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -35,6 +40,14 @@ const LAUNCH_PATH = join(PLUGIN_DIR, 'launch.ps1');
 
 /** 启动失败但可重试时抛的错（用于区分“连接还没起来”和“真的失败”）。 */
 class ChannelStartError extends Error {}
+
+/**
+ * 单条命令可接受的正数超时的绝对上限（24 小时）。超过它（或 Node 的 32 位计时器
+ * 上限）不当成“更长的超时”，而当作**不限时**：Node 的 setTimeout 对 >2^31-1 的
+ * 毫秒值会静默夹成 1ms（TimeoutOverflowWarning），于是「请求很长的超时」反而会让
+ * 命令秒退、并被 exec-failure 逻辑连带关掉整条通道。broker 侧同一口径夹到 24h。
+ */
+const ABSOLUTE_EXEC_MS = 24 * 60 * 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -97,7 +110,32 @@ function defaultLaunch({ specPath, powershell }) {
 }
 
 /**
+ * 时长解析（v9，2026-11-07 用户指令「去除隧道提权时间限制」）：
+ * 每一项都支持 **0（或负值）= 不限时**；只有显式给正数才生效并夹在 [min, max] 内。
+ * 缺省值一律取「不限时」，即隧道不再自带任何过期/掐表语义。
+ * @param {Record<string, unknown>} raw
+ * @param {string} name
+ * @param {{ fallback: number, min: number, max: number }} bounds
+ * @returns {number} 0 = 不限时
+ */
+function resolveDuration(raw, name, bounds) {
+  const value = raw[name];
+  if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) {
+    return bounds.fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return bounds.fallback;
+  if (parsed <= 0) return 0;
+  return Math.min(bounds.max, Math.max(bounds.min, Math.floor(parsed)));
+}
+
+/**
  * 默认配置。patch 里可以逐项覆盖（没有 Config schema，未知字段被忽略）。
+ * v9 起所有时长默认 0 = 不限时：
+ *   · uacTimeoutMs：等 UAC 点「是」的预算（0 = 一直等，用户慢慢决定）；
+ *   · idleTimeoutMs：最后一次执行后多久自动关通道（0 = 不因闲置关闭）；
+ *   · execTimeoutMs：单条命令的默认超时（0 = 命令可以跑任意久）；
+ *   · maxExecTimeoutMs：模型显式给 timeout_ms 时的上限（0 = 不设上限）。
  * @param {Record<string, unknown>} config
  */
 function resolveSettings(config) {
@@ -108,14 +146,26 @@ function resolveSettings(config) {
     return Math.min(max, Math.max(min, Math.floor(value)));
   };
   return {
-    uacTimeoutMs: number('uacTimeoutMs', 120_000, 10_000, 600_000),
-    idleTimeoutMs: number('idleTimeoutMs', 30 * 60_000, 5_000, 24 * 60 * 60_000),
+    uacTimeoutMs: resolveDuration(raw, 'uacTimeoutMs', { fallback: 0, min: 10_000, max: 600_000 }),
+    idleTimeoutMs: resolveDuration(raw, 'idleTimeoutMs', { fallback: 0, min: 5_000, max: 24 * 60 * 60_000 }),
     maxChannels: number('maxChannels', 1, 1, 8),
-    execTimeoutMs: number('execTimeoutMs', 120_000, 1_000, 1_800_000),
-    maxExecTimeoutMs: number('maxExecTimeoutMs', 1_800_000, 1_000, 3_600_000),
+    execTimeoutMs: resolveDuration(raw, 'execTimeoutMs', { fallback: 0, min: 1_000, max: ABSOLUTE_EXEC_MS }),
+    maxExecTimeoutMs: resolveDuration(raw, 'maxExecTimeoutMs', { fallback: 0, min: 1_000, max: ABSOLUTE_EXEC_MS }),
     maxOutputBytes: number('maxOutputBytes', 262_144, 4_096, 4_194_304),
     requireElevation: raw.requireElevation !== false,
+    // v11：DSH 启动时就请求一次管理员授权（一次 UAC），之后任意会话拨开关零弹窗。
+    // 默认开（用户指令 2026-11-07）；设 startupConsent: false 回到「每会话拨开关才弹」。
+    startupConsent: raw.startupConsent !== false,
+    /** 授权被拒后是否允许重启进程再自动追问一次（默认允许；拒绝过就不骚扰）。 */
+    authorityRetry: raw.authorityRetry !== false,
   };
+}
+
+/** 人话时长（0 = 不限时），给日志与 UI note 用。 */
+function durationText(ms) {
+  if (!(ms > 0)) return '不限时';
+  if (ms >= 60_000) return `${Math.round(ms / 60_000)} 分钟`;
+  return `${Math.round(ms / 1000)} 秒`;
 }
 
 /**
@@ -138,6 +188,60 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     info: (text) => log?.('info', text),
     warn: (text) => log?.('warn', text),
   };
+
+  /**
+   * 常驻「提权授权」（authority）：v11（用户指令 2026-11-07「DSH 启动时请求管理员
+   * 权限，会话可选开启，开启时不再弹窗」）。
+   *
+   * 它复用会话通道的**同一套** broker / 管道 / 令牌 / PID 校验代码，只是绑到一个
+   * 不会与会话 id 相撞的合成键上，并且**不受会话销毁影响、不占用 maxChannels 槽位**。
+   * 会话「开启」= 挂到这个已经活着的提权进程上（不新建进程、不弹 UAC）；
+   * 「关闭」= 摘下来（提权进程继续为其它会话服务）。
+   *
+   * 为什么授权不可能跨 DSH 进程存活：broker 只接受 1 个管道实例的唯一客户端，
+   * 客户端断开时 ReadLine 返回 null → broker 立即退出。因此启动时的那一次 UAC
+   * 覆盖**整个 DSH 进程生命周期**，重启 DSH 会再弹一次（这是设计上的边界，
+   * 不是漏掉的优化：提权进程绝不比宿主活得更久）。
+   */
+  const AUTHORITY_KEY = 'authority:dsh-admin-channel';
+
+  /** 当前挂载在常驻授权上的会话：sessionId → AUTHORITY_KEY。 */
+  const attached = new Map();
+
+  /**
+   * 授权生命周期（与任何会话无关，供 status 展示）。
+   * phase: idle（未启动）/ starting / running / error / off（已释放）
+   */
+  const authority = {
+    phase: 'idle',
+    enabled: settings.startupConsent,
+    lastError: null,
+    startedAt: null,
+    reason: null,
+    /** 本次 DSH 进程内用户是否拒绝过：拒绝后不再自动追问。 */
+    declined: false,
+  };
+
+  /** 授权记录（若存在）。 */
+  const authorityRecord = () => records.get(AUTHORITY_KEY);
+
+  /** 授权是否可用（进程活着且管道已连上）。 */
+  function authorityReady() {
+    const record = authorityRecord();
+    return record !== undefined && record.phase === 'running' && record.client !== null;
+  }
+
+  /**
+   * 授权是否「存在且可能可用」：running 或还在等 UAC（starting）。
+   * 用于 UI 文案与 start() 的判断——starting 期间挂载上去也是对的，命令会等
+   * broker 就绪（exec 会明确报「正在等待 UAC 授权」）。
+   */
+  function authorityAvailable() {
+    if (!authority.enabled) return false;
+    if (authorityReady()) return true;
+    const record = authorityRecord();
+    return record !== undefined && record.phase === 'starting';
+  }
 
   /**
    * 审计：一行一条 JSON；写失败不影响通道本身。
@@ -194,6 +298,14 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     setError(record, message);
     record.queue = Promise.resolve();
     void audit({ event: 'start-failed', sessionId: record.sessionId, error: message });
+    // 启动授权失败（含用户点「否」）：记下 declined，本次进程内不再自动追问，
+    // 避免每次会话拨开关都弹一次 UAC 骚扰用户。用户可在工作箱里手动重试。
+    if (record.sessionId === AUTHORITY_KEY) {
+      authority.phase = 'error';
+      authority.lastError = message;
+      authority.declined = true;
+      attached.clear();
+    }
     logger.warn(`dsh-admin-channel: 会话 ${shortSession(record.sessionId)} 通道启动失败：${message}`);
   }
 
@@ -211,6 +323,12 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     record.client = null;
     record.brokerPid = null;
     clearIdle(record);
+    // 授权断开：所有挂载会话立刻回落（拨开关会另起一条或重走 UAC）。
+    if (record.sessionId === AUTHORITY_KEY) {
+      authority.phase = 'error';
+      authority.lastError = record.lastError;
+      attached.clear();
+    }
     void audit({ event: 'channel-lost', sessionId: record.sessionId, error: error.message });
     logger.warn(`dsh-admin-channel: 会话 ${shortSession(record.sessionId)} 通道断开：${error.message}`);
   }
@@ -227,11 +345,22 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
 
   /**
    * 每次有效执行后重置空闲计时；到点由 host 主动关闭（broker 不自己猜业务）。
+   * `idleTimeoutMs <= 0`（不限时，v9 起的默认）时不设计时器：通道只随会话销毁 /
+   * 用户拨关 / 插件卸载 / host 退出关闭。
+   *
+   * v11 特例：**常驻授权**的「空闲」含义不同——只要还有会话挂载在它上面，它就不算
+   * 空闲（那些会话随时可能发命令），到点时**重新计时**而不是关掉共享进程；
+   * 只有真的没人挂载时才按用户配置的 idleTimeoutMs 关闭。
    * @param {any} record
    */
   function resetIdle(record) {
     clearIdle(record);
+    if (settings.idleTimeoutMs <= 0) return;
     record.idleTimer = setTimeout(() => {
+      if (record.sessionId === AUTHORITY_KEY && attached.size > 0) {
+        resetIdle(record);   // 还有人挂载：继续等，绝不断掉共享提权进程
+        return;
+      }
       logger.info(`dsh-admin-channel: 会话 ${shortSession(record.sessionId)} 空闲超时，关闭通道`);
       void stop(record.sessionId, 'idle');
     }, settings.idleTimeoutMs);
@@ -240,6 +369,10 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
 
   /**
    * 尝试连接并握手；管道还没建好时返回 null（上层重试）。
+   * 这里的 1.2s/5s 只是**单次探测**的窗口（连不上就重试、握手不回就重试），
+   * 不是隧道的时间限制：整体「等多久 UAC」由 waitForBroker 的 uacTimeoutMs 决定
+   * （v9 默认 0 = 不限时）。5s 的 ready 窗口保留是为了防「假 broker 抢占管道」：
+   * 真 broker 在 host 连上之前就已经完成 UAC 提权，auth→ready 是微秒级。
    * @param {any} record
    * @returns {Promise<{ client: PipeClient, ready: any } | null>}
    */
@@ -295,10 +428,13 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
 
   /**
    * 在后台等待 broker 连上来（UAC 可能让用户想一会儿）。
+   * `uacTimeoutMs <= 0` = 不限时：一直等用户点「是」，不掐表；期间 host 拨关或
+   * 会话销毁会由 record.cancelled 收敛，broker 侧靠 cancel/spec 删除退出。
    * @param {any} record
    */
   async function waitForBroker(record) {
-    const deadline = Date.now() + settings.uacTimeoutMs;
+    // 0/负值 = 不限时：不设 deadline，只在 cancelled 时退出。
+    const deadline = settings.uacTimeoutMs > 0 ? Date.now() + settings.uacTimeoutMs : Infinity;
     let launchSeen = null;
     while (!record.cancelled) {
       if (launchSeen === null) {
@@ -326,6 +462,14 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
         record.lastError = null;
         record.client.onClose((error) => markLost(record, error));
         resetIdle(record);
+        // 授权记录就绪：把授权自身状态对齐（authorityStatus 以记录为准，这里只是
+        // 保证 ensureAuthority 的幂等判断与 declined 标记不会停留在 starting）。
+        if (record.sessionId === AUTHORITY_KEY) {
+          authority.phase = 'running';
+          authority.startedAt = record.startedAt;
+          authority.lastError = null;
+          authority.declined = false;
+        }
         void audit({
           event: 'start',
           sessionId: record.sessionId,
@@ -344,38 +488,14 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
   }
 
   /**
-   * 启动（或返回已在运行的）通道。异步等待在后台进行；这里只同步走到“已提交”。
-   * @param {string} sessionId
-   * @returns {Promise<any>} 当前状态
+   * 建一条 broker 记录 + spec + 拉起启动器，并在后台等握手（不阻塞调用方）。
+   * `start()`（会话自建通道）与 `ensureAuthority()`（启动时的常驻授权）共用这里，
+   * 保证两条路径走**完全相同**的安全代码（同一 broker.ps1、同一令牌与 PID 校验）。
+   * @param {string} key 记录键：sessionId 或 AUTHORITY_KEY
+   * @param {any} existing 需要被替换掉的旧记录（可空）
+   * @returns {Promise<any>} statusOf(key)
    */
-  async function start(sessionId) {
-    const existing = records.get(sessionId);
-    if (existing !== undefined && (existing.phase === 'starting' || existing.phase === 'running')) {
-      return statusOf(sessionId);
-    }
-    if (existing !== undefined && existing.phase === 'stopping') {
-      throw new Error('管理员权限通道正在关闭：请等它退出后再重新打开（不要连点）。');
-    }
-
-    const activeCount = () => [...records.values()]
-      .filter((record) => record.phase === 'starting' || record.phase === 'running').length;
-
-    if (activeCount() >= settings.maxChannels) {
-      const other = [...records.values()].find((record) => record.phase === 'starting' || record.phase === 'running');
-      throw new Error(
-        `另一会话已开启管理员权限通道（会话 ${shortSession(other?.sessionId)}）：全局只允许 ${settings.maxChannels} 条，请先在该会话关闭。`,
-      );
-    }
-
-    if (existing !== undefined) {
-      await rm(existing.tempDir, { recursive: true, force: true }).catch(() => {});
-      // 删除旧记录后重新检查容量：await 期间别的会话可能已经占用了槽位。
-      if (activeCount() >= settings.maxChannels) {
-        throw new Error(`全局只允许 ${settings.maxChannels} 条管理员权限通道，请先关闭其它会话的通道。`);
-      }
-      if (records.get(sessionId) === existing) records.delete(sessionId);
-    }
-
+  async function spawnBrokerRecord(key, existing) {
     const nonce = randomBytes(8).toString('hex');
     const pipeName = `dsh-admin-channel-${nonce}`;
     const token = randomBytes(32).toString('hex');
@@ -383,7 +503,7 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     const specPath = join(tempDir, 'spec.json');
 
     const record = {
-      sessionId,
+      sessionId: key,
       phase: 'starting',
       pipeName,
       pipePath: `\\\\.\\pipe\\${pipeName}`,
@@ -409,7 +529,7 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
       launchSeen: false,
       startPromise: null,
     };
-    records.set(sessionId, record);
+    records.set(key, record);
 
     try {
       await mkdir(tempDir, { recursive: true });
@@ -422,7 +542,9 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
         brokerPath: BROKER_PATH,
         tempDir,
         maxOutputBytes: settings.maxOutputBytes,
-        connectTimeoutMs: settings.uacTimeoutMs + 30_000,
+        // broker 等 host 连上来的预算。0 = 不限时（v9：不再偷偷给 +30s 的死线）；
+        // broker 会持续校验 ownerPid 与 cancel/spec，host 没了它自己退出。
+        connectTimeoutMs: settings.uacTimeoutMs > 0 ? settings.uacTimeoutMs + 30_000 : 0,
         createdAt: new Date().toISOString(),
       };
       await writeFile(specPath, `${JSON.stringify(spec, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -438,7 +560,7 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
         record.launcherPid = Number.isFinite(child.pid) ? Number(child.pid) : null;
         if (typeof child.on === 'function') {
           child.on('error', (error) => {
-            if (records.get(sessionId) === record) {
+            if (records.get(key) === record) {
               setError(record, `无法启动 UAC 启动器：${error.message}`);
             }
           });
@@ -451,8 +573,66 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     }
 
     record.startPromise = waitForBroker(record).catch((error) => handleStartFailure(record, error));
-    void audit({ event: 'start-request', sessionId });
-    return statusOf(sessionId);
+    void audit({ event: 'start-request', sessionId: key });
+    return statusOf(key);
+  }
+
+  /**
+   * 启动（或返回已在运行的）通道。会话通道优先**借用**常驻授权（零 UAC）；
+   * 授权不可用时才为这个会话单独起一个提权进程（一次 UAC）。
+   * @param {string} sessionId
+   * @returns {Promise<any>} 当前状态
+   */
+  async function start(sessionId) {
+    // ① 已挂载：授权还可用/还在等就幂等返回；授权已经没了/坏了就丢掉这次挂载，
+    //    继续往下走自建通道——否则「拨关再拨开」永远恢复不了。
+    if (attached.has(sessionId)) {
+      if (authorityAvailable()) return statusOf(sessionId);
+      attached.delete(sessionId);
+    }
+
+    const existing = records.get(sessionId);
+    if (existing !== undefined && (existing.phase === 'starting' || existing.phase === 'running')) {
+      return statusOf(sessionId);
+    }
+    if (existing !== undefined && existing.phase === 'stopping') {
+      throw new Error('管理员权限通道正在关闭：请等它退出后再重新打开（不要连点）。');
+    }
+
+    // ② 授权可用**或正在等 UAC** → 直接挂载，不另起进程（否则用户会看到两次 UAC：
+    //    启动那一次还没点完，会话又弹一次）。挂载后若授权最终失败，handleStartFailure
+    //    会清掉挂载，会话回到「未开启」。
+    if (authorityAvailable()) {
+      attached.set(sessionId, AUTHORITY_KEY);
+      void audit({ event: 'attach', sessionId, brokerPid: authorityRecord()?.brokerPid });
+      logger.info(`dsh-admin-channel: 会话 ${shortSession(sessionId)} 挂载到常驻提权授权（零 UAC）`);
+      return statusOf(sessionId);
+    }
+
+    // ③ 没有可用授权：走会话自建通道（本会话弹一次 UAC）。
+    const ownActive = () => [...records.entries()]
+      .filter(([key, record]) => key !== AUTHORITY_KEY
+        && (record.phase === 'starting' || record.phase === 'running'))
+      .map(([key]) => key);
+
+    const active = ownActive();
+    if (active.length >= settings.maxChannels) {
+      const other = records.get(active[0]);
+      throw new Error(
+        `另一会话已开启管理员权限通道（会话 ${shortSession(other?.sessionId)}）：全局只允许 ${settings.maxChannels} 条，请先在该会话关闭。`,
+      );
+    }
+
+    if (existing !== undefined) {
+      await rm(existing.tempDir, { recursive: true, force: true }).catch(() => {});
+      // 删除旧记录后重新检查容量：await 期间别的会话可能已经占用了槽位。
+      if (ownActive().length >= settings.maxChannels) {
+        throw new Error(`全局只允许 ${settings.maxChannels} 条管理员权限通道，请先关闭其它会话的通道。`);
+      }
+      if (records.get(sessionId) === existing) records.delete(sessionId);
+    }
+
+    return spawnBrokerRecord(sessionId, existing);
   }
 
   /**
@@ -483,6 +663,10 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
   /**
    * 关闭一条通道并清理临时文件。
    *
+   * 会话**挂载在常驻授权上**时（v11）：只把自己摘下来——共享的提权进程继续为
+   * 其它会话服务，绝不因为某个会话拨关就把它杀掉。授权本身只由 releaseAuthority()
+   * 或插件卸载关闭。
+   *
    * 关键顺序：先写 cancel 文件（broker 每 200ms 检查一次，能在执行命令期间杀掉
    * 子进程），再发 stop 消息（空闲时立刻响应），最后等 broker 真正退出。非提权
    * host 的 taskkill 打不动高完整性进程，所以未确认退出时**不谎报 off**。
@@ -491,6 +675,20 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
    * @returns {Promise<any>}
    */
   async function stop(sessionId, reason) {
+    // ① 挂载视图：摘下来即可（会话销毁同义——提权进程不属于这个会话）。
+    if (attached.has(sessionId)) {
+      attached.delete(sessionId);
+      void audit({ event: 'detach', sessionId, reason });
+      logger.info(`dsh-admin-channel: 会话 ${shortSession(sessionId)} 已脱离常驻提权授权（${reason}）`);
+      return statusOf(sessionId);
+    }
+
+    // ② 关掉常驻授权本身：先把挂载中的会话摘掉，别让它们指向一条死通道。
+    if (sessionId === AUTHORITY_KEY && attached.size > 0) {
+      void audit({ event: 'detach-all', reason, attached: attached.size });
+      attached.clear();
+    }
+
     const record = records.get(sessionId);
     if (record === undefined) return statusOf(sessionId);
 
@@ -545,6 +743,83 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
   }
 
   /**
+   * 建立/复用常驻提权授权（DSH 启动时调用；工作箱的「启动授权」开关也走这里）。
+   * 幂等：已在 starting/running 就原样返回。
+   * @returns {Promise<any>} 授权状态（不是会话状态）
+   */
+  async function ensureAuthority() {
+    if (authority.phase === 'running' && authorityReady()) return authorityStatus();
+    if (authority.phase === 'starting' && records.get(AUTHORITY_KEY) !== undefined) return authorityStatus();
+
+    const existing = records.get(AUTHORITY_KEY);
+    if (existing !== undefined) {
+      await rm(existing.tempDir, { recursive: true, force: true }).catch(() => {});
+      if (records.get(AUTHORITY_KEY) === existing) records.delete(AUTHORITY_KEY);
+    }
+
+    authority.phase = 'starting';
+    authority.lastError = null;
+    authority.reason = null;
+    attached.clear();
+    // 授权重建 = 旧的挂载全部失效（旧 broker 已被上面清掉）。
+    await spawnBrokerRecord(AUTHORITY_KEY, existing);
+    return authorityStatus();
+  }
+
+  /**
+   * 释放常驻授权（关掉提权进程）。会先把挂载中的会话摘掉，让它们回到「未开启」，
+   * 而不是被误认为还在使用一条已经死掉的通道。
+   * @param {string} reason
+   */
+  async function releaseAuthority(reason) {
+    const count = attached.size;
+    attached.clear();
+    const record = records.get(AUTHORITY_KEY);
+    if (record === undefined) {
+      authority.phase = 'idle';
+      authority.declined = false;
+      return authorityStatus();
+    }
+    authority.phase = 'off';
+    await stop(AUTHORITY_KEY, reason ?? 'authority-release');
+    authority.phase = 'idle';
+    authority.reason = reason ?? 'released';
+    void audit({ event: 'authority-release', reason: reason ?? 'released', attached: count });
+    logger.info(`dsh-admin-channel: 常驻提权授权已释放（${reason ?? 'released'}，先前挂载 ${count} 个会话）`);
+    return authorityStatus();
+  }
+
+  /** 授权自身状态（供 statusOf 与 UI 用）。一切以记录为准，避免状态与进程脱节。 */
+  function authorityStatus() {
+    const record = authorityRecord();
+    const ready = authorityReady();
+    let phase;
+    if (ready) phase = 'running';
+    else if (record !== undefined) phase = record.phase;            // starting / stopping / error
+    else phase = authority.phase === 'starting' ? 'starting' : 'idle';
+    return {
+      phase,
+      enabled: authority.enabled,
+      ready,
+      declined: authority.declined === true,
+      brokerPid: record?.brokerPid ?? null,
+      elevated: record?.elevated === true,
+      startedAt: record?.startedAt ?? authority.startedAt,
+      lastError: record?.lastError ?? authority.lastError,
+      attached: attached.size,
+      /** 授权不可用时，会话拨开关会退回「本会话弹一次 UAC」的旧行为。 */
+      fallbackPerSession: !ready,
+    };
+  }
+
+  /** 启动时授权：只请求一次 UAC；被拒绝就不再自动追问（等用户手动拨）。 */
+  function bootstrapAuthority() {
+    if (!settings.startupConsent) return authorityStatus();
+    void ensureAuthority().catch(() => {});
+    return authorityStatus();
+  }
+
+  /**
    * taskkill 整棵进程树（broker 可能还挂着一个正在跑的命令）。
    * @param {number} pid
    */
@@ -573,21 +848,44 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
   }
 
   /**
+   * 解析一个会话该用哪条 broker 记录：自己的，还是挂载在常驻授权上的（v11）。
+   * 授权记录存在但已经不可用（error/stopping）时**丢掉这次挂载**并回落到会话
+   * 自建通道——否则会一直卡在「通道当前不可用」，即使会话已经能另起一条。
+   * @param {string} sessionId
+   * @returns {{ record: any, borrowed: boolean }}
+   */
+  function resolveRecord(sessionId) {
+    const borrowKey = attached.get(sessionId);
+    if (borrowKey !== undefined) {
+      const shared = records.get(borrowKey);
+      if (shared !== undefined && (shared.phase === 'starting' || shared.phase === 'running')) {
+        return { record: shared, borrowed: true };
+      }
+      attached.delete(sessionId);
+    }
+    const own = records.get(sessionId);
+    return { record: own, borrowed: false };
+  }
+
+  /**
    * 在当前会话的提权通道里执行一条命令。
    * @param {string} sessionId
    * @param {{ command: string, cwd?: string, timeoutMs?: number }} input
    * @returns {Promise<Record<string, unknown>>}
    */
   async function exec(sessionId, input) {
-    const record = records.get(sessionId);
+    const { record, borrowed } = resolveRecord(sessionId);
     if (record === undefined) {
       throw new Error(
         '本会话没有开启「管理员权限通道」。请让用户在输入框工具行的「工作箱」里打开「管理员权限通道」开关'
-        + '（会弹出一次 UAC 确认）。在用户完成授权前不要执行提权操作，也不要用 runas / 计划任务 / 服务等方式绕过。',
+        + '（启动授权已就绪时拨开关不会弹 UAC）。在用户完成授权前不要执行提权操作，'
+        + '也不要用 runas / 计划任务 / 服务等方式绕过。',
       );
     }
     if (record.phase === 'starting') {
-      throw new Error('「管理员权限通道」正在等待 UAC 授权：请让用户在 UAC 窗口点击「是」后重试。不要重复拨开关。');
+      throw new Error(borrowed
+        ? '「管理员权限通道」正在等待**启动时那一次** UAC 授权：请让用户在 UAC 窗口点「是」（或取消它），点完即自动可用；不要重复拨开关，也不要另起提权方式。'
+        : '「管理员权限通道」正在等待 UAC 授权：请让用户在 UAC 窗口点击「是」后重试。不要重复拨开关。');
     }
     if (record.phase !== 'running' || record.client === null) {
       throw new Error(
@@ -596,10 +894,22 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
       );
     }
 
-    const timeoutMs = Math.min(
-      settings.maxExecTimeoutMs,
-      Math.max(1_000, Math.floor(Number(input.timeoutMs) || settings.execTimeoutMs)),
-    );
+    // v9：单条命令默认**不限时**。语义：
+    //   · 模型显式给正数 timeout_ms → 用它（并受 maxExecTimeoutMs 约束，若该上限>0）；
+    //   · 模型显式给 0 / 负数 → 视为「不限时」；
+    //   · 没给 → settings.execTimeoutMs（默认 0 = 不限时）。
+    // 超过 24h 的正数按「不限时」处理：Node 的 setTimeout 只吃 32 位有符号整数，
+    // 1e12 这类数值会被夹成 1ms 立刻超时（连带 exec-failure 把整条通道关掉）。
+    const requested = Number(input.timeoutMs);
+    let timeoutMs;
+    if (Number.isFinite(requested) && requested > 0) {
+      timeoutMs = requested > ABSOLUTE_EXEC_MS ? 0 : Math.floor(requested);
+      if (timeoutMs > 0 && settings.maxExecTimeoutMs > 0) {
+        timeoutMs = Math.min(settings.maxExecTimeoutMs, Math.max(1_000, timeoutMs));
+      }
+    } else {
+      timeoutMs = settings.execTimeoutMs;
+    }
     const command = String(input.command ?? '');
     const cwd = typeof input.cwd === 'string' && input.cwd.trim() !== '' ? input.cwd.trim() : undefined;
 
@@ -612,13 +922,18 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
       try {
         response = await record.client.request(
           { type: 'exec', command, cwd: cwd ?? '', timeoutMs },
-          timeoutMs + 20_000,
+          // 不限时（0）时透传 0：pipe-client 不设计时器，靠管道关闭/broker 退出收敛。
+          timeoutMs > 0 ? timeoutMs + 20_000 : 0,
           '提权命令执行',
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        void stop(sessionId, 'exec-failure');
-        throw new Error(`「管理员权限通道」执行失败（${message}）。通道已关闭，请让用户重新打开开关。`);
+        // 传输层失败 = 管道已断（broker 退出或握手坏掉）。让 stop() 收敛：会话自建
+        // 通道会关掉进程；挂载在授权上的会话只摘挂载，进程由 markLost 处理。
+        void stop(sessionId, 'exec-failure').catch(() => {});
+        throw new Error(borrowed
+          ? `「管理员权限通道」执行失败（${message}）。本会话已从常驻提权进程摘除，请让用户重新打开开关（授权仍在时不会再弹 UAC）。`
+          : `「管理员权限通道」执行失败（${message}）。通道已关闭，请让用户重新打开开关。`);
       }
 
       if (response === null || typeof response !== 'object' || response.ok !== true) {
@@ -672,11 +987,21 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
    * @returns {Record<string, unknown>}
    */
   function statusOf(sessionId) {
-    const record = typeof sessionId === 'string' && sessionId !== '' ? records.get(sessionId) : undefined;
-    const active = [...records.values()].filter((candidate) => candidate.phase === 'starting' || candidate.phase === 'running');
+    const own = typeof sessionId === 'string' && sessionId !== '' ? records.get(sessionId) : undefined;
+    const borrowKey = typeof sessionId === 'string' ? attached.get(sessionId) : undefined;
+    const shared = borrowKey === undefined ? undefined : records.get(borrowKey);
+    const record = shared ?? own;
+    const borrowed = shared !== undefined;
+    const auth = authorityStatus();
+    // 计数口径：常驻授权不算「会话通道」，否则 maxChannels=1 时第二个会话会被拒。
+    const active = [...records.entries()]
+      .filter(([key, candidate]) => key !== AUTHORITY_KEY
+        && (candidate.phase === 'starting' || candidate.phase === 'running'))
+      .map(([, candidate]) => candidate);
 
     if (record === undefined) {
       const other = active.find((candidate) => candidate.sessionId !== sessionId);
+      const canBorrow = settings.startupConsent && authorityAvailable();
       return {
         sessionId: sessionId === '' ? null : sessionId,
         phase: 'off',
@@ -692,12 +1017,21 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
         lastError: null,
         activeChannels: active.length,
         maxChannels: settings.maxChannels,
-        note: other === undefined
-          ? '未开启：在「工作箱」打开开关后会弹出一次 UAC 授权。'
-          : `另一会话（${shortSession(other.sessionId)}）已开启通道：全局只允许 ${settings.maxChannels} 条，请先在那里关闭。`,
-        hint: other === undefined
-          ? '打开开关：弹出一次 UAC 确认；授权后本会话的提权命令不再确认'
-          : '先关闭另一会话的通道',
+        /** 0 = 不限时（不因空闲自动关闭）。 */
+        idleTimeoutMs: settings.idleTimeoutMs,
+        // v11：授权就绪时拨开关**不弹 UAC**，这行说明就是给用户看的差异。
+        borrowed: false,
+        authority: auth,
+        note: canBorrow
+          ? '未开启：常驻提权授权已就绪，拨开关即可用（不会弹 UAC）。'
+          : other === undefined
+            ? '未开启：在「工作箱」打开开关后会弹出一次 UAC 授权。'
+            : `另一会话（${shortSession(other.sessionId)}）已开启通道：全局只允许 ${settings.maxChannels} 条，请先在那里关闭。`,
+        hint: canBorrow
+          ? '拨开即用：复用常驻提权进程，零弹窗'
+          : other === undefined
+            ? '打开开关：弹出一次 UAC 确认；授权后本会话的提权命令不再确认'
+            : '先关闭另一会话的通道',
       };
     }
 
@@ -706,18 +1040,28 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     const startedText = record.startedAt === null
       ? ''
       : new Date(record.startedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const note = phase === 'starting'
-      ? '正在请求管理员授权：请在 UAC 窗口点击「是」（只会弹这一次）。'
-      : phase === 'running'
-        ? `已开启：通道运行中（PID ${record.brokerPid ?? '?'}${startedText === '' ? '' : `，${startedText} 启动`}）。本会话的提权命令不再逐次确认。`
-        : phase === 'stopping'
-          ? '正在关闭管理员权限通道…'
-          : `启动失败：${record.lastError ?? '未知原因'}。可重新拨开开关重试。`;
-    const hint = phase === 'starting'
-      ? '等待 UAC 授权（最长 2 分钟）'
-      : phase === 'running'
-        ? '关闭开关会结束提权进程并清除通道'
-        : '可重新拨开开关重试';
+    const note = borrowed
+      ? phase === 'running'
+        ? `已开启（挂载常驻授权，零弹窗）：PID ${record.brokerPid ?? '?'}${startedText === '' ? '' : `，${startedText} 启动`}，${attached.size} 个会话共用。`
+        : phase === 'starting'
+          ? '正在等待启动时的管理员授权：请在 UAC 窗口点击「是」（整个 DSH 生命周期只弹这一次）。'
+          : `常驻授权不可用：${record.lastError ?? '未知原因'}`
+      : phase === 'starting'
+        ? '正在请求管理员授权：请在 UAC 窗口点击「是」（只会弹这一次）。'
+        : phase === 'running'
+          ? `已开启：通道运行中（PID ${record.brokerPid ?? '?'}${startedText === '' ? '' : `，${startedText} 启动`}）。本会话的提权命令不再逐次确认。`
+          : phase === 'stopping'
+            ? '正在关闭管理员权限通道…'
+            : `启动失败：${record.lastError ?? '未知原因'}。可重新拨开开关重试。`;
+    const hint = borrowed
+      ? phase === 'running'
+        ? '关闭开关只摘除本会话；提权进程继续为其它会话服务'
+        : '等待启动授权完成'
+      : phase === 'starting'
+        ? `等待 UAC 授权（${settings.uacTimeoutMs > 0 ? `最长 ${durationText(settings.uacTimeoutMs)}` : '不限时，慢慢点'}）`
+        : phase === 'running'
+          ? '关闭开关会结束提权进程并清除通道'
+          : '可重新拨开开关重试';
 
     return {
       sessionId,
@@ -734,18 +1078,24 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
       lastError: record.lastError,
       activeChannels: active.length,
       maxChannels: settings.maxChannels,
+      /** 0 = 不限时（不因空闲自动关闭）。 */
+      idleTimeoutMs: settings.idleTimeoutMs,
+      borrowed,
+      authority: auth,
       note,
       hint,
     };
   }
 
   /**
-   * 插件卸载：尽力关闭全部通道（不等待用户）。
+   * 插件卸载：尽力关闭全部通道**与常驻授权**（不等待用户）。
    * @returns {Promise<void>}
    */
   async function disposeAll() {
     const ids = [...records.keys()];
     await Promise.all(ids.map((id) => stop(id, 'plugin-dispose').catch(() => {})));
+    attached.clear();
+    authority.phase = 'idle';
   }
 
   return {
@@ -755,8 +1105,15 @@ export function createAdminChannelManager({ ctx, config, log, launch = defaultLa
     stop,
     exec,
     statusOf,
-    /** 该键是否已有通道记录（含 starting/running/error/stopping），供工具解析会话身份。 */
-    has: (sessionId) => typeof sessionId === 'string' && records.has(sessionId),
+    /** 该键是否已有通道记录（含挂载在授权上的会话，v11）。 */
+    has: (sessionId) => typeof sessionId === 'string'
+      && (records.has(sessionId) || attached.has(sessionId)),
+    // ── 常驻提权授权（v11）───────────────────────────────────────────────
+    ensureAuthority,
+    releaseAuthority,
+    authorityStatus,
+    bootstrapAuthority,
+    isBorrowed: (sessionId) => attached.has(sessionId),
     disposeAll,
     get recordCount() {
       return records.size;

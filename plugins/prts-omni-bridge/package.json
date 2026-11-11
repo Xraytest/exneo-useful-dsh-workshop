@@ -1,0 +1,47 @@
+{
+  "name": "prts-omni-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "让 PRTS Omni Android 客户端通过本机 HTTP/WebSocket 桥接访问 DSH 的会话、智能体与工具。",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "lib/token.js",
+    "lib/ws.js",
+    "lib/sessions.js",
+    "lib/http.js",
+    "lib/tool.js",
+    "locale/en.json",
+    "locale/zh.json",
+    "icon.svg",
+    "README.md",
+    "test/http-test.mjs",
+    "test/ws-test.mjs",
+    "test/token-test.mjs",
+    "test/plugin-test.mjs",
+    "test/sessions-test.mjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "prts-omni",
+    "bridge"
+  ]
+}

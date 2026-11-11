@@ -266,3 +266,121 @@ node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs --real       # 真模�
 **还原配置**（`finally`，绝不遗留手改）→ 汇总写 `<sandbox>/check-summary.json`，
 退出码即总判定。当前基线：**4/4 全过**（headless 84 + GUI 组成 84（全 9 场景）+
 GUI HTTP 链路 arm/status/disarm 全 200 + 真模型 13）。
+
+---
+
+# v4 合并版（双智能指导）的验证计划与结果
+
+用户指令（2026-11-03）：**「完成插件构建后先到沙盒里跑测试」**——合并版一律先在
+独立沙盒（`_tmp\dual-agent-sandbox\home` 作 DSH_HOME、真内核、假 adapter）里跑，
+全绿才动本机 live profile。沙盒里 e2e profile 的 `dsh-dual-agent` 是
+`link:D:/WorkSpace/plugins/dsh-dual-agent`，跑的正是待装的同一份源码。
+
+## 五层覆盖
+
+| 层 | 命令 | 覆盖的东西 |
+|---|---|---|
+| L0 冒烟 | `node _tmp/guidance-probe/probe-smoke.mjs` | 核验器解析/判定/渲染、链换路由与限额回退、菜单 spec/op |
+| L1 假 ctx 集成 | `node plugins/dsh-dual-agent/guidance-selftest.mjs` | 约束（根会话被拒 / 子代理放行 / 模式与 extraAllowed / 关开关即解除 / 段不泄漏给子代理）、孵化 `agentOptions`、核验端到端、`/menu` 路由与同源守卫、v2 老状态文件兼容 |
+| L2 原编排回归 | `node plugins/dsh-dual-agent/host-selftest.mjs` | v3 的全部编排断言（19 项×若干）在 v4 上照旧成立 |
+| L3 真内核 E2E | `node _tmp/dual-agent-sandbox/run-checks.mjs --headless` | 原 10 场景（92 断言）+ 新场景：主智能调用被程序拒绝、**子代理工具面完好**、核验命中子会话真实日志、链真的换了 child 路由、菜单经服务面 |
+| L4 GUI 组成 + HTTP | `node _tmp/dual-agent-sandbox/run-checks.mjs --gui` | 真实 webServer 下：工作箱开关 → 属主 `/action`；二级菜单 `/menu` GET/POST |
+
+## 本轮实测结果（2026-11-03，全部真跑，非估算）
+
+| 项 | 结果 |
+|---|---|
+| L0 冒烟 | **SMOKE PASS**（30 项） |
+| L1 假 ctx 集成 | **PASS**，160 条断言 0 失败 |
+| L2 原编排回归（host-selftest，已切 entry-v20） | **PASS** |
+| L3 headless 真内核 | **PASS，116 断言**（原 92 未回退 + 新 24） |
+| L4 GUI 组成（dsh-web-app + 真 webServer） | **PASS，116 断言** |
+| L4 GUI HTTP 开关链 | **PASS**（arm / status / disarm 全 200） |
+| L4 GUI HTTP 二级菜单 | **PASS**（`GET /menu` 19 件全在 8 种件型内；`POST {op:set,id:mode,value:readonly}` 回包 mode=readonly） |
+| dsh-workbench 自测 | **5/5 PASS**（host + client + v2 + v3 + v4 共 216 条客户端断言） |
+
+### 这一轮测试真正抓到的 3 个插件缺陷（都已修）
+
+1. **二级菜单候选行读错形状**：`dg-menu` 按内部 `limit:{kind,value}` 读，而 `chainView`
+   给的是扁平 `{unlimited, kind, limit:number}` → 界面上额度全显示 `undefined`。
+2. **降级后说明段说假话**：自检发现「隐藏主智能工具会连带伤到子代理」→ 撤销隐藏，
+   但主智能系统提示仍写着「已隐藏 N 个工具」，且下次 `install()` 会**再藏一次**
+   （反复伤子代理）。修：记住已降级会话，不再重试隐藏，并当场把说明段改口为
+   「清单隐藏已降级关闭，仍按拒绝拦截」。
+3. **工作箱面板轮询忽略属主 `refreshMs`**（且修法不能多打一发 GET）：拆成
+   「打开拉一次」+「按 refreshMs 挂计时器」两个 effect。
+
+### 沙盒里发现的两处**测试自身**问题（不是插件缺陷，已修测试）
+
+- 场景 6 的评估轮错误文本含 `quota/network` → 命中插件**系统性失败**判据（按设计
+  「不重试不兜底」）。内核升级后确实把错误文本放进了 `turn/end.reason.error`，旧文本
+  与「该重试」的意图相矛盾；换成非系统性瞬时错误后 3 条红灯全绿。
+- 假 adapter 的 critic 判据原是「历史里出现过评估注入」→ 注入之后每一轮都被判成
+  critic。改成「**最后一条** user 消息是评估注入」。
+
+### 如实记录的环境差异（不是缺陷）
+
+GUI 组成比 headless 多一个 `dsh-web-app`（带权限/审批层）。未知的探针工具
+`e2e_probe_tool` 在 GUI 下会被审批层接管（挂起等审批、连 `tool/result` 都不产生），
+所以「拒绝回执文案」在 GUI 下不是本插件给的；**核心性质（工具没被执行）两种组成下都严格断言**。
+真实工具（read/write/pwsh/subagent…）都在审批层的已知清单里，不受此影响。
+
+## 关键断言（新增部分，按用户的三条硬要求分组）
+
+1. **主智能只判断不动手**
+   - 武装后，伪造一次 MAIN 回合让模型调用一个真实注册的探针工具：工具**没执行**
+     （execute 计数器不动），`tool/result` 里是拒绝理由，含插件名与「交给子代理」；
+   - 关开关后同一个调用**能执行**（证明开关真的总控）；
+   - 从未武装的会话永不受拒；
+   - `mode=readonly` 放开 `read/grep/glob`，但 `pwsh/write/edit/admin_exec` 永远放开不了；
+   - `extraAllowed` 里写 `pwsh` 也**不放行**（NEVER_ALLOW 优先）。
+2. **子代理不受影响（最要紧的一条回归）**
+   - 同一个探针工具：根会话被拒，**执行者会话照跑**；
+   - `hideMainTools` 打开时，子代理出生即补注册 + 回读自检；一旦自检发现孩子少了
+     工具，立即撤销隐藏并降级（状态里可见 `degradeNote`），**绝不让执行者瘸着干活**。
+3. **出处 + 程序核验**
+   - 执行者先真的调用工具，再交上带 `⟦证据⟧` 的报告：`session_tool` 声称 → **[通过]**
+     （证据里点名子会话与事件序号，证明读的是日志不是模型的话）；
+   - 编造的文件路径、编造的调用参数 → **[不符]**；
+   - 没有证据块的报告 → 明说「未带证据块」，且**绝不出现 [通过]**；
+   - 主智能自己用 `subagent` 工具派的活：结果落进主会话后追加一条【程序核验·子代理回报】，
+     同一 callId 不重复注入；
+   - `url` 类声称在未开联网核验时只能是「无法核验」。
+4. **子代理模型链（合并自旧插件）**
+   - 选了候选 → 执行者出生就带 `agentOptions={provider,model}`，child 的
+     `request/header` 是真值而根会话不变；
+   - 关掉「走这条链」→ 立刻回到继承父路由；
+   - 限额用尽 / 请求失败 → 自动回退下一候选；全部不可用 → 放行不硬拦；
+   - 链落盘只存候选与限额，**用量计数不落盘**（重启后归零才诚实）。
+5. **工作箱二级菜单**
+   - 行上的开关与 v3 之前完全一致（拨动仍只发 `{sessionId, actionId, enabled}`）；
+   - 「进入」按钮只导航，**不误拨开关**（断言没有 POST /action）；
+   - 通用件全渲染：heading/note/switch/select(optgroup)/text/rows(progress+chips+按钮)/
+     form/buttons；不认识的 kind 明说而不是静默丢；
+   - op 落库后回新 spec 即重绘；400/403/409 三类错误都如实显示属主原文；
+   - Esc 一段一段退（子菜单 → 列表 → 收起）。
+
+## 契约审计（我逐字段核过，非运行时）
+
+`dg-menu.js` 出的 spec 字段 ↔ `dsh-workbench/client.js` 的渲染器：
+`rows[].{index,title,subtitle,chips[{text,tone}],progress{used,limit,label},buttons[{op,label,tone,title}]}`、
+`form.fields[].{name,label,kind,options,value,placeholder}` + `submit.{op,label}`、
+`switch.{id,label,hint,value,disabled?,warn?}`、`select.options[].{value,label,group?}`、
+`note.{text,tone(ok|warn|error；info 走中性样式)}`、`buttons[].{op,label,tone}`、
+`refreshMs`（客户端下限 1500ms）——**全部对得上**；op 词表
+`set / add-candidate / candidate-up|down|remove|unlimited / reset-counters / clear-chain / refresh`
+两侧一致，设置 id 与 `SETTING_PATHS` 一致。
+
+
+## v4.1 实况（2026-11-03，真跑）
+
+| 项 | 结果 |
+|---|---|
+| L3 headless 真内核（15+1 场景） | **PASS，122 断言**（旧 92 + v4 新 24 + 旧编排前提 1 + 默认不阻塞 5） |
+| L1 假 ctx 集成 | **PASS，167 条**（新增 C2a–C2g：默认 orchestrate=false、菜单有开关、不孵化、**不 cancel**、仍受约束、可运行时切换） |
+| L2 原编排回归 | **PASS**（工装显式打开 orchestrate=true） |
+| dsh-workbench 5 套 | **5/5 PASS**（v2 断言改为「阶段说明只进 title、行内描述不变」） |
+
+新增覆盖点：**「默认关旧编排 → 主会话自己产生回合、无执行者、无 cancel」**（场景 16），
+以及「旧编排前提已显式打开」（`*` 断言）——两者一起保证「不阻塞」是默认，而旧流水线
+仍被完整回归。

@@ -166,7 +166,11 @@ check('action rendered as switch (not button)', actBtn() === undefined && actSwi
 check('switch is off when phase off', actSwitch()?.props['aria-checked'] === 'false');
 check('switch aria-label reads 已关闭', String(actSwitch()?.props['aria-label']).includes('已关闭'));
 check('switch enabled when available', actSwitch()?.props.disabled !== true);
-check('switch carries title hint', String(actSwitch()?.props.title).includes('打开后武装待命'));
+// v9（2026-11-03）：dual-agent 行随属主合并更名「双智能指导」，client 里那条
+// 兜底提示（属主没回 hint 时才用）跟着改成「主智能只判断」口径。断言按新语义的
+// 关键字核——仍然要求 title 非空：提示语全走悬停是本插件的既定约定。
+check('switch carries title hint', String(actSwitch()?.props.title).includes('主智能只判断'));
+check('switch hint is real prose', String(actSwitch()?.props.title ?? '').length > 8);
 check('no state badge when off', !textOf().includes('运行中') && !textOf().includes('待命中'));
 check('header count denominator includes action (0/3)', textOf().includes('0/3'));
 check('action label shown', textOf().includes('双主智能'));
@@ -187,7 +191,10 @@ check('armed switch is on', actSwitch()?.props['aria-checked'] === 'true');
 check('armed switch aria-label reads 已启用', String(actSwitch()?.props['aria-label']).includes('已启用'));
 check('armed shows 待命中 badge', textOf().includes('待命中'));
 check('armed shows nothing 运行中', !textOf().includes('运行中'));
-check('armed phase note shown as separate state line', textOf().includes('已武装：请键入本任务的初始指令'));
+// v10（用户指令「启用后不要更改底下的描述」）：阶段说明不再渲染成行内第二行，只进 title。
+check('armed phase note is NOT a visible state line', !textOf().includes('已武装：请键入本任务的初始指令'));
+check('armed phase note lives in the switch title', String(actSwitch()?.props.title).includes('已武装：请键入本任务的初始指令'));
+check('enabled row keeps the same description text', textOf().includes(ACTION.description));
 check('row state dot is on', findNodes((n) => n.type === 'span' && String(n.props.className ?? '').includes('wb-dot') && String(n.props.className).includes('on')).length >= 1);
 
 // ── 4. running 态：开关仍为开 + 运行中徽标 + 客户端每秒时长 ─────────────────
@@ -197,16 +204,18 @@ await openFresh('s-running');
 check('running switch stays on', actSwitch()?.props['aria-checked'] === 'true');
 check('running shows 运行中 badge', textOf().includes('运行中'));
 check('running hint warns interrupt without critique', String(actSwitch()?.props.title).includes('中断执行者'));
-check('running phase note shown', textOf().includes('执行者独立工作中'));
-check('live elapsed rendered from hatchAt', textOf().includes('已工作 2 分'), textOf().slice(0, 200));
+check('running phase note NOT rendered inline', !textOf().includes('执行者独立工作中'));
+check('running phase note lives in the switch title', String(actSwitch()?.props.title).includes('执行者独立工作中'));
+check('running row keeps the same description text (unchanged by phase)', textOf().includes(ACTION.description));
+check('live elapsed shown in the switch title', String(actSwitch()?.props.title).includes('已工作 2 分'), String(actSwitch()?.props.title).slice(0, 200));
 // 不足 1 分钟不显示（噪音阈值）。
 statusHatchAt = Date.now() - 30_000;
 await openFresh('s-running-short');
-check('elapsed silent under 60s', !textOf().includes('已工作'));
+check('elapsed silent under 60s', !textOf().includes('已工作') && !String(actSwitch()?.props.title).includes('已工作'));
 // 没有 hatchAt（旧属主回包）：只有 note，没有时长，也不崩。
 statusHatchAt = null;
 await openFresh('s-running-noanchor');
-check('running note without hatchAt renders elapsed-free', textOf().includes('执行者独立工作中') && !textOf().includes('已工作'));
+check('running note without hatchAt is elapsed-free in title', String(actSwitch()?.props.title).includes('执行者独立工作中') && !String(actSwitch()?.props.title).includes('已工作'));
 statusPhase = 'armed';
 
 // ── 5. 乐观翻转：off→on 的同步帧开关即勾上，POST 带上送目标状态 ───────────────
@@ -228,7 +237,7 @@ statusPhase = 'armed';
 hangingAction(actionPayload('armed'));   // 属主回包：armed
 await settle();
 check('server truth merged (armed keeps switch on)', actSwitch()?.props['aria-checked'] === 'true');
-check('phase note merged from server', textOf().includes('已武装：请键入本任务的初始指令'));
+check('phase note merged from server (title only)', String(actSwitch()?.props.title).includes('已武装：请键入本任务的初始指令'));
 
 // ── 6. on→off：回包 phase=off 合并回落 ─────────────────────────────────────
 actionBehavior = 'toggle';

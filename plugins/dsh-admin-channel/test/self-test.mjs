@@ -125,6 +125,35 @@ async function main() {
     const timed = await client.request({ type: 'exec', command: 'Start-Sleep -Seconds 10', timeoutMs: 1500 }, 30000);
     check('超时会杀掉命令并标记 timedOut', timed.timedOut === true, JSON.stringify({ timedOut: timed.timedOut, exit: timed.exitCode }));
 
+    // v9 回归：timeoutMs=0 表示**不限时**。旧实现把它夹成 1000ms，于是任何
+    // 「不限时」命令都会 1 秒被杀 —— 这条命令跑 3 秒，必须正常返回。
+    const noLimit = await client.request({ type: 'exec', command: 'Start-Sleep -Seconds 3; Write-Output "ran-3s"', timeoutMs: 0 }, 30000);
+    check('timeoutMs=0 是不限时（3 秒命令不被杀）', noLimit.ok === true
+      && noLimit.timedOut === false
+      && String(noLimit.stdout).includes('ran-3s'),
+    JSON.stringify({ ok: noLimit.ok, timedOut: noLimit.timedOut, exit: noLimit.exitCode, out: noLimit.stdout }));
+
+    // 负值同样视为不限时（配置解析允许 <=0 一路透传）
+    const negative = await client.request({ type: 'exec', command: 'Start-Sleep -Seconds 2; Write-Output "neg-ok"', timeoutMs: -1 }, 30000);
+    check('timeoutMs 负值也是不限时', negative.ok === true && negative.timedOut === false
+      && String(negative.stdout).includes('neg-ok'), JSON.stringify({ timedOut: negative.timedOut }));
+
+    // v10：直接打 broker（绕过 host 的转换），证明它自己不会被极端值打死。
+    // 旧实现用 [int] 解析 1e12 → 抛异常 → broker 主循环中断、管道断开。
+    const huge = await client.request({ type: 'exec', command: 'Start-Sleep -Seconds 2; Write-Output "huge-ok"', timeoutMs: 1e12 }, 60000);
+    check('broker 自身容忍超大 timeoutMs（不抛不崩）', huge.ok === true
+      && huge.timedOut === false
+      && String(huge.stdout).includes('huge-ok'), JSON.stringify({ ok: huge.ok, timedOut: huge.timedOut, exit: huge.exitCode }));
+
+    const junkTimeout = await client.request({ type: 'exec', command: 'Write-Output "junk-ok"', timeoutMs: 'not-a-number' }, 30000);
+    check('broker 对非数字 timeoutMs 回落不限时', junkTimeout.ok === true
+      && String(junkTimeout.stdout).includes('junk-ok'), JSON.stringify(junkTimeout).slice(0, 160));
+
+    // 上面两次极端请求之后，通道必须仍然可用（broker 没被打死）。
+    const afterExtreme = await client.request({ type: 'exec', command: 'Write-Output "alive-after"', timeoutMs: 15000 }, 30000);
+    check('极端 timeoutMs 之后 broker 仍在工作', afterExtreme.ok === true
+      && String(afterExtreme.stdout).includes('alive-after'), JSON.stringify(afterExtreme).slice(0, 160));
+
     client.send({ type: 'stop' });
     const stopped = await client.waitFor((m) => m.type === 'stopped', 5000, 'stopped').catch(() => null);
     check('stop 有回执', stopped !== null && stopped.type === 'stopped');

@@ -56,12 +56,13 @@ const ENTRIES = [
   {
     id: 'ultracode',
     label: 'Ultracode',
-    description: '穷尽式多代理编排（Claude Code ultracode 静态还原）：开启即在系统提示注入 Ultracode 段并改写 Workflow 工具段。',
+    // 用户指令（2026-11-03）：每行描述尽量控制在 10 字以内（完整说明走悬停提示与文档）。
+    description: '多代理穷尽编排',
   },
   {
     id: 'rea',
     label: 'REA',
-    description: '逆向工程工具集（207 个 MCP 工具）。未选中时工具与说明文字都不进入上下文。',
+    description: '逆向工程工具集',
   },
 ];
 
@@ -75,8 +76,8 @@ const ENTRIES = [
 const ACTIONS = [
   {
     id: 'dual-agent',
-    label: '双主智能',
-    description: '执行者=后台 subagent；挑刺者=主上下文评估人格。开启后键入初始指令；完成后回到待命等补充；只有智能体主动停止才触发评估。',
+    label: '双智能指导',
+    description: '主智能只判断',
     // 控件形态由属主语义决定：双主智能是「启用/关闭」的开关，不是一次触发按钮。
     kind: 'switch',
     route: '/dsh-dual-agent/action',
@@ -84,14 +85,20 @@ const ACTIONS = [
     /** 开关的读法：勾上=启用。armingLabel/runningLabel 只用于徽标与 aria 文案。 */
     runningLabel: '运行中',
     idleLabel: '待命中',
+    // v4 二级菜单（用户指令 2026-11-03「在工作箱UI内创建可进入的二级菜单，开关也保留」）：
+    // 内容由属主插件出（GET spec / POST op），工作箱只按通用件渲染——它不认识「模型链」
+    // 这种语义，也就不需要为任何一个属主改一次代码。
+    menu: { route: '/dsh-dual-agent/menu', label: '子代理模型与规则' },
   },
   // v3（2026-10-29 用户指令「启动通道的 UI 也放在工具箱内」）：管理员权限通道。
   // 拨开 = 由属主插件弹一次 UAC 并拉起常驻提权进程；开关状态、阶段说明与悬停提示
   // 全部来自属主 /dsh-admin-channel/status（本插件只画开关，不复制任何提权逻辑）。
+  // v8（2026-11-01）：授权时长改为不限时（属主 idleTimeoutMs=0），描述里去掉
+  // 「空闲超时关闭」的过期说法。
   {
     id: 'admin-channel',
     label: '管理员权限通道',
-    description: '一会话一条：拨开时弹一次 UAC，之后本会话的提权命令不再逐次确认；随会话结束 / 空闲超时关闭。',
+    description: '授权后免逐次确认',
     kind: 'switch',
     route: '/dsh-admin-channel/action',
     payload: (sessionId, enabled) => (typeof enabled === 'boolean' ? { sessionId, enabled } : { sessionId }),
@@ -100,6 +107,17 @@ const ACTIONS = [
   },
 ];
 const ENTRY_IDS = new Set(ENTRIES.map((entry) => entry.id));
+
+/**
+ * 行描述的硬上限（用户指令 2026-11-03：每个工具的说明尽量 ≤10 字）。
+ * 表格里已经写短了；这里再兜一刀，保证**任何**属主或以后改动都不会把浮层撑长。
+ * 只截显示文本，不动完整说明（README / 属主自己的文档里仍然是全的）。
+ */
+const DESC_LIMIT = 10;
+const brief = (text) => {
+  const value = typeof text === 'string' ? text.trim() : '';
+  return value.length <= DESC_LIMIT ? value : `${value.slice(0, DESC_LIMIT - 1)}…`;
+};
 
 // ── 落盘（与 ultracode.json 同款纪律） ─────────────────────────────────────
 
@@ -392,6 +410,11 @@ export function apply(ctx, config = {}) {
           childStatus: typeof value?.childStatus === 'string' ? value.childStatus : undefined,
           // v3：属主可以给随阶段变化的悬停提示（如「等待 UAC 授权」/「关闭会结束提权进程」）。
           hint: typeof value?.hint === 'string' && value.hint !== '' ? value.hint : undefined,
+          // v4：属主自己声明二级菜单（route 必须是同源 GET/POST 路径）。声明了就画
+          // 「进入」的入口，没声明就只是普通开关行——工作箱不为任何一个属主特化。
+          menu: value?.menu !== null && typeof value?.menu === 'object' && typeof value.menu.route === 'string' && value.menu.route !== ''
+            ? { route: value.menu.route, label: typeof value.menu.label === 'string' && value.menu.label !== '' ? value.menu.label : '设置' }
+            : undefined,
           storeError: typeof value?.storeError === 'string' && value.storeError !== '' ? value.storeError : undefined,
         };
       } catch { return { id: action.id, running: null, available: false }; }
@@ -403,6 +426,7 @@ export function apply(ctx, config = {}) {
       recorded: record.checked,
       entries: ENTRIES.map((entry) => ({
         ...entry,
+        description: brief(entry.description),
         checked: checked.has(entry.id),
       })),
       actions: ACTIONS.map((action) => {
@@ -410,10 +434,13 @@ export function apply(ctx, config = {}) {
         return {
           id: action.id,
           label: action.label,
-          description: action.description,
+          description: brief(action.description),
           kind: action.kind ?? 'button',
           runningLabel: action.runningLabel,
           idleLabel: action.idleLabel,
+          // v4：二级菜单声明原样透出（属主若也在 status 里回了 menu.route，以属主为准——
+          // 它才是知道自己在哪个路径上出 spec 的那一方）。
+          menu: state?.menu ?? action.menu ?? null,
           running: state?.running ?? null,
           // 开关的勾选态 =「已启用」（armed 或 running 都算开）。
           checked: state?.running === true || state?.armed === true,

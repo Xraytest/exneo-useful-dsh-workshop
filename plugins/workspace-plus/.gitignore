@@ -1,0 +1,4 @@
+# local scratch: asar extractor scripts and extracted bundles
+_tmp/
+# runtime self-report written by older builds
+host-diag.json

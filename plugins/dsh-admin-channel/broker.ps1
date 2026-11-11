@@ -10,7 +10,8 @@
   Protocol: one JSON object per line, UTF-8.
     client -> server: {"type":"auth","token":"..."}
     server -> client: {"type":"ready","elevated":true,"pid":..., ...}
-    client -> server: {"type":"exec","id":"...","command":"...","cwd":"...","timeoutMs":120000}
+    client -> server: {"type":"exec","id":"...","command":"...","cwd":"...","timeoutMs":0}
+      (timeoutMs 0 or negative = no deadline; a positive value is clamped to [1s, 24h])
     server -> client: {"type":"result","id":"...","ok":true,"exitCode":0,"stdout":"...","stderr":"..."}
     client -> server: {"type":"ping"}  -> {"type":"pong"}
     client -> server: {"type":"stop"}  -> {"type":"stopped"} then exit
@@ -129,12 +130,16 @@ function Invoke-BrokerCommand {
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $process = [System.Diagnostics.Process]::Start($startInfo)
-    $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+    # TimeoutMs <= 0 means "no deadline" (v9: the tunnel has no time limit).
+    # The loop still stops on the cancel file or on the owner process going away,
+    # so an unbounded command never outlives the host.
+    $deadline = $null
+    if ($TimeoutMs -gt 0) { $deadline = (Get-Date).AddMilliseconds($TimeoutMs) }
     $finished = $false
     while ($true) {
       if ($process.WaitForExit(200)) { $finished = $true; break }
       if ([System.IO.File]::Exists($script:CancelPath)) { $cancelled = $true; break }
-      if ((Get-Date) -gt $deadline) { $timedOut = $true; break }
+      if (($null -ne $deadline) -and ((Get-Date) -gt $deadline)) { $timedOut = $true; break }
       if (-not (Get-Process -Id $ownerPid -ErrorAction SilentlyContinue)) { $cancelled = $true; break }
     }
     if (-not $finished) {
@@ -181,7 +186,10 @@ $token = [string]$cfg.token
 $ownerPid = [int]$cfg.ownerPid
 $maxBytes = 262144
 if ($cfg.maxOutputBytes -ne $null) { $maxBytes = [int]$cfg.maxOutputBytes }
-$connectTimeoutMs = 120000
+# v9 default is unlimited (0). The host always writes this field explicitly;
+# a spec without it (hand-written / older host) must not impose a hidden deadline
+# while the host keeps waiting for the pipe forever.
+$connectTimeoutMs = 0
 if ($cfg.connectTimeoutMs -ne $null) { $connectTimeoutMs = [int]$cfg.connectTimeoutMs }
 
 if ($pipeName -notmatch '^[A-Za-z0-9._-]{1,100}$') { Write-BrokerLog 'invalid pipe name'; exit 11 }
@@ -261,7 +269,11 @@ try {
   exit 13
 }
 
-$deadline = (Get-Date).AddMilliseconds($connectTimeoutMs)
+# connectTimeoutMs <= 0 means "wait forever for the host to connect" (v9: the
+# tunnel has no time limit). Safety net while waiting: the cancel file, a deleted
+# spec, or the owner process going away all still end this wait.
+$deadline = $null
+if ($connectTimeoutMs -gt 0) { $deadline = (Get-Date).AddMilliseconds($connectTimeoutMs) }
 $waitTask = $pipe.WaitForConnectionAsync()
 while (-not $waitTask.Wait(200)) {
   if ([System.IO.File]::Exists($script:CancelPath) -or -not [System.IO.File]::Exists($script:SpecPath)) {
@@ -269,7 +281,7 @@ while (-not $waitTask.Wait(200)) {
     try { $pipe.Dispose() } catch { }
     exit 17
   }
-  if ((Get-Date) -gt $deadline) {
+  if (($null -ne $deadline) -and ((Get-Date) -gt $deadline)) {
     Write-BrokerLog 'connect timeout; exiting'
     try { $pipe.Dispose() } catch { }
     exit 14
@@ -374,10 +386,22 @@ while ($true) {
 
   if ($type -eq 'exec') {
     $id = [string]$msg.id
-    $timeoutMs = 120000
-    if ($msg.timeoutMs -ne $null) { $timeoutMs = [int]$msg.timeoutMs }
-    if ($timeoutMs -lt 1000) { $timeoutMs = 1000 }
-    if ($timeoutMs -gt 1800000) { $timeoutMs = 1800000 }
+    $timeoutMs = 0
+    if ($msg.timeoutMs -ne $null) {
+      # [int64] on purpose: [int] throws on huge values (e.g. 1e12) written by an
+      # older host, which would kill the broker loop mid-connection.
+      try { $timeoutMs = [Int64]$msg.timeoutMs } catch { $timeoutMs = 0 }
+    }
+    # 0 or negative = no deadline (v9: the tunnel has no time limit). A positive
+    # request is clamped into [1s, 24h]. The previous ceiling was 30 minutes, which
+    # silently contradicted a longer host-side timeout; and turning 0 into 1000ms
+    # would have killed every "unlimited" command after one second.
+    if ($timeoutMs -gt 0) {
+      if ($timeoutMs -lt 1000) { $timeoutMs = 1000 }
+      if ($timeoutMs -gt 86400000) { $timeoutMs = 86400000 }
+    } else {
+      $timeoutMs = 0
+    }
     try {
       $result = Invoke-BrokerCommand -Command ([string]$msg.command) -Cwd ([string]$msg.cwd) -TimeoutMs $timeoutMs -MaxBytes $maxBytes
       Send-BrokerJson $writer @{

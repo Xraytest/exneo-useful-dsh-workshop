@@ -10,7 +10,7 @@
 | 上游作者 | Ebony-Vinyl |
 | 基础版本 | v0.4.0（与 npm `eac-design-world@0.4.0`、上游 v0.4.0 发布一致） |
 | 上游许可 | AGPL-3.0-or-later（本目录保留其 `LICENSE` 与 `THIRD_PARTY_NOTICES.md`，未改动） |
-| 本收录版维护 | Xraytest（DSH 用户 ID `xray4668`） |
+| 本收录版维护 | Xraytest |
 | 版本号 | 仍为 `0.4.0`（未跟随上游发版，改动为本地修改，见下） |
 
 ## 本地修改点（相对上游 v0.4.0）

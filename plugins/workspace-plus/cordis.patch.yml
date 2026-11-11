@@ -1,0 +1,4 @@
+- insert:
+    - id: workspace-plus
+      name: '@local/workspace-plus'
+      config: {}

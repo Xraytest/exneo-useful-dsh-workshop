@@ -44,24 +44,55 @@
  *     不产生评估（这是用户手动停止）。
  *
  * @module dsh-dual-agent
+ *
+ * ── v4（2026-11-03，用户指令「把子代理模型设置和双主智能合并为一个插件，更名
+ *    双智能指导，在工作箱里开一个可进入的二级菜单」）─────────────────────────
+ * 合并了三件事，一个开关总控：
+ *   ① 双主智能（原样保留）：执行者=后台 subagent，挑刺者=主上下文评估人格。
+ *   ② 子代理模型链（原 dsh-subagent-models）：有序候选 + 限额 + 失败自动回退 +
+ *      计入供应池。孵化执行者时走**官方 agentOptions**（subagents 的
+ *      SubagentStartRequest.agentOptions = {provider, model}），请求期改路由
+ *      （agent/request waterfall）留作嵌套子代理与回退的兜底。
+ *   ③ 主智能约束 + 出处程序核验（本次新增）：使能后主会话**只判断不动手**
+ *      （tools guard 按调用者身份精确拒绝，子代理不受影响），并且子代理回报里的
+ *      出处必须由确定性代码逐条核对（文件系统 / 会话记录 / 算术 / 可选 HTTP），
+ *      核验实况与报告一起进主上下文——「不符」和「无法核验」都不许当成事实。
+ * 二级菜单的内容在本插件（/dsh-dual-agent/menu），渲染在 dsh-workbench（它只认
+ * 通用件），工作箱继续「编排者，不实现」。
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { CHECK_KINDS, extractEvidence, renderVerdict, verifyEvidence, verdictSummaryLine } from './dg-verify.js?v=dg-2';
+import { attachChain } from './dg-chain.js?v=dg-2';
+import { attachEnforce } from './dg-enforce.js?v=dg-2';
+import { attachMenu } from './dg-menu.js?v=dg-2';
 
 export const name = 'dual-agent';
 
+/** 界面上的名字（工作箱行、状态文案、拒绝理由都走这里）。 */
+const LABEL = '双智能指导';
+
 /**
- * agents（Agent 注册表）必选；webServer **不在 inject 里**——headless/SDK 这类
- * composition 没有 webServer，硬注入会让整个插件 pending、双主智能在命令行宿主里
- * 根本装不上。用 `ctx.get('webServer')` 做可选查找（未注入的服务 ctx.get 安全返回
- * undefined，而 `ctx.webServer` 属性访问会抛）；有 webServer 才挂工具箱/自测路由。
+ * agents（Agent 注册表）与 tools（工具注册表，主智能约束要用 guard）必选；
+ * webServer / llm / subagents / sessionQuery **不在 inject 里**——headless/SDK 这类
+ * composition 没有 webServer，硬注入会让整个插件 pending、双智能指导在命令行宿主里
+ * 根本装不上。用 `ctx.get(...)` 做可选查找（未注入的服务 ctx.get 安全返回
+ * undefined，而 `ctx.webServer` 属性访问会抛）；有 webServer 才挂工作箱/菜单路由。
  */
-export const inject = ['agents'];
+export const inject = ['agents', 'tools'];
 
 const ROUTE = '/dsh-dual-agent';
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
+
+/**
+ * v21：家族设置快照的落盘上限。家族按「武装过的根会话」积累，长期运行的宿主可能
+ * 攒下大量一次性会话的家族；超过上限按 since（最近一次写入时刻）淘汰最旧的——
+ * since 在每次写入时刷新（LRU 口径），让还在活跃使用的家族不被淘汰。
+ */
+const FAMILY_LIMIT = 200;
+
 /** 挑刺者人格段（主上下文常驻，armed/running 都在场）。 */
 const CRITIC_SECTION = 'dual-agent:critic';
 /** 武装期主上下文说明段（告诉主上下文「下一句用户输入是任务」）。 */
@@ -137,7 +168,82 @@ const isSystemicFailure = (text) => {
 };
 
 /** 供 status 透出的构建标识（诊断用：确认进程里跑的是哪一版）。 */
-const BUILD = '3.5.1+preflight';
+const BUILD = '4.1.0+family';
+
+/**
+ * 出厂设置（row config 可覆盖；二级菜单改的是**运行时**设置并落盘）。
+ *
+ * guidance.enforce=false 时插件仍做编排与核验，只是不拦主智能的工具调用；
+ * verify.urlChecks 默认关——联网核验要有用户明确同意（见二级菜单的提示）。
+ */
+const DEFAULTS = {
+  guidance: { enforce: true, mode: 'strict', hideMainTools: false, extraAllowed: [], orchestrate: false },
+  verify: {
+    enabled: true,
+    requireEvidence: true,
+    urlChecks: false,
+    delegation: true,
+    maxClaims: 40,
+    readLimitBytes: 256 * 1024,
+    timeoutMs: 8000,
+  },
+  models: { applyChain: true },
+};
+
+/** 设置项 id → 写路径（二级菜单只认这些 id，别的一律拒绝，避免盲写）。 */
+const SETTING_PATHS = {
+  enforce: ['guidance', 'enforce'],
+  mode: ['guidance', 'mode'],
+  hideMainTools: ['guidance', 'hideMainTools'],
+  extraAllowed: ['guidance', 'extraAllowed'],
+  // v4.1（2026-11-03 用户指令「新的插件就不需要阻塞主会话了」）：旧双主智能那套
+  // 「接管主会话 → 后台执行者 → 挑刺者回传」保留为**可选**，默认关。关着时人类
+  // 消息完全归主智能自己判断（它用 subagent 工具派活），主会话不会再被 cancel。
+  orchestrate: ['guidance', 'orchestrate'],
+  applyChain: ['models', 'applyChain'],
+  'verify.enabled': ['verify', 'enabled'],
+  'verify.requireEvidence': ['verify', 'requireEvidence'],
+  'verify.urlChecks': ['verify', 'urlChecks'],
+  'verify.delegation': ['verify', 'delegation'],
+};
+
+const deepClone = (value) => JSON.parse(JSON.stringify(value));
+
+/** row config 与出厂值合并（只认已知字段，形状不对就整个回落到默认）。 */
+function resolveConfig(config = {}) {
+  const merged = deepClone(DEFAULTS);
+  for (const group of ['guidance', 'verify', 'models']) {
+    const incoming = config?.[group];
+    if (incoming === null || typeof incoming !== 'object' || Array.isArray(incoming)) continue;
+    for (const [key, value] of Object.entries(incoming)) {
+      if (merged[group][key] === undefined) continue;
+      if (key === 'extraAllowed') {
+        merged.guidance.extraAllowed = Array.isArray(value) ? value.filter((name) => typeof name === 'string' && name !== '') : [];
+        continue;
+      }
+      if (key === 'mode') { merged[group].mode = value === 'readonly' ? 'readonly' : 'strict'; continue; }
+      if (typeof merged[group][key] === 'number') {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) merged[group][key] = n;
+        continue;
+      }
+      if (typeof merged[group][key] === 'boolean') merged[group][key] = value === true;
+    }
+  }
+  merged.autoArmForNewSessions = config?.autoArmForNewSessions === true;
+  return merged;
+}
+
+/** 证据协议文本（同一个来源给三处用：任务尾、行为段、二级菜单）。 */
+function evidenceProtocol() {
+  return `在收尾报告的**最后**给出 ⟦证据⟧ 与 ⟦/证据⟧ 包裹的 JSON 数组，每项形如 `
+    + `{"claim":"一句人话声称","check":{"kind":"file_contains","path":"相对或绝对路径","needle":"文件里应出现的文本"}}。`
+    + `可用 kind 与字段：${CHECK_KINDS.join(' / ')}。`
+    + `规则：只写**真实存在**的出处（文件路径+行号、你确实调用过的工具与其结果、可访问的 url、可重算的数字）；`
+    + `命令类声称必须用 session_tool（由你的会话日志里真实存在的 tool/call 佐证）来核，不要用 command 让编排去重跑命令；`
+    + `没有把握的结论不要写进证据块——程序核验会把「无法核验」原样标出来，不会替你圆场。`;
+}
+
 
 // ── 挑刺者人格与提示段 ─────────────────────────────────────────────────────
 
@@ -162,7 +268,22 @@ const RUNNING_PROMPT = `【双主智能·执行中】本任务的执行者是后
  *   的通道——它写的中间文本只会留在自己的会话里。因此这里**不能**告诉它可以
  *   「提前用文字小结」汇报（那会诱导它产出没人看得见的输出）。只要求收尾自足报告。
  */
-const CHILD_TASK_TAIL = `\n\n（编排说明：你是「双主智能」的执行者。请专注完成任务，并在**收尾消息**里给出**自足的最终报告**——它会被原样送回主上下文做评估。除此之外没有别的特殊流程。）`;
+/**
+ * 孵化执行者的任务提示 = 用户消息原文 + 回传指令（+ 出处协议）。
+ * ⚠ caller 模式下内核**不会**给 child 追加 continuable return guidance（源码核实：
+ *   `spec.delivery !== "caller" && ...`），所以 child 没有任何「中途给父会话发消息」
+ *   的通道——它写的中间文本只会留在自己的会话里。因此这里**不能**告诉它可以
+ *   「提前用文字小结」汇报（那会诱导它产出没人看得见的输出）。只要求收尾自足报告。
+ *
+ * v4 起在核验开启时追加**证据协议**：这是「子代理给出的信息必须标明出处」的落点。
+ * 协议文本与程序核验器（dg-verify）共用一份 kind 清单，写了核不了的 kind 会被
+ * 明说「不支持的核验类型」，不静默放过。
+ */
+function childTaskTail(verifyEnabled) {
+  const base = `\n\n（编排说明：你是「${LABEL}」的执行者。请专注完成任务，并在**收尾消息**里给出**自足的最终报告**——它会被原样送回主上下文做评估。除此之外没有别的特殊流程。）`;
+  if (verifyEnabled !== true) return base;
+  return `${base}\n\n（出处要求：主上下文不会凭你一句话就采信，编排会用确定性代码逐条核对你的报告。${evidenceProtocol()}）`;
+}
 
 /**
  * 挑刺者评估轮注入文案。
@@ -216,7 +337,7 @@ function errorText(error) {
 }
 
 function createStore(file, onError) {
-  let doc = { version: STATE_VERSION, sessions: {} };
+  let doc = { version: STATE_VERSION, sessions: {}, settings: null, chains: [], families: {}, chainTemplate: null };
   let error = null;
   const read = () => {
     try {
@@ -228,7 +349,27 @@ function createStore(file, onError) {
           typeof key === 'string' && key !== '' && value !== null && typeof value === 'object'
           && (value.phase === 'armed' || value.phase === 'running')))
         : {};
-      doc = { version: STATE_VERSION, sessions };
+      // v2 文件没有 settings/chains：读不到就留 null/[]，首次写入时补上（不硬要求）。
+      const settings = parsed.settings !== null && typeof parsed.settings === 'object' && !Array.isArray(parsed.settings)
+        ? parsed.settings : null;
+      const chains = Array.isArray(parsed.chains) ? parsed.chains : [];
+      /**
+       * v21 家族快照与链模板（纯增量：旧文件没有这两个键 → 读成空表/null，
+       * STATE_VERSION 保持 3，读取端永远不要求它们存在）。
+       * 净化口径与 settings/chains 一致：形状不对整条丢弃（防御式回落，不抛）。
+       */
+      const families = parsed.families !== null && typeof parsed.families === 'object' && !Array.isArray(parsed.families)
+        ? Object.fromEntries(Object.entries(parsed.families).filter(([key, value]) =>
+          typeof key === 'string' && key !== ''
+          && value !== null && typeof value === 'object' && !Array.isArray(value)
+          && value.settings !== null && typeof value.settings === 'object' && !Array.isArray(value.settings)))
+        : {};
+      const chainTemplate = parsed.chainTemplate !== null && typeof parsed.chainTemplate === 'object'
+        && !Array.isArray(parsed.chainTemplate)
+        && Array.isArray(parsed.chainTemplate.candidates)
+        ? parsed.chainTemplate
+        : null;
+      doc = { version: STATE_VERSION, sessions, settings, chains, families, chainTemplate };
     } catch (cause) {
       error = `读取失败（${errorText(cause)}），内存态照常，重写可自愈`;
       onError?.(cause);
@@ -258,6 +399,57 @@ function createStore(file, onError) {
       read();
       if (phase === 'off') delete doc.sessions[sessionId];
       else doc.sessions[sessionId] = { phase, since: Date.now(), ...extra };
+      write();
+    },
+    /** 运行时设置（二级菜单改的那些）；null=用户从没改过，走 row config/默认值。 */
+    settingsOf() { return doc.settings; },
+    setSettings(settings) {
+      read();
+      doc.settings = settings;
+      write();
+    },
+    /** 子代理模型链：只落候选与限额，**不落**用量计数（重启后计数归零才诚实）。 */
+    chainsOf() { return doc.chains; },
+    setChains(chains) {
+      read();
+      doc.chains = Array.isArray(chains) ? chains : [];
+      write();
+    },
+    /**
+     * v21 家族设置快照：按根会话 id 各存一份完整 settings + 最近写入时刻。
+     * 读不写盘（settingsFor 每 8s 的 /status 轮询走的就是它——只读绝不物化）；
+     * 写前 read() 合并（与 setPhase/setChild 同款纪律）、tmp+rename 原子写。
+     */
+    familyOf(rootId) {
+      const entry = doc.families[rootId];
+      return entry === undefined ? null : entry;
+    },
+    /** 全部家族快照的当前形状（只读快照；全局 setSetting 用它遍历所有家族）。 */
+    familiesOf() { return doc.families; },
+    /** 全部会话记录（只读；升级路径用它找「落盘里已武装的会话」）。 */
+    sessionsOf() { return doc.sessions; },
+    setFamily(rootId, settings) {
+      if (typeof rootId !== 'string' || rootId === '' || settings === null
+        || typeof settings !== 'object' || Array.isArray(settings)) return;
+      read();
+      doc.families[rootId] = { settings, since: Date.now() };
+      // 上限淘汰：超出 FAMILY_LIMIT 按 since 淘汰最旧（活跃家族 since 不断刷新，
+      // 被淘汰的总是不再使用的旧家族）。
+      const ids = Object.keys(doc.families);
+      if (ids.length > FAMILY_LIMIT) {
+        for (const stale of ids
+          .sort((left, right) => (doc.families[left]?.since ?? 0) - (doc.families[right]?.since ?? 0))
+          .slice(0, ids.length - FAMILY_LIMIT)) {
+          delete doc.families[stale];
+        }
+      }
+      write();
+    },
+    /** 链模板（最近一次经二级菜单配置的链；null=从未配过或已 clear）。 */
+    chainTemplateOf() { return doc.chainTemplate; },
+    setChainTemplate(template) {
+      read();
+      doc.chainTemplate = template;
       write();
     },
     setChild(sessionId, childId) {
@@ -351,7 +543,7 @@ function orchestratorMessage(text) {
 }
 
 /** 编排消息的固定前缀（防御：即便同源形态被人为伪造也不误判为任务）。 */
-const ORCHESTRATOR_PREFIXES = ['【挑刺者评估】', '【双主智能编排】'];
+const ORCHESTRATOR_PREFIXES = ['【挑刺者评估】', '【双主智能编排】', '【程序核验】', `【${LABEL}】`, `【${LABEL}编排】`];
 
 // ── 角度抽取（评估轮从用户原文抽角度；逻辑与 v1 相同） ─────────────────────
 
@@ -508,6 +700,316 @@ export function apply(ctx, config = {}) {
     try { return ctx.get('subagents'); } catch { return undefined; }
   };
 
+  // ── v4 合并面：运行时设置 · 子代理模型链 · 主智能约束 · 二级菜单 ────────────
+  //
+  // 三层状态各有唯一写者，别互相抄：
+  //   settings        用户级规则（约束力度/核验开关/是否走链）→ 落盘 doc.settings
+  //   chain           每会话的模型候选与限额 → 落盘 doc.chains（计数不落盘）
+  //   runs            每会话的编排簿（off/armed/running）→ 落盘 doc.sessions
+  //
+  // v21 语义分层（用户需求：跨会话持久 + 按家族隔离 + 新会话继承）：
+  //   template（模板）= `settings` 对象 + doc.settings：**最近保存的偏好**，供新
+  //     家族初始化时继承（settingsView() 无参 / dualAgent.settings 无参都回它）。
+  //   family snapshot（家族快照）= doc.families[rootId].settings：某根会话家族
+  //     武装时刻物化的完整 settings；该家族此后改设置只写自己的快照 + 同步模板。
+  /** row config 打底，落盘的用户改动盖在上面（同一套清洗，形状不对就整组回落）。 */
+  let settings = (() => {
+    const base = resolveConfig(config);
+    const saved = store.settingsOf();
+    if (saved === null || saved === undefined) return base;
+    const sanitized = resolveConfig(saved);
+    return {
+      ...base,
+      ...sanitized,
+      guidance: { ...base.guidance, ...sanitized.guidance },
+      verify: { ...base.verify, ...sanitized.verify },
+      models: { ...base.models, ...sanitized.models },
+    };
+  })();
+
+  const log = (level, text) => {
+    try { (ctx.logger?.[level] ?? ctx.logger?.info ?? console.log)?.(text); } catch { /* 日志不致命 */ }
+  };
+
+  /** 总开关：该会话是否已使能本插件（armed/running 都算）。 */
+  const isEnabled = (sessionId) => runs.get(sessionId) !== undefined;
+
+  /** 该会话是不是根会话（子代理永远不是——它是干活的那一方，不受约束）。 */
+  const isRootSessionId = (sessionId) => {
+    const agent = agentOf(sessionId);
+    const header = agent?.session?.header;
+    if (header === undefined || header === null) return true;
+    return typeof header.parentSession !== 'string' || header.parentSession === '';
+  };
+
+  /** 隐藏清单被自检撤销时的原因（status note 与二级菜单都要能说出来）。 */
+  let degradeNote = null;
+
+  const chain = attachChain(ctx, {
+    // 门：模型链只在「本会话使能了本插件 + 用户没关掉走链」时改路由。
+    // v21：rootId 即家族根——applyChain 按该家族自己的快照取（无快照回模板）。
+    gate: (rootId) => settingsFor(rootId).models.applyChain === true && isEnabled(rootId),
+    persist: () => { try { store.setChains(chain.serialize()); } catch (cause) { log('warn', `${LABEL}: 模型链落盘失败：${errorText(cause)}`); } },
+    log: (level, text) => log(level, text),
+  });
+  const restoredChains = chain.restore(store.chainsOf());
+
+  const enforce = attachEnforce(ctx, {
+    label: LABEL,
+    isEnabled: (sessionId) => isEnabled(sessionId) && isRootSessionId(sessionId),
+    // v21：settings 按**调用者会话**取——行为段文本、允许清单、guard 拒绝口径
+    // 全部跟随该会话所属家族的快照（无快照回模板），不再全局共享同一份。
+    settings: (sessionId) => settingsFor(sessionId).guidance,
+    evidenceFormat: () => evidenceProtocol(),
+    agentOf,
+    onDegrade: (reason) => { degradeNote = reason; },
+    log: (level, text) => log(level, text),
+  });
+
+  /** 最近一次核验摘要（每会话一条，给二级菜单顶部显示；不落盘——它是瞬时实况）。 */
+  const verifySummaries = new Map();
+
+  // ── v21 家族隔离：settingsFor / initFamily / setSetting(sessionId) ─────────
+  //
+  // 用户需求的三条语义：
+  //   ① 跨会话持久化（既有行为，保持）：模板落盘 doc.settings。
+  //   ② 按会话家族隔离：家族=根会话（沿 session.header.parentSession 上溯，
+  //     等价 dg-chain 的 lineageOf/rootId——已导出 lineageRoot 可复用）；每个家族
+  //     在武装时刻从模板深拷贝一份快照落盘 doc.families[rootId]，此后该家族里改
+  //     设置只写自己的快照（+同步模板），其它家族已生效的策略不受影响。
+  //   ③ 新会话继承最近保存的偏好：initFamily 从当前模板物化；链模板（最近一次经
+  //     二级菜单配置的链）也一并复制给尚无自己链的新家族。
+
+  /**
+   * 会话 → 所属家族根 id。子代理沿 parentSession 上溯到根（与 dg-chain 的
+   * lineageRoot 同语义，直接复用它，保证链与设置看到的是同一个「家族」）；
+   * 取不到会话/血缘时回退 sessionId 本身（防御式：宁可按会话隔离也不崩）。
+   */
+  const familyRootOf = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return sessionId;
+    const agent = agentOf(sessionId);
+    if (agent === undefined) return sessionId;
+    try {
+      const rootId = chain.lineageRoot(agent.session);
+      return typeof rootId === 'string' && rootId !== '' ? rootId : sessionId;
+    } catch { return sessionId; }
+  };
+
+  /**
+   * 新读取口径：家族有快照 → 回快照；无 → 回模板。**只读不物化**——/status 每 8s
+   * 轮询走这里，绝不能在这条路径上写盘（物化只发生在武装时刻的 initFamily）。
+   * 快照形状用 resolveConfig 归一（旧版本写入的、或被外手改过的畸形快照自动回落
+   * 到「合并模板」的口径，不抛）。
+   */
+  const settingsFor = (sessionId) => {
+    const rootId = familyRootOf(sessionId);
+    const entry = typeof rootId === 'string' && rootId !== '' ? store.familyOf(rootId) : null;
+    if (entry === null || entry === undefined) return settings;
+    const sanitized = resolveConfig(entry.settings);
+    return {
+      ...settings,
+      ...sanitized,
+      guidance: { ...settings.guidance, ...sanitized.guidance },
+      verify: { ...settings.verify, ...sanitized.verify },
+      models: { ...settings.models, ...sanitized.models },
+    };
+  };
+
+  /** 对外暴露的家族快照形状（只含三组，含 autoArmForNewSessions 之外的诊断口径不进快照）。 */
+  const FAMILY_SETTING_KEYS = ['guidance', 'verify', 'models'];
+
+  /**
+   * 家族初始化（幂等，只在**武装时刻**调用）：
+   *   a. 该家族无 settings 快照 → 从当前模板深拷贝一份落盘（旧会话升级后首次
+   *      加载也经武装路径走到这里，完成升级）；
+   *   b. 该家族没有自己的模型链（chainView.configured !== true）且存在链模板 →
+   *      用 chain.setChain 把链模板复制给它——setChain 的候选自带计数归零，
+   *      天然符合「不落用量」的既有纪律（新家族不该继承别的会话的用量）。
+   * initFamily 是初始化（落快照 + 抄链），**不改**模板。
+   */
+  const initFamily = (rootId) => {
+    if (typeof rootId !== 'string' || rootId === '') return;
+    try {
+      if (store.familyOf(rootId) === null || store.familyOf(rootId) === undefined) {
+        const snapshot = {};
+        for (const group of FAMILY_SETTING_KEYS) snapshot[group] = deepClone(settings[group]);
+        store.setFamily(rootId, snapshot);
+      }
+    } catch (cause) {
+      log('warn', `${LABEL}: 家族设置快照落盘失败（root=${rootId}）：${errorText(cause)}`);
+    }
+    try {
+      const template = store.chainTemplateOf();
+      if (template !== null && template !== undefined
+        && chain.chainView(rootId).configured !== true
+        && Array.isArray(template.candidates) && template.candidates.length > 0) {
+        chain.setChain(rootId, deepClone(template.candidates), {
+          countAuxiliary: template.countAuxiliary === true,
+          countTowardPool: template.countTowardPool === true,
+        });
+        try { store.setChains(chain.serialize()); } catch { /* 尽力；下次链变更会再落 */ }
+      }
+    } catch (cause) {
+      log('warn', `${LABEL}: 家族继承链模板失败（root=${rootId}）：${errorText(cause)}`);
+    }
+  };
+
+  /** settingsView：无参 = 模板视图（e2e 沙箱与 dualAgent.settings 依赖这个口径）。 */
+  const settingsView = (sessionId) => {
+    const view = sessionId === undefined ? settings : settingsFor(sessionId);
+    return {
+      enforce: view.guidance.enforce === true,
+      mode: view.guidance.mode === 'readonly' ? 'readonly' : 'strict',
+      hideMainTools: view.guidance.hideMainTools === true,
+      orchestrate: view.guidance.orchestrate === true,
+      extraAllowed: Array.isArray(view.guidance.extraAllowed) ? [...view.guidance.extraAllowed] : [],
+      applyChain: view.models.applyChain === true,
+      verifyEnabled: view.verify.enabled === true,
+      verifyRequireEvidence: view.verify.requireEvidence === true,
+      verifyUrlChecks: view.verify.urlChecks === true,
+      verifyDelegation: view.verify.delegation === true,
+    };
+  };
+
+  /** 把一份值按 SETTING_PATHS 写进某个 settings 形状（shared by 家族/模板两条写路）。 */
+  const applySettingValue = (target, path, value) => {
+    const group = path[0];
+    const key = path[1];
+    if (key === 'mode') target.guidance.mode = value === 'readonly' ? 'readonly' : 'strict';
+    // orchestrate 的「重摆段形态」副作用由 setSetting 的 isOrchestrate 分支按口径
+    // （定点 / 全体）处理，这里只落值——applySettingValue 本身必须无副作用外的行为。
+    else if (key === 'orchestrate') target.guidance.orchestrate = value === true;
+    else if (key === 'extraAllowed') {
+      const list = typeof value === 'string'
+        ? value.split(/[,，\s]+/).map((name) => name.trim()).filter((name) => name !== '')
+        : (Array.isArray(value) ? value.filter((name) => typeof name === 'string' && name.trim() !== '') : []);
+      target.guidance.extraAllowed = [...new Set(list)];
+    } else if (key === 'enforce') target.guidance.enforce = value === true;
+    else if (key === 'hideMainTools') target.guidance.hideMainTools = value === true;
+    else if (key === 'applyChain') target.models.applyChain = value === true;
+    else if (key === 'enabled') target.verify.enabled = value === true;
+    else if (key === 'requireEvidence') target.verify.requireEvidence = value === true;
+    else if (key === 'urlChecks') target.verify.urlChecks = value === true;
+    else if (key === 'delegation') target.verify.delegation = value === true;
+    return { group, key };
+  };
+
+  /** 家族快照按同形状重建（模板与快照都过 resolveConfig，两组键必然齐全）。 */
+  const snapshotFromTemplate = () => {
+    const snapshot = {};
+    for (const group of FAMILY_SETTING_KEYS) snapshot[group] = deepClone(settings[group]);
+    return snapshot;
+  };
+
+  /**
+   * 二级菜单的写入口：只认 SETTING_PATHS 里的 id + 两个链开关。
+   *
+   * v21 双口径：
+   *   · 带 sessionId → 写**该家族**快照（无则先从模板物化）+ 同步更新全局模板
+   *     （用户刚选的偏好成为后续新会话的继承源）+ 只对**该会话**的 run 重装
+   *     enforce/段（其它会话的装配不动——这正是「互不影响」的落点）；
+   *   · 不带 sessionId（程序化调用，e2e 沙箱兼容口径）→ 旧语义：写模板 +
+   *     **所有**家族快照 + 全部 runs 重装。
+   */
+  const setSetting = (id, value, sessionId) => {
+    const path = SETTING_PATHS[typeof id === 'string' ? id : ''];
+    if (path === undefined) return { applied: [], rejected: id };
+    // orchestrate 关掉旧编排时要重摆段形态——这条与写哪个快照无关，先记下。
+    const isOrchestrate = path[1] === 'orchestrate';
+    if (typeof sessionId === 'string' && sessionId !== '') {
+      // ── 家族口径：只写该家族快照 + 同步模板 + 定点重装 ──
+      const rootId = familyRootOf(sessionId);
+      let snapshot;
+      const entry = store.familyOf(rootId);
+      if (entry === null || entry === undefined) {
+        // 该家族还没快照（比如没走过武装路径就经菜单改设置）：先从模板物化，
+        // 再把这次改动写上去——快照语义 =「这个家族生效中的策略」。
+        snapshot = snapshotFromTemplate();
+      } else {
+        snapshot = resolveConfig(entry.settings);
+      }
+      applySettingValue(snapshot, path, value);
+      if (isOrchestrate) {
+        // orchestrate 关掉时，已武装会话要立刻恢复成「只有约束段」的形状——
+        // 但只对**本家族**的会话做（其它家族照旧）。
+        const agent = agentOf(sessionId);
+        if (agent !== undefined) shapeSections(sessionId, agent);
+      }
+      store.setFamily(rootId, snapshot);
+      // 同步模板：用户刚选的偏好成为后续新会话的继承源（浅层覆盖三组）。
+      const template = resolveConfig(settings);
+      applySettingValue(template, path, value);
+      settings = template;
+      store.setSettings(settings);
+      // 定点重装：只有该会话（该家族此刻武装着的那个根会话）的 enforce/段要跟新值。
+      const agentNow = agentOf(sessionId);
+      if (agentNow !== undefined && runs.get(sessionId) !== undefined) {
+        try { enforce.install(agentNow); } catch (cause) { log('warn', `${LABEL}: 装约束段失败：${errorText(cause)}`); }
+      }
+      log('info', `${LABEL}: 设置 ${path[0]}.${path[1]} 已更新（家族=${rootId}）`);
+      return { applied: [id] };
+    }
+    // ── 全局口径（无 sessionId，e2e 沙箱兼容）：模板 + 全部快照 + 全部 runs ──
+    const where = applySettingValue(settings, path, value);
+    if (isOrchestrate) {
+      // 关掉旧编排时，已武装会话要立刻恢复成「只有约束段」的形状（否则主智能还
+      // 以为自己在等一个不会来的执行者）。
+      for (const sessionId of runs.keys()) {
+        const agent = agentOf(sessionId);
+        if (agent !== undefined) shapeSections(sessionId, agent);
+      }
+    }
+    store.setSettings(settings);
+    // 全部家族快照同步改（程序化调用是「全局设置」语义，与 v20 行为一致）。
+    const entryIds = Object.keys(store.familiesOf?.() ?? {});
+    for (const rootId of entryIds) {
+      const entry = store.familyOf(rootId);
+      if (entry === null || entry === undefined) continue;
+      const snapshot = resolveConfig(entry.settings);
+      applySettingValue(snapshot, path, value);
+      store.setFamily(rootId, snapshot);
+    }
+    // 规则变了 → 已武装会话的行为说明段要按新文本重装（清单隐藏也跟着重算）。
+    for (const sessionId of runs.keys()) {
+      const agent = agentOf(sessionId);
+      if (agent !== undefined) enforce.install(agent);
+    }
+    log('info', `${LABEL}: 设置 ${where.group}.${where.key} 已更新`);
+    return { applied: [id] };
+  };
+
+  const menu = attachMenu({
+    agentOf,
+    statusOf: (sessionId) => statusOf(sessionId),
+    chain,
+    enforce,
+    settings,
+    settingsView,
+    // v21：菜单的设置读写都带 sessionId（按会话家族隔离）；链变更经 saveChainTemplate
+    // 落成「链模板」，供之后新武装的家族继承。
+    setSetting: (id, value, menuSessionId) => setSetting(id, value, menuSessionId),
+    saveChainTemplate: (template) => {
+      try { store.setChainTemplate(template); } catch (cause) { log('warn', `${LABEL}: 链模板落盘失败：${errorText(cause)}`); }
+    },
+    catalog: async () => chain.refreshCatalog(),
+    evidenceFormat: () => evidenceProtocol(),
+    verifySummary: (sessionId) => verifySummaries.get(sessionId) ?? null,
+    log: (level, text) => log(level, text),
+  });
+
+  // v21 升级路径：旧版本落盘里已有 armed/running 的会话（插件重载/升级后它们的
+  // 记录仍在）也应完成家族初始化——否则这些会话永远走不到 initFamily（武装时刻
+  // 都发生在过去），只能一直回退到模板口径。逐个幂等初始化：无快照的从模板物化，
+  // 无链且有链模板的抄一份。会话此刻是否在线无关紧要（initFamily 只碰落盘）。
+  try {
+    for (const [sessionId, record] of Object.entries(store.sessionsOf?.() ?? {})) {
+      if (record?.phase !== 'armed' && record?.phase !== 'running') continue;
+      initFamily(sessionId);
+    }
+  } catch (cause) {
+    log('warn', `${LABEL}: 既有武装会话的家族初始化失败：${errorText(cause)}`);
+  }
+
   /** 给主 Agent 装一组人格段（整体可拆）。 */
   const installSections = (agent, names) => {
     const agentCtx = agent.ctx;
@@ -567,10 +1069,26 @@ export function apply(ctx, config = {}) {
     const run = runs.get(sessionId);
     if (run === undefined) return;
     run.dispose?.();
-    const names = run.phase === 'running'
-      ? [{ name: CRITIC_SECTION, text: CRITIC_PROMPT }, { name: RUNNING_SECTION, text: RUNNING_PROMPT }]
-      : [{ name: CRITIC_SECTION, text: CRITIC_PROMPT }, { name: ARMED_SECTION, text: ARMED_PROMPT }];
+    // v21：orchestrate 按该会话所属家族的快照取（家族间互不影响）。
+    const orchestrate = settingsFor(sessionId).guidance.orchestrate === true;
+    // v4.1：旧编排关着时**不装**待命/执行中/挑刺者人格段——主智能只带行为约束段，
+    // 人类消息由它自己判断并派活（不再出现「等一个不会来的执行者」的假待命）。
+    const names = orchestrate !== true
+      ? []
+      : run.phase === 'running'
+        ? [{ name: CRITIC_SECTION, text: CRITIC_PROMPT }, { name: RUNNING_SECTION, text: RUNNING_PROMPT }]
+        : [{ name: CRITIC_SECTION, text: CRITIC_PROMPT }, { name: ARMED_SECTION, text: ARMED_PROMPT }];
     run.dispose = installSections(agent, names);
+    // v4：行为约束段跟着重装（它的内容按当前设置现算：模式、隐藏面、证据协议）。
+    // 幂等：attachEnforce 内部先拆旧的再装新的，phase 切换不会堆段。
+    try { enforce.install(agent); } catch (cause) { log('warn', `${LABEL}: 装约束段失败：${errorText(cause)}`); }
+  };
+
+  /** 解除某会话的一切主上下文装配（人格段 + 约束段）。 */
+  const unshapeSections = (sessionId) => {
+    const run = runs.get(sessionId);
+    if (run !== undefined) { run.dispose?.(); run.dispose = undefined; }
+    try { enforce.uninstall(sessionId); } catch { /* 尽力 */ }
   };
 
   /**
@@ -604,6 +1122,11 @@ export function apply(ctx, config = {}) {
     const maxDepth = (() => {
       try { return subagents.resolveMaxDepth(undefined); } catch { return undefined; }
     })();
+    // v4：用户在二级菜单里选过模型链 → 走**官方 spawn 通道**给执行者指定路由
+    // （SubagentStartRequest.agentOptions = {provider, model}；内核
+    // resolveChildAgentOptions 会因 routeChanged 自己清掉不匹配的 reasoningEffort）。
+    // 没配链/门关着 → 一个字段都不加，行为与合并前完全一致（继承父会话模型）。
+    const routed = chain.activeAgentOptions(agent.id);
     // 最近几轮评估结论作为独立上下文块放在任务之前（有界：深度 × 单条上限）。
     const history = Array.isArray(critiqueHistory)
       ? critiqueHistory.filter((t) => typeof t === 'string' && t.trim() !== '')
@@ -614,17 +1137,20 @@ export function apply(ctx, config = {}) {
     }];
     const activation = await subagents.startActivation({
       provider: providerName,
-      label: '双主智能·执行者',
+      label: `${LABEL}·执行者`,
       request: {
         // 内容块原样转交，任务说明作为最后一枚 text 块附上。
-        prompt: [...priorBlocks, ...taskBlocks, { type: 'text', text: CHILD_TASK_TAIL }],
+        // v21：核验开关按该会话家族的快照取。
+        prompt: [...priorBlocks, ...taskBlocks, { type: 'text', text: childTaskTail(settingsFor(agent.id).verify.enabled === true) }],
         parent: agent,
         ...maxDepth === undefined ? {} : { maxDepth },
+        // 二级菜单选过模型才加这一行；没选就不加（保持继承父路由的原行为）。
+        ...routed === undefined ? {} : { agentOptions: routed },
       },
       signal: new AbortController().signal,
       delivery: 'caller',
     });
-    return { childId: activation.childId, result: activation.result, dispose: activation.dispose };
+    return { childId: activation.childId, result: activation.result, dispose: activation.dispose, route: routed ?? null };
   };
 
   /** 用户手动停止：中断 child（不评估），回 armed。 */
@@ -657,10 +1183,14 @@ export function apply(ctx, config = {}) {
   ctx.on('agent/disposed', ({ agent }) => {
     const run = runs.get(agent.id);
     if (run === undefined) return;
-    run.dispose?.();
+    // v4：约束段与清单隐藏也归本实例装配，必须跟着拆（unshapeSections 一起收）。
+    unshapeSections(agent.id);
     run.watchDispose?.();
     runs.delete(agent.id);
     store.setPhase(agent.id, 'off');
+    // v4：会话没了，它的模型链也跟着收（避免落盘堆僵尸记录）。
+    if (chain.dropSession(agent.id) === true) { try { store.setChains(chain.serialize()); } catch { /* 尽力 */ } }
+    verifySummaries.delete(agent.id);
   });
 
   // 插件卸载（含 profile 重载）→ 全拆本实例的装配。
@@ -669,7 +1199,9 @@ export function apply(ctx, config = {}) {
   // 摘段拆监视器——不写盘、不改 phase。
   ctx.effect(() => () => {
     for (const [sessionId, run] of [...runs.entries()]) {
-      run.dispose?.();
+      // v4：拆段要走 unshapeSections——约束段/清单隐藏和人格段同属本实例装配，
+      // 只拆人格段会让下一个实例带着上一个实例的 restrict 残留起不来。
+      unshapeSections(sessionId);
       run.watchDispose?.();
       runs.delete(sessionId);
     }
@@ -717,12 +1249,17 @@ export function apply(ctx, config = {}) {
       lastCriticText: undefined,
       criticBase: 0,
       critiqueHistory: [],
+      // v4：核验去重与最近核验摘要（恢复出来的簿子从空开始——callId 不会跨进程重复）。
+      verifiedCalls: [], lastVerify: undefined,
       // 上一次进程内是 running（执行者随进程消亡，或插件重载丢了在途结算）→ 让用户
       // 知道旧任务已结束，而不是对着通用待命文案以为任务还在跑。用户发新任务时清除。
       recoveredFrom: record.phase === 'running' ? 'running' : null,
     };
     store.setPhase(sessionId, 'armed');
     runs.set(sessionId, recovered);
+    // v21：恢复分支也是武装时刻——旧会话升级到 v21 后第一次加载在这里完成家族初始化
+    //（幂等：已有快照/链的家族原样保留）。
+    initFamily(sessionId);
     const agent = agentOf(sessionId);
     if (agent !== undefined) {
       shapeSections(sessionId, agent);
@@ -938,9 +1475,115 @@ export function apply(ctx, config = {}) {
     return { childId, claimed };
   };
 
+  // ── v4 出处程序核验（确定性代码，不经模型）──────────────────────────────────
+  //
+  // 用户要求：「子代理给出的信息必须标明出处并由流程化程序检查是否真实」。落点两处：
+  //   ① 执行者自然结算：核验块拼进**同一条**挑刺评估消息（不额外造回合）；
+  //   ② 主智能自己用 subagent/workflow 工具派出去的子代理：结果落进主会话时，
+  //      由 session/event 的 tool/result 触发核验，再注入一条【程序核验】实况。
+  // 核验只读不写：读文件、比对会话日志里真实存在的 tool/call+tool/result、纯算术，
+  // 可选 HTTP。任何核不了的都明说「无法核验」，不替子代理圆场。
+
+  /** 读某会话的事件（活的 snapshotEvents；已被回收的走 sessionQuery 持久化）。 */
+  const eventsOfSession = async (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return [];
+    const live = childAgentOf(sessionId);
+    if (live !== undefined) {
+      try {
+        const seq = typeof live.session?.seq === 'number' ? live.session.seq : 0;
+        return live.session?.snapshotEvents?.(Math.max(0, seq - TURN_SCAN_WINDOW * 4)) ?? [];
+      } catch { return []; }
+    }
+    const query = (() => { try { return ctx.get('sessionQuery'); } catch { return undefined; } })();
+    if (typeof query?.observeSession !== 'function') return [];
+    let observation;
+    try {
+      observation = await query.observeSession(sessionId, { signal: new AbortController().signal });
+      return observation?.events ?? [];
+    } catch {
+      return [];
+    } finally {
+      try { observation?.[Symbol.dispose]?.(); } catch { /* 租约必须归还 */ }
+    }
+  };
+
+  /** 某根会话的直接子会话 id（服务面优先，本进程 agent 表兜底）。 */
+  const listChildIds = async (rootId) => {
+    const ids = new Set();
+    const subagents = subagentsOf();
+    if (typeof subagents?.listChildren === 'function') {
+      try {
+        for (const entry of (await subagents.listChildren(rootId)) ?? []) {
+          if (typeof entry?.id === 'string' && entry.id !== '') ids.add(entry.id);
+        }
+      } catch { /* 服务面读不到就走兜底 */ }
+    }
+    try {
+      for (const agent of ctx.agents.list?.() ?? []) {
+        if (agent?.session?.header?.parentSession === rootId) ids.add(agent.id);
+      }
+    } catch { /* 尽力 */ }
+    return [...ids];
+  };
+
+  /**
+   * 跑一遍核验。返回 null 表示核验关着（这时报告原文不带核验块，也不假装核过）。
+   */
+  const runVerify = async (sessionId, reportText, afterMs, sourceHint) => {
+    // v21：核验开关与参数按该会话所属家族的快照取。
+    const verifySettings = settingsFor(sessionId).verify;
+    if (verifySettings.enabled !== true) return null;
+    const extract = extractEvidence(reportText);
+    const agent = agentOf(sessionId);
+    const cwd = typeof agent?.session?.header?.cwd === 'string' ? agent.session.header.cwd : process.cwd();
+    const base = {
+      source: sourceHint ?? (extract.found ? '报告自带的证据块' : '报告未提供证据块'),
+      extractError: extract.error ?? null,
+      inferred: extract.inferred === true,
+    };
+    if (extract.claims.length === 0) {
+      const empty = { total: 0, pass: 0, fail: 0, unverifiable: 0, results: [], dropped: 0, ranAt: Date.now() };
+      const text = renderVerdict(empty, base);
+      return { summary: empty, text, claims: 0 };
+    }
+    const summary = await verifyEvidence(extract.claims, {
+      cwd,
+      rootId: sessionId,
+      afterMs,
+      readLimit: verifySettings.readLimitBytes,
+      urlChecks: verifySettings.urlChecks === true,
+      timeoutMs: verifySettings.timeoutMs,
+      maxClaims: verifySettings.maxClaims,
+      probe: { childEvents: eventsOfSession, childIds: listChildIds },
+    });
+    return { summary, text: renderVerdict(summary, base), claims: extract.claims.length };
+  };
+
+  /** 核验实况摘要（给 status 与二级菜单顶部；不落盘——它是这一轮的实况）。 */
+  const rememberVerifySummary = (sessionId, verdict) => {
+    if (verdict === null || verdict === undefined) return;
+    const { summary } = verdict;
+    verifySummaries.set(sessionId, {
+      text: `${verdictSummaryLine(summary)}${summary.fail > 0 ? ' —— 有出处与现实不符，必须按未达标处理' : (summary.unverifiable > 0 ? ' —— 有未经证实的部分，转述时必须原样标注' : '')}`,
+      tone: summary.fail > 0 ? 'error' : (summary.unverifiable > 0 ? 'warn' : 'ok'),
+      at: Date.now(),
+      pass: summary.pass, fail: summary.fail, unverifiable: summary.unverifiable,
+    });
+  };
+
   /** 注入挑刺者评估轮（结算路径与「读回报告」路径共用）。 */
-  const deliverCritic = (agent, run, childId, stopReason, reportText) => {
-    const criticText = criticEvaluateWithAngle(agent, run.used, childId, stopReason, reportText);
+  const deliverCritic = async (agent, run, childId, stopReason, reportText, afterMs) => {
+    // 先核验再拼消息：核验块附在评估消息**尾部**（开头必须是【挑刺者评估】——
+    // 沙箱 E2E 与人类输入判据都认这个前缀，位置不能动）。
+    const verdict = await runVerify(agent.id, reportText, afterMs, '执行者报告的证据块');
+    if (verdict !== null) rememberVerifySummary(agent.id, verdict);
+    let criticText = criticEvaluateWithAngle(agent, run.used, childId, stopReason, reportText);
+    if (verdict !== null) {
+      criticText += `\n\n———\n${verdict.text}\n\n（挑刺时把「不符」项当作硬伤：出处与现实不符的报告，任何角度都不算达标；「无法核验」项不得当作已证实的事实。）`;
+      run.lastVerify = verdict.summary;
+    } else {
+      run.lastVerify = undefined;
+    }
     // 记录评估轮状态：注入后若该轮**自己失败**（额度/网络报错、无正文），
     // 主上下文会停在一条用户看得见的注入消息上没有任何回复——观感是
     // 「插件哑了」。监听 turn/end 给它一次自动重试 + 可读兜底。
@@ -957,7 +1600,7 @@ export function apply(ctx, config = {}) {
    * @returns 是否由本次调用兑现（跨实例互斥）；`suppressed` 表示因系统性失败而
    *   故意不注入评估轮（原因已写进 run.lastExecutorFailure，由 status note 交代）。
    */
-  const settleExecutor = (sessionId, agent, run, childId, stopReason, reportText, failureText) => {
+  const settleExecutor = async (sessionId, agent, run, childId, stopReason, reportText, failureText, afterMs) => {
     const { claimed } = releaseRun(sessionId, agent, run);
     if (claimed !== true) {
       ctx.logger?.debug?.(`dsh-dual-agent: 结算已由别处兑现（session=${sessionId} child=${childId}），不重复投递`);
@@ -966,17 +1609,19 @@ export function apply(ctx, config = {}) {
     if (stopReason !== 'completed' && isSystemicFailure(failureText)) {
       // 父子共用同一套 provider/model/effort：这一样会把主上下文的评估轮也打挂。
       // 不注入、不重试、不再投兜底说明——只把原因留给 status note（不烧回合）。
+      // v4 起这条判据只对「没选子代理模型」的情形有意义：选了独立候选路由时，
+      // 父亲的配置错误未必会传染给孩子（见 handleHumanMessage 的孵化前体检）。
       run.lastExecutorFailure = failureText;
       ctx.logger?.warn?.(`dsh-dual-agent: 执行者系统性失败，跳过评估轮（session=${sessionId} child=${childId}）：${failureText}`);
       return { claimed: true, suppressed: true };
     }
-    deliverCritic(agent, run, childId, stopReason, reportText);
+    await deliverCritic(agent, run, childId, stopReason, reportText, afterMs);
     return { claimed: true, suppressed: false };
   };
 
   /** 结算：报告到手 → 回待命 + 评估轮（只由兑现结算令牌的那一方投递）。 */
-  const settleWithReport = (sessionId, agent, run, childId, stopReason, reportText, failureText) =>
-    settleExecutor(sessionId, agent, run, childId, stopReason, reportText, failureText).claimed;
+  const settleWithReport = (sessionId, agent, run, childId, stopReason, reportText, failureText, afterMs) =>
+    settleExecutor(sessionId, agent, run, childId, stopReason, reportText, failureText, afterMs);
 
   /** 「报告丢了」的统一口径：说清发生了什么、现在是什么状态、下一步怎么走。 */
   const lostNotice = (childId) => `【双主智能编排】执行者（subagent ${childId}）已经结束，但它的报告没有回到主上下文（编排在插件重载/进程重启时丢了在途结算，会话里也没能读回报告）。已回到待命：键入下一条消息即可重新开工。`;
@@ -996,8 +1641,11 @@ export function apply(ctx, config = {}) {
       if (now !== run || now.phase !== 'armed' || now.childId !== undefined) return;
       if (report !== undefined && report.text !== '') {
         ctx.logger?.info?.(`dsh-dual-agent: 已从执行者会话读回报告（session=${sessionId} child=${childId}）`);
-        deliverCritic(agent, run, childId, report.stopReason,
-          reportTextOf({ output: [{ type: 'text', text: report.text }] }));
+        await deliverCritic(agent, run, childId, report.stopReason,
+          reportTextOf({ output: [{ type: 'text', text: report.text }] }),
+          // 任务起点：内存里最近一次孵化时刻，退回落盘的武装起始时刻；都没有就让
+          // file_modified 类声称如实判「无法核验」（不猜时间）。
+          typeof run.hatchAt === 'number' ? run.hatchAt : store.recordOf(sessionId).since);
         return;
       }
       if (childId !== undefined) {
@@ -1035,8 +1683,9 @@ export function apply(ctx, config = {}) {
       if (runs.get(sessionId) !== run || run.phase !== 'running' || run.childId !== childId) return;
       const stopReason = report?.stopReason ?? lastTurnStopReasonOfAgent(child) ?? 'completed';
       const failureText = stopReason === 'completed' ? undefined : await executorFailureOf(childId);
-      settleWithReport(sessionId, agent, run, childId, stopReason,
-        reportTextOf({ output: [{ type: 'text', text: report?.text ?? '' }] }), failureText);
+      await settleWithReport(sessionId, agent, run, childId, stopReason,
+        reportTextOf({ output: [{ type: 'text', text: report?.text ?? '' }] }), failureText,
+        typeof run.hatchAt === 'number' ? run.hatchAt : undefined);
     };
     setTimeout(() => { void tick(); }, 0);
   };
@@ -1063,9 +1712,12 @@ export function apply(ctx, config = {}) {
       recovering: false,
       blockedBy: undefined,
       lastExecutorFailure: undefined,
+      verifiedCalls: [], lastVerify: undefined,
       adopted: true,
     };
     runs.set(sessionId, adopted);
+    // v21：接管活执行者同样是「会话回到使能态」的一条武装时刻路径——幂等初始化家族。
+    initFamily(sessionId);
     shapeSections(sessionId, agent);
     attachHatchWatcher(sessionId, agent);
     watchAdoptedChild(sessionId, agent, adopted, childId);
@@ -1193,6 +1845,12 @@ export function apply(ctx, config = {}) {
       // 前缀防御：编排消息即便被同源伪造也不当任务。
       if (ORCHESTRATOR_PREFIXES.some((prefix) => text.startsWith(prefix))) return;
 
+      // v4.1（用户指令 2026-11-03「新的插件就不需要阻塞主会话了」）：旧编排默认关。
+      // 关着时本插件**不碰**人类消息：不 cancel 主回合、不孵化、不转达——主智能自己
+      // 判断并派活（subagent / subagent_fork / workflow 在允许清单里），主会话照常答话。
+      // v21：orchestrate 按该会话所属家族的快照取（家族间互不影响）。
+      if (settingsFor(sessionId).guidance.orchestrate !== true) return;
+
       // ── running 态：用户补充 → 转达给执行者；主回合被压制（「阻塞」） ──
       // running 有两种：childId 已就绪（直接转达）、正在孵化（先入队，孵化
       // 完成后 flush）。两种都要立刻 cancel 掉这条消息刚被认领的回合——
@@ -1232,7 +1890,7 @@ export function apply(ctx, config = {}) {
         }
       }
 
-      // ── armed 态：这条人类消息就是初始指令 → 孵化执行者 ──
+      // ── armed 态：旧编排（可选）才接管人类消息 → 孵化执行者 ──
       if (current.phase !== 'armed') return;
       // 纯文本为空但有附件（截图/文档）时**也要**孵化：否则这条消息会被吞掉。
       if (taskBlocks.length === 0) return;
@@ -1242,11 +1900,19 @@ export function apply(ctx, config = {}) {
       // 的就是「要求发出去了，子代理没产生，主线程直接结束」。此时**不压制、不孵化**：
       // 让主 Agent 照常处理这条消息，把内核那条可操作的错误（哪个模型不支持哪档
       // 推理）直接摆到用户面前。主上下文一旦有回合正常完成，体检自动解封。
+      //
+      // v4 修正：体检的前提是「父子同路由」。用户在二级菜单里给子代理选了独立候选
+      // 模型时，父亲那套坏配置不会传染给孩子——这时拦下来反而是错的（用户明明已经
+      // 换好了能用的子代理模型）。所以选了候选就放行，让真实请求去说话。
+      const routedForHatch = chain.activeAgentOptions(sessionId);
       const blocker = lastTurnFailureOf(agent);
-      if (blocker !== undefined && isSystemicFailure(blocker)) {
+      if (blocker !== undefined && isSystemicFailure(blocker) && routedForHatch === undefined) {
         current.blockedBy = blocker;
         ctx.logger?.warn?.(`dsh-dual-agent: 主上下文上一回合即因配置类错误收场，本轮不孵化执行者（session=${sessionId}）：${blocker}`);
         return;
+      }
+      if (blocker !== undefined && isSystemicFailure(blocker) && routedForHatch !== undefined) {
+        log('info', `${LABEL}: 主上下文配置仍在报错，但子代理已选定 ${routedForHatch.provider}/${routedForHatch.model}，照常孵化（session=${sessionId}）`);
       }
       current.blockedBy = undefined;
       current.hatchedSeq = event.seq;
@@ -1316,7 +1982,9 @@ export function apply(ctx, config = {}) {
           // 再往主会话里投一条必然失败的评估轮——那正是用户看到的「连错三次」。
           const failureText = stopReason === 'completed' ? undefined : await executorFailureOf(childId);
           // 结算收口（含跨实例互斥）与评估注入共用同一条实现，见 settleExecutor。
-          settleWithReport(sessionId, agent, st, childId, stopReason, reportTextOf(settled), failureText);
+          // v4：报告先过一遍确定性核验，核验块与评估轮在**同一条**消息里进主上下文。
+          await settleWithReport(sessionId, agent, st, childId, stopReason, reportTextOf(settled), failureText,
+            typeof now.hatchAt === 'number' ? now.hatchAt : undefined);
         } catch (cause) {
           const now = runs.get(sessionId);
           if (now === undefined || now.phase !== 'running' || now.hatchedSeq !== event.seq) return;
@@ -1330,6 +1998,51 @@ export function apply(ctx, config = {}) {
           deliver(agent, `【双主智能编排】执行者孵化失败：${errorText(cause)}。已回到待命状态，可重试（重新发送或补充指令即可）。`);
         }
       })();
+  };
+
+  /**
+   * 主智能自己派出去的子代理（subagent / subagent_fork / workflow / ralph）结果落进
+   * 主会话时，也跑同一套确定性核验，并注入一条【程序核验】实况。
+   *
+   * 为什么走 session/event 的 tool/result 而不是包装工具：工具结果一经落盘就不可改
+   * （内核没有 result 改写点），而这条路径是只读旁路——不碰任何既有装配，插件卸载
+   * 即无痕。核验块作为**独立一条**编排消息投进主上下文，主智能因此拿到的不是
+   * 「一句子代理自述」，而是「自述 + 程序逐条核对的结果」。
+   */
+  const DELEGATION_TOOLS = new Set(['subagent', 'subagent_fork', 'workflow', 'ralph']);
+
+  const verifyDelegationResult = async (sessionId, agent, event) => {
+    // v21：核验开关按该会话所属家族的快照取。
+    const verifyForFamily = settingsFor(sessionId).verify;
+    if (verifyForFamily.enabled !== true || verifyForFamily.delegation !== true) return;
+    const run = runs.get(sessionId);
+    if (run === undefined) return;
+    const message = event?.data?.message;
+    const callId = message?.toolCallId ?? message?.source?.callId;
+    if (typeof callId !== 'string' || callId === '') return;
+    if (message?.isError === true) return; // 失败的工具结果不是「声称」
+    run.verifiedCalls = run.verifiedCalls ?? [];
+    if (run.verifiedCalls.includes(callId)) return;
+    run.verifiedCalls.push(callId);
+    if (run.verifiedCalls.length > 200) run.verifiedCalls.shift();
+
+    // 找到这次调用的工具名与入参（tool/call 与 tool/result 由 callId 配对）。
+    const seq = typeof agent.session?.seq === 'number' ? agent.session.seq : 0;
+    const events = agent.session?.snapshotEvents?.(Math.max(0, seq - TURN_SCAN_WINDOW)) ?? [];
+    const call = events.find((candidate) => candidate?.type === 'tool/call' && candidate.data?.callId === callId);
+    const name = String(call?.data?.name ?? '');
+    if (!DELEGATION_TOOLS.has(name)) return;
+    const text = (message?.content ?? [])
+      .filter((block) => block?.type === 'text')
+      .map((block) => block.text ?? '')
+      .join('');
+    if (text.trim() === '') return;
+    const verdict = await runVerify(sessionId, text, typeof call?.time === 'number' ? call.time : undefined,
+      `${name} 工具回报里的证据块`);
+    if (verdict === null) return;
+    rememberVerifySummary(sessionId, verdict);
+    log('info', `${LABEL}: 已核验 ${name} 的回报（session=${sessionId}）：${verdictSummaryLine(verdict.summary)}`);
+    deliver(agent, `【程序核验·子代理回报】刚才 ${name} 交回的内容已由确定性代码逐条核对出处（不是模型互评）：\n\n${verdict.text}\n\n请按这份结果决定哪些话可以当事实转述给用户：「不符」必须纠正或重派，「无法核验」要明确标注为未经证实。`);
   };
 
   // 根作用域单一监听器：所有会话的 session/event 都会到这里，按会话身份过滤。
@@ -1349,6 +2062,11 @@ export function apply(ctx, config = {}) {
       if (!runs.has(sessionId)) reconcileSession(sessionId, { quiet: event.type === 'user/message' });
       if (event.type === 'user/message') {
         handleHumanMessage(sessionId, agent, event);
+      } else if (event.type === 'tool/result') {
+        // v4：主智能自己派的子代理也核（异步旁路，不阻塞本事件流的其它观察者）。
+        void verifyDelegationResult(sessionId, agent, event).catch((cause) => {
+          ctx.logger?.warn?.(`${LABEL}: 子代理回报核验失败（session=${sessionId}）：${errorText(cause)}`);
+        });
       } else if (event.type === 'assistant/message') {
         // 捕获挑刺者本轮评估的**结论正文**（不是带报告的注入消息）——它才是要
         // 往下一轮执行者上下文里带的「未满足指标清单」。只在评估轮挂起期捕获，
@@ -1426,6 +2144,30 @@ export function apply(ctx, config = {}) {
   // 兜底：插件装载后新建的会话若已在落盘里武装过，接上监视器。
   ctx.on('agent/created', ({ agent }) => {
     const record = store.recordOf(agent.id);
+    // 诊断/沙箱用（config.autoArmForNewSessions=true）：headless 一次性会话没有
+    // HTTP 也没人手点开关，靠这个把「新会话一出生就使能」做出来，让 E2E 能走完整
+    // 回路。**默认关**——正式使用时开关键的只有工作箱那一下。
+    if (settings.autoArmForNewSessions === true && record.phase === 'off' && runs.get(agent.id) === undefined) {
+      const header = agent.session?.header;
+      const isRoot = typeof header?.parentSession !== 'string' || header.parentSession === '';
+      if (isRoot) {
+        runs.set(agent.id, {
+          phase: 'armed', dispose: undefined, used: new Set(), childId: undefined,
+          pendingSupplements: [], hatchedSeq: undefined, watchDispose: undefined,
+          hatchDispose: undefined, hatchAt: undefined, hatchStartedAt: undefined,
+          recovering: false, blockedBy: undefined, lastExecutorFailure: undefined,
+          criticPending: false, criticRetried: false, lastCriticText: undefined, criticBase: 0,
+          critiqueHistory: [], recoveredFrom: null, verifiedCalls: [], lastVerify: undefined,
+        });
+        // v21：autoArm 路径也是武装时刻——新家族在这里从模板物化快照并继承链模板。
+        initFamily(agent.id);
+        shapeSections(agent.id, agent);
+        attachHatchWatcher(agent.id, agent);
+        store.setPhase(agent.id, 'armed');
+        log('info', `${LABEL}: autoArmForNewSessions 已武装新会话 ${agent.id}（诊断口径）`);
+        return;
+      }
+    }
     if (record.phase !== 'armed' && record.phase !== 'running') return;
     ensureRun(agent.id);
   });
@@ -1533,6 +2275,9 @@ export function apply(ctx, config = {}) {
       scheduleReconcile(sessionId, false);
     }
     const hatch = hatchReadiness();
+    // v21：statusOf 全部按该会话所属家族的快照读取（无快照回模板）——**只读**，
+    // 绝不在这里物化（8s 轮询不能写盘；物化只发生在武装时刻的 initFamily）。
+    const viewSettings = settingsFor(sessionId);
     // childId 以内存为准、落盘兜底：重载后正是靠落盘里的它把执行者找回来。
     const childId = run?.childId ?? record.childId ?? null;
     const hatching = phase === 'running'
@@ -1562,7 +2307,7 @@ export function apply(ctx, config = {}) {
       : live.live === false ? '（执行者会话已不在本进程，可能已结束；稍后会结算或可手动关闭重试）'
         : live.status === 'idle' ? '（执行者本轮已停，正在等待编排结算）'
           : '';
-    return {
+    const status = {
       sessionId: sessionId ?? null,
       phase,
       // 工作箱的约定是 `running: boolean`（它据此决定按钮文案与徽标）。
@@ -1581,7 +2326,11 @@ export function apply(ctx, config = {}) {
                 : anglesUsed > 0
                   ? `已评估 ${anglesUsed} 轮，最近点名角度：「${lastAngle}」。键入下一条消息继续修正（执行者会带着这几轮结论开工）。`
                   : hatch.ready
-                    ? '已武装：请键入本任务的初始指令（下一条你发出的消息就是任务）。'
+                    // v4.1：旧编排关着时别说「下一条就是任务」——那条消息由主智能
+                    // 自己判断并派活，不会被编排接管。
+                    ? (viewSettings.guidance.orchestrate === true
+                      ? '已武装：请键入本任务的初始指令（下一条你发出的消息就是任务）。'
+                      : '已启用：主智能只判断、自己把活派给子代理；主会话不会被阻塞。')
                     : `已武装，但暂时无法孵化执行者：${hatch.reason ?? '没有可用的非继承型 provider'}。键入任务会尝试孵化并在失败时说明。`))
           : orphan
             ? `记录显示上次任务仍在进行，但该会话不在本进程（执行者随重启消亡）。重新打开该会话即可恢复为待命并重试。${liveSuffix}`
@@ -1599,7 +2348,47 @@ export function apply(ctx, config = {}) {
       hatch,
       stateFile: store.file,
       storeError: store.error,
+      // ── v4 合并面（工作箱二级菜单与状态提示用；全部只读算出，不写状态）──
+      guidance: {
+        label: LABEL,
+        enforce: viewSettings.guidance.enforce === true,
+        mode: viewSettings.guidance.mode === 'readonly' ? 'readonly' : 'strict',
+        hideMainTools: viewSettings.guidance.hideMainTools === true,
+        // v4.1：旧编排（接管主会话）是否开——关着就是「不阻塞、主智能自己派活」。
+        orchestrate: viewSettings.guidance.orchestrate === true,
+        ...enforce.describe(sessionId),
+        degradeNote,
+      },
+      models: {
+        applyChain: viewSettings.models.applyChain === true,
+        chain: chain.chainView(sessionId ?? undefined),
+        active: chain.activeAgentOptions(sessionId ?? undefined) ?? null,
+      },
+      verify: {
+        enabled: viewSettings.verify.enabled === true,
+        urlChecks: viewSettings.verify.urlChecks === true,
+        delegation: viewSettings.verify.delegation === true,
+        last: run?.lastVerify ?? verifySummaries.get(sessionId) ?? null,
+      },
+      menu: { label: '子代理模型与规则', route: `${ROUTE}/menu` },
     };
+    // v4：note 末尾追加「此刻本插件到底在做什么」。只在开着时说（off 的 note 本来就是
+    // null），并且**追加不改写**——工作箱与沙箱 E2E 都按既有 note 文案匹配，改字会误伤。
+    if (typeof status.note === 'string' && status.note !== '') {
+      const faceState = status.guidance;
+      const parts = [
+        viewSettings.guidance.enforce === true
+          ? `主智能只判断（${viewSettings.guidance.mode === 'readonly' ? '允许只读回看' : '严格'}${faceState.hidden > 0 ? `，已隐藏 ${faceState.hidden} 个工具` : ''}）`
+          : '约束关：主智能可自己动手',
+        viewSettings.verify.enabled === true ? '出处程序核验开' : '出处核验关',
+        viewSettings.models.applyChain === true && status.models?.chain?.configured === true
+          ? `子代理走模型链（当前 C${(status.models.chain.activeIndex ?? 0) + 1}）`
+          : (viewSettings.models.applyChain === true && status.models?.chain?.configured !== true ? '子代理模型链未配置' : '子代理沿用主会话模型'),
+      ];
+      if (degradeNote !== null) parts.push(String(degradeNote));
+      status.note = `${status.note} ｜ ${parts.join(' · ')}`;
+    }
+    return status;
   };
 
   /**
@@ -1629,6 +2418,8 @@ export function apply(ctx, config = {}) {
       criticPending: false, criticRetried: false, lastCriticText: undefined, criticBase: 0,
       critiqueHistory: [],
       recoveredFrom: null,
+      // v4：核验去重（callId）与最近一次核验摘要。
+      verifiedCalls: [], lastVerify: undefined,
     });
 
     /** 完全关闭：running 时先中断执行者（不挑刺），再摘段拆监视器。 */
@@ -1648,7 +2439,9 @@ export function apply(ctx, config = {}) {
         // 有余力就显式释放 activation（interrupt 已让 child 停；dispose 归还名额）。
         try { await dispose?.(); } catch { /* 尽力 */ }
       }
-      run?.dispose?.();
+      // v4：拆装配走 unshapeSections——人格段与「主智能只判断」的约束段/清单隐藏
+      // 必须一起收，否则关掉开关后主智能仍然调不动工具（用户最直接的抱怨点）。
+      unshapeSections(sessionId);
       run?.watchDispose?.();
       runs.delete(sessionId);
       store.setPhase(sessionId, 'off');
@@ -1656,11 +2449,16 @@ export function apply(ctx, config = {}) {
 
     const arm = () => {
       const fresh = makeFresh();
+      // v21：武装时刻 = 家族初始化时刻（幂等）。从当前模板物化该家族的设置快照，
+      // 并把链模板复制给尚无自己链的新家族——之后该家族改设置只动自己的快照。
+      initFamily(sessionId);
       runs.set(sessionId, fresh);
       shapeSections(sessionId, agent);
       attachHatchWatcher(sessionId, agent);
       store.setPhase(sessionId, 'armed');
-      ctx.logger?.info?.(`dsh-dual-agent: 已武装待命（session=${sessionId}）`);
+      // v21：武装日志按该家族的快照读（隔离后家族之间可能不一样）。
+      const armedView = settingsFor(sessionId);
+      ctx.logger?.info?.(`${LABEL}: 已武装待命（session=${sessionId}，约束=${armedView.guidance.enforce === true ? armedView.guidance.mode : '关'}，核验=${armedView.verify.enabled === true ? '开' : '关'}，模型链=${armedView.models.applyChain === true ? '开' : '关'}）`);
       return { ...statusOf(sessionId), action: 'armed' };
     };
 
@@ -1686,12 +2484,34 @@ export function apply(ctx, config = {}) {
     return { ...statusOf(sessionId), action: 'disarmed' };
   };
 
-  // 可编程面：headless/SDK/E2E 没有 HTTP 也能武装双主智能并读实况。
-  // 只 provide，不强制任何消费方注入；工具箱仍走 HTTP 路由。
+  // 可编程面：headless/SDK/E2E 没有 HTTP 也能武装并读实况，还能直接落设置/模型链。
+  // 只 provide，不强制任何消费方注入；工作箱仍走 HTTP 路由。
   ctx.provide('dualAgent', {
     status: (sessionId) => statusOf(sessionId),
     transition: (sessionId, enabled) => transition(sessionId, enabled),
     readiness: () => hatchReadiness(),
+    // v4 合并面（等价于二级菜单能做的事，供脚本/其它插件程序化驱动）。
+    menu: {
+      spec: async (sessionId) => menu.buildSpec(sessionId),
+      op: async (body) => menu.applyOp(body),
+    },
+    // v21：settings()/setSetting(id,value) 保持**无 sessionId** 的既有键名与语义
+    // （=全局模板口径，e2e 沙箱与既有消费方依赖它）；带会话的口径经
+    // settingsView(sessionId) / setSetting(id,value,sessionId) 在模块内部与菜单使用。
+    settings: () => settingsView(),
+    setSetting: (id, value) => setSetting(id, value),
+    chain: {
+      view: (sessionId) => chain.chainView(sessionId),
+      set: (sessionId, candidates, flags) => chain.setChain(sessionId, candidates, flags),
+      adjust: (sessionId, patch) => chain.adjust(sessionId, patch),
+      reset: (sessionId) => chain.resetCounters(sessionId),
+      clear: (sessionId) => chain.clearChain(sessionId),
+    },
+    verify: {
+      evidenceProtocol,
+      run: (sessionId, text, afterMs) => runVerify(sessionId, text, afterMs, '程序化调用'),
+    },
+    build: BUILD,
   });
 
   register(`${ROUTE}/status`, async (req, res, json) => {
@@ -1728,5 +2548,37 @@ export function apply(ctx, config = {}) {
     }
   });
 
-  ctx.logger?.info?.(`dsh-dual-agent: 就绪 v2（state=${stateFile}）`);
+  // ── v4 二级菜单（内容由本插件出，渲染在 dsh-workbench 的浮层里）─────────────
+  // GET  /dsh-dual-agent/menu?sessionId=…  → 声明式面板 spec
+  // POST /dsh-dual-agent/menu {sessionId, op, …} → 落库后回**新 spec**（客户端直接重绘）
+  // 约定：spec 里只有通用件（note/switch/select/text/rows/form/buttons），工作箱
+  // 不认识「模型链」这种语义——语义全在这里，工作箱只按件型画。
+  register(`${ROUTE}/menu`, async (req, res, json) => {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      let sessionId;
+      try {
+        sessionId = new URL(req.url, 'http://localhost').searchParams.get('sessionId') ?? '';
+      } catch { sessionId = ''; }
+      if (sessionId === '') return json(400, { error: '需要 sessionId 查询参数' });
+      try {
+        return json(200, await menu.buildSpec(sessionId));
+      } catch (cause) {
+        return json(500, { error: `菜单生成失败：${errorText(cause)}` });
+      }
+    }
+    if (req.method !== 'POST') return json(405, { error: 'Method Not Allowed' });
+    if (!sameOrigin(req)) return json(403, { error: 'cross-origin request rejected' });
+    const body = await readBody(req, 1 << 20);
+    if (!body.ok) return json(400, { error: body.error });
+    let parsed;
+    try { parsed = JSON.parse(body.text === '' ? '{}' : body.text); } catch { return json(400, { error: 'body 不是合法 JSON' }); }
+    try {
+      return json(200, await menu.applyOp(parsed));
+    } catch (cause) {
+      const status = typeof cause?.menuStatus === 'number' ? cause.menuStatus : 500;
+      return json(status, { error: errorText(cause) });
+    }
+  });
+
+  ctx.logger?.info?.(`${LABEL}: 就绪 v4.1（家族隔离版，state=${stateFile}，恢复模型链 ${restoredChains} 条，构建=${BUILD}）`);
 }

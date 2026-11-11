@@ -24,7 +24,7 @@
 已安装到 `web` profile（`link:` 到本目录，改动即生效，无需重新安装）：
 
 ```
-plugin_manager install_bundle    target=/home/xray4668/Documents/AgentsWorkspace/plugins/rea-mcp
+plugin_manager install_bundle    target=~/Documents/AgentsWorkspace/plugins/rea-mcp
 plugin_manager set_bundle        target=@local/rea-mcp  enabled=false   # 停用整个插件
 plugin_manager remove_bundle     target=@local/rea-mcp                  # 卸载（runtime 不删）
 ```
@@ -104,7 +104,7 @@ instructions 开关，只能由装配瀑布删）。
 
 ```bash
 npm install rea-agents@latest --omit=optional \
-  --prefix /home/xray4668/Documents/AgentsWorkspace/plugins/rea-mcp/runtime
+  --prefix ~/Documents/AgentsWorkspace/plugins/rea-mcp/runtime
 ```
 
 然后重启 dsh。`--omit=optional` 必须保留：optional 依赖 `frida` 本机下载极慢，

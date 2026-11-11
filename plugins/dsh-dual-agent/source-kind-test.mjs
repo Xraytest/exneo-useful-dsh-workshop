@@ -14,9 +14,12 @@ import { existsSync, statSync } from 'node:fs';
 // 整包解包出来的目录树。刷新方式：
 //   npx --yes asar extract "<…>/resources/app.asar" "<dir>"
 // 然后用 --ref 传入单文件解包结果做**同一性**校验（防过期副本）。
+// DSH 安装目录按环境变量推导，避免写死某个用户的绝对路径。
+// Windows 默认 %LOCALAPPDATA%\Programs\DeepSeek Harness。
+const localAppData = process.env.LOCALAPPDATA ?? `${process.env.USERPROFILE ?? ''}/AppData/Local`;
 const CANDIDATES = [
   process.argv[2] !== undefined && process.argv[2].startsWith('--') ? undefined : process.argv[2],
-  'C:/Users/cheng/AppData/Local/Programs/DeepSeek Harness/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js',
+  `${localAppData}/Programs/DeepSeek Harness/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js`,
   'D:/WorkSpace/_tmp/dual-agent-v2/asar/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js',
 ].filter((path) => typeof path === 'string' && path !== '');
 

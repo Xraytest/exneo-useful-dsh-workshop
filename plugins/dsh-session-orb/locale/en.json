@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Orb",
+    "description": "A translucent, draggable black orb resting in a corner of the UI; its opacity and size are tuned in Settings → Session orb. When a session finishes, a small card with that session's name pops up above the orb; click it to jump back to the session."
+  }
+}

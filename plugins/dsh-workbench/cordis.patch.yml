@@ -10,9 +10,13 @@
 #
 # 状态：$DSH_HOME/workbench.json（0600、原子写、跨进程合并；家族键与 ultracode
 # 同谱系——家谱只读 ultracode.json 的 families 表，家谱事实唯一写者仍是它）。
+#
+# v9（2026-11-03）：dual-agent 行随属主合并更名「双智能指导」，并新增**可进入的
+# 二级菜单**（内容由属主出：GET spec / POST op；工作箱只画通用件——加一个新属主
+# 不用改工作箱代码，属主插件也不必 require 别人的模块）。row id 与 route 不变。
 - insert:
     - id: workbench
-      name: './entry-v7.js'
+      name: './entry-v9.js'
       config:
         # 选择落盘位置；null/省略 = $DSH_HOME/workbench.json。
         stateFile: null

@@ -1,17 +1,27 @@
 {
     "name":  "dsh-dual-agent",
-    "version":  "3.6.0",
+    "version":  "4.1.0",
     "private":  true,
     "type":  "module",
-    "description":  "双主智能：启动=武装待命（等用户键入初始指令）；执行者=真 subagent（delivery:caller，自己的会话与提示）；任务期间主上下文静默（回合起点被压制）；挑刺者=主上下文评估人格，执行者自然结算后由编排注入恰一条「报告+评估」消息；用户手动停止回待命等补充、不挑刺。",
+    "description":  "双智能指导（原双主智能 + 子代理模型设置合并）：一个开关总控——① 编排（执行者=后台 subagent，挑刺者=主上下文评估人格）；② 子代理模型链（有序候选、每候选限额、失败自动回退、可计入整会话供应池）；③ 主智能只判断不动手 + 子代理出处由确定性程序逐条核验。工作箱里保留开关并新增可进入的二级菜单。",
     "main":  "index.js",
     "exports":  {
                     ".":  "./index.js",
+                    "./dg-verify":  "./dg-verify.js",
+                    "./dg-chain":  "./dg-chain.js",
+                    "./dg-enforce":  "./dg-enforce.js",
+                    "./dg-menu":  "./dg-menu.js",
                     "./locale/*.json":  "./locale/*.json",
                     "./icon":  "./icon.svg"
                 },
     "files":  [
                   "index.js",
+                  "dg-verify.js",
+                  "dg-chain.js",
+                  "dg-enforce.js",
+                  "dg-menu.js",
+                  "entry-v21.js",
+                  "entry-v20.js",
                   "entry-v19.js",
                   "entry-v18.js",
                   "entry-v17.js",
@@ -22,19 +32,12 @@
                   "entry-v12.js",
                   "entry-v11.js",
                   "entry-v10.js",
-                  "entry-v9.js",
-                  "entry-v8.js",
-                  "entry-v7.js",
-                  "entry-v6.js",
-                  "entry-v5.js",
-                  "entry-v4.js",
-                  "entry-v3.js",
-                  "entry-v2.js",
                   "cordis.patch.yml",
                   "locale/zh.json",
                   "locale/en.json",
                   "icon.svg",
                   "host-selftest.mjs",
+                  "guidance-selftest.mjs",
                   "source-kind-test.mjs",
                   "README.md"
               ],
@@ -42,7 +45,7 @@
                 "bundle":  {
                                "patch":  "./cordis.patch.yml"
                            },
-                "description":  "双主智能（执行者 subagent + 主上下文挑刺者）：点开关只武装待命，用户键入初始指令才孵化后台执行者，主对话让位（任务回合起点被压制，页面不出现新的动作）；执行者用 delivery:caller，结算不自动唤醒主 Agent——编排取回报告，合成恰一条挑刺评估注入主上下文。用户手动停止回待命等补充且不挑刺；只有执行者自然结算才评估。需要 subagents（spawn provider）与会话持久化；webServer 可选。入口在工作箱开关动作行（经 /dsh-dual-agent/action，也可经 ctx.get(\u0027dualAgent\u0027) 程序化驱动）。"
+                "description":  "双智能指导（合并版 v4，一个总开关）：① 双主智能编排——点开关只武装待命，用户键入初始指令才孵化后台执行者 subagent（delivery:caller，自己的会话与提示），任务期间主对话让位，自然结算后由编排把「报告原文 + 程序核验块 + 评估指令」合成恰一条注入主上下文，手动停止回待命且不挑刺；② 子代理模型链（合并自 dsh-subagent-models）——有序候选 + 每候选限额（请求数/混合 token/不限）+ 用量耗尽或失败自动回退 + 辅助调用计入 + 计入整会话供应池（继续 ctx.provide(\u0027subagentModels\u0027)，dsh-model-pool 联动不变），孵化走官方 request.agentOptions，请求期 agent/request 改路由兜底嵌套子代理；③ 主智能只判断不动手（根作用域 tools.guard 按调用者身份精确拒绝，子代理工具面不受影响；可选隐藏清单带自检与自动降级）与出处程序核验——报告须给 ⟦证据⟧ JSON 块，由确定性代码逐条核对文件系统 / 会话日志里真实存在的 tool/call+tool/result / 算术 / 可选 HTTP，「不符」与「无法核验」都如实标出，绝不当作已证实。入口在工作箱：开关照旧，另有可进入的二级菜单（GET/POST /dsh-dual-agent/menu，内容在本插件、渲染在 dsh-workbench）；也可经 ctx.get(\u0027dualAgent\u0027) 程序化驱动。需要 subagents（spawn provider）与会话持久化；webServer 可选。v4.1：运行时设置按会话家族隔离（武装时快照、互不影响），新会话继承最近保存的偏好与模型链模板。"
             },
     "license":  "MIT"
 }

@@ -1,22 +1,43 @@
-# dsh-dual-agent — 双主智能
+# dsh-dual-agent — 双智能指导（v4 合并版）
 
-用户需求（历次修订合并）：
+> **v4（2026-11-03，用户指令）**：把「子代理模型设置」（dsh-subagent-models）与「双主智能」
+> **合并为一个插件**，装在原双主智能的位置（本目录），更名 **双智能指导**；工作箱里
+> **开关照旧保留**，并新增一个**可进入的二级菜单**，在菜单里选子代理用的模型。
+> 「主开关控制插件生效」——开关拨开＝本插件全部规则生效；拨关＝一切照旧。
+>
+> 使能后的三条硬规则（用户的原话逐条落地）：
+> 1. **主会话的智能体不亲自进行任何除判断以外的行为**：编码、调试、信息收集一律交子代理。
+>    落点＝`dg-enforce.js` 在插件根作用域注册 `tools.guard`，按 `exec.agent.id` 精确拒绝
+>    **被武装的那个根会话**的受限调用（拒绝理由直接指示它派活）；子代理不受任何限制。
+> 2. **子代理给出的信息必须标明出处**：任务尾附证据协议（`⟦证据⟧` JSON 数组，
+>    `{"claim":…,"check":{kind,…}}`），主智能自己派活时也必须按同一协议要求子代理。
+> 3. **出处由流程化程序检查是否真实**：`dg-verify.js` 用确定性代码逐条核对（文件系统读取、
+>    比对子会话日志里**真实存在**的 `tool/call`+`tool/result`、纯算术、可选 HTTP），
+>    结果拼进**同一条**挑刺评估消息进主上下文；核不了的如实写「无法核验」。
+>    **不经模型判断**，也不重跑子代理声称的命令。
+>
+> 包名/目录名/行 id/路由都**保持 `dsh-dual-agent` 不变**（改名会打断既有 link 与消费方），
+> 只有面向用户的名字变成「双智能指导」。旧的 `subagent-models` 行与
+> `plugins/dsh-subagent-models` 目录必须移除（它的 `agent/request` 改路由会与本插件重复作用）。
 
-> 创建两条主智能：一个完成用户指令，另一个持续主张质量不符合要求、从用户要求里
-> 找多个角度修正（第二个不负责判定真实质量，负责深化验证指标、发现更有表现力的指标）。
-> 启动=武装待命，等用户键入初始指令；用户手动停止=等待补充；只有智能体主动停止才挑刺。
-> 智能体 1 做成 subagent 形态；报告评估由智能体 2 在主上下文视角输出。
-> UI 是开关，不是按钮。
-> （2026-10-30）启用后主对话收到指令应**阻塞**——创建子代理后主页面不出现新的动作；
-> 实测主窗口与子代理同时运转，要求沙箱完整验证双线路径。
+## 三个模块的分工（合并后的代码结构）
+
+| 文件 | 职责 | 来源 |
+|---|---|---|
+| `index.js` | 编排（armed/running/结算/自愈/压制）+ 路由 + 服务面 + 落盘 | 原双主智能，逻辑保留 |
+| `dg-chain.js` | 子代理模型链：有序候选、限额、失败回退、计入供应池 | 原 dsh-subagent-models（+官方 `agentOptions` 孵化、effort 能力核查） |
+| `dg-enforce.js` | 主智能只判断：guard 精确拒绝 + 行为说明段 + 可选隐藏清单（带自检降级） | 本次新增 |
+| `dg-verify.js` | 出处程序核验器（确定性，不经模型） | 本次新增 |
+| `dg-menu.js` | 工作箱二级菜单的内容：声明式 spec + op 落地 | 本次新增（替代原插件的会话头部面板） |
+| dsh-workbench | 画通用件（heading/note/switch/select/text/rows/form/buttons） | v9 起支持二级菜单 |
 
 ## 两条智能的形态
 
 | | 智能体 1（执行者） | 智能体 2（挑刺者） |
 |---|---|---|
-| 实现 | **真 subagent**：`subagents.startActivation`（spawn provider，continuable child，`delivery:'caller'`） | **主上下文人格**：常驻系统提示段（`dual-agent:critic`）+ 评估轮注入 |
+| 实现 | **真 subagent**：`subagents.startActivation`（spawn provider，continuable child，`delivery:'caller'`）；v4 起带 `request.agentOptions={provider,model}` | **主上下文人格**：常驻系统提示段（`dual-agent:critic`）+ 评估轮注入 |
 | 会话 | 自己的 Session，零父上下文 | 就在主会话里 |
-| 何时说话 | 后台干活；收尾产出**自足报告** | 只在执行者自然结算后评估；手动停止不吭声 |
+| 何时说话 | 后台干活；收尾产出**自足报告** + `⟦证据⟧` 块 | 只在执行者自然结算后评估；手动停止不吭声 |
 
 ## 双线路径的「阻塞」（v3 核心修正）
 
@@ -113,19 +134,31 @@ off ──开关拨开──► armed ──用户键入初始指令──► ru
 
 ## 入口
 
-- 工具箱（dsh-workbench）里是**开关**（与 Ultracode/REA 同款 track+thumb）：
-  拨开=武装；徽标 `待命中/运行中`；拨关=解除（running 时先中断执行者，不挑刺）。
-- **防「以为卡死」**：running 的 note 会解释「主对话已让位（保持安静是正常的）」，
-  满 1 分钟起附「已工作 X 分 Y 秒」；status 同时返回 `hatchAt`（epoch ms），客户端
-  可走自己的秒表。armed 的 note 在 `hatch.ready=false` 时**提前警告**没有可用
-  provider，不等用户键入任务才撞上孵化失败。
+- 工作箱（dsh-workbench）里这一行仍是**开关**（与 Ultracode/REA 同款 track+thumb），
+  标签「双智能指导」：拨开=使能（武装待命，全部规则生效）；徽标 `待命中/运行中`；
+  拨关=解除（running 时先中断执行者，不挑刺）。
+- **v4 新增：同一行右侧多一颗「子代理模型与规则 ▸」按钮 → 进入二级菜单**（在工作箱
+  浮层内，带「‹ 返回」，Esc 第一下回列表、第二下才收起浮层）。菜单内容全部来自本插件：
+  模型链（候选列表/额度/↑↓/删除/添加表单/两个记账开关/重置计数）、主智能约束
+  （开关、力度 strict|readonly、可选隐藏清单、额外放行工具名）、出处核验（四个开关 +
+  证据协议原文 + 最近一次核验摘要）。工作箱只按通用件画，不认识这些语义。
+- `GET /dsh-dual-agent/menu?sessionId=…` → 声明式 spec；`POST /dsh-dual-agent/menu`
+  `{sessionId, op, …}` → 落库后回**新 spec**（客户端整块重绘）。op 词表：
+  `set` / `add-candidate` / `candidate-up|down|remove|unlimited` / `reset-counters` /
+  `clear-chain` / `refresh`。校验失败回 400/409 + `{error}`（跨源 403）。
 - `GET /dsh-dual-agent/status?sessionId=…`：**回包只读**（算出来的是可核对的真实现
-  状，见上节）；收敛动作（接管活执行者 / 收回幽灵 running / 读回报告）排在微任务里，
-  只纠正与记录冲突的状态，不会把 `off` 的会话凭空武装。
+  状）；v4 起额外返回 `guidance{enforce,mode,hidden,degraded,degradeNote,…}`、
+  `models{applyChain,chain,active}`、`verify{enabled,urlChecks,delegation,last}`、
+  `menu{label,route}`，且 `note` 尾部追加「此刻到底在生效什么」（**只追加不改写**，
+  旧客户端与沙箱断言不受影响）。
 - `POST /dsh-dual-agent/action { sessionId, enabled? }`：开关语义按**目标状态**推进、
   幂等；不带 `enabled` 走旧式三态循环。会话不在线回 409。
-- 可编程面 `ctx.provide('dualAgent', { status, transition, readiness })`：
-  headless/SDK/E2E 不经 HTTP 直接驱动（`/action` 与它共用同一 `transition`）。
+- 可编程面 `ctx.provide('dualAgent', …)`：`status / transition / readiness` 之外，v4
+  加了 `menu{spec,op}`、`settings()`、`setSetting(id,value)`、`chain{view,set,adjust,reset,clear}`、
+  `verify{evidenceProtocol,run}`、`build`。headless/SDK/E2E 不经 HTTP 就能驱动全流程
+  （`/action` 与 `transition` 共用同一实现）。
+- 服务兼容面：`ctx.provide('subagentModels', { billingRedirect })` **必须保留**——
+  `dsh-model-pool` 靠它把子代理用量重定向到根会话的池（它读的是服务，不是路由）。
 - 工作箱约定 `running:boolean`，status 同时给 `running`（phase!=='off'）与 `phase`。
 
 ## 关键实现细节（踩过的坑，别改回去）
@@ -155,7 +188,8 @@ off ──开关拨开──► armed ──用户键入初始指令──► ru
    写死 inject 会让插件 pending。
 10. **换实现必须换 entry 文件名**：宿主按**完整 URL** 缓存 ESM——改 `entry-vN.js`
     里的 `?v=` 没用（旧文件名 import 过就不会重新求值），必须新建
-    `entry-v(N+1).js` 并把 patch 行指过去。当前 **entry-v17.js / `?v=da-23`**。
+    `entry-v(N+1).js` 并把 patch 行指过去。当前 **entry-v21.js / `?v=dg-2`**（子模块 `dg-*.js` 的 import 也带 `?v=dg-2`，改任何一个
+     都要一起 bump——否则 loader 换进了新 entry，子模块却仍复用 node ESM 缓存里的旧实现）。
 17. **零父上下文的执行者需要「评估结论史」才能闭环**：不带的话用户说「按第 2 点改」
     甚至「把前两个问题都修了」时，新执行者完全不知道指什么，多轮修正循环断掉。
     实现：捕获挑刺者每轮的**结论正文**（`assistant/message`，仅在 `criticPending`
@@ -239,11 +273,80 @@ node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs   # 4 项全跑，退�
   验证 arm→`phase:armed`、status 一致、disarm→`phase:off` 全 200（这条链路
   曾因 apply 时取不到 webServer 而全 404，见坑 #14）。
 
+## v4 合并后的验证分层（沙盒先行，绝不动本机 profile）
+
+| 层 | 命令 | 覆盖 |
+|---|---|---|
+| 冒烟（模块级，秒级） | `node _tmp/guidance-probe/probe-smoke.mjs` | dg-verify 的解析/核对/渲染、dg-chain 的换路由+限额回退+服务面、dg-menu 的 spec+op |
+| 假 ctx 集成 | `node plugins/dsh-dual-agent/guidance-selftest.mjs` | 约束（根会话被拒 / 子代理放行 / 模式与 extraAllowed / 关开关即解除 / 段不泄漏给子代理）、链、孵化 agentOptions、核验端到端（含「谎报必不符」「无证据块不装通过」）、`/menu` 路由与守卫、v2 老状态文件兼容 |
+| 原双主智能回归 | `node plugins/dsh-dual-agent/host-selftest.mjs` | 编排 92+ 项既有断言（v4 适配后） |
+| 真内核 E2E（沙盒） | `node _tmp/dual-agent-sandbox/run-checks.mjs --headless` | 真 dsh 内核 + 假 adapter：原 10 场景 + 新场景（主智能被拒/子代理工具完好/程序核验命中真实会话日志/模型链真的换了 child 路由/菜单走服务面） |
+| GUI 组成 + HTTP | `node _tmp/dual-agent-sandbox/run-checks.mjs --gui` | 工作箱开关与二级菜单在真实 webServer 下的完整链路 |
+
+结果与逐条断言记在 [TEST-PLAN.md](plugins/dsh-dual-agent/TEST-PLAN.md)。**机器绿不等于艺术好**：
+核验器只能核「出处真不真」，判不了「活干得好不好」——后者仍是挑刺者与用户的角度。
+
 ## 依赖
 
-`subagents`（spawn provider）与会话持久化；webServer 可选。缺依赖以
+`agents` 与 `tools`（必选 inject）；`subagents`（spawn provider，非继承型 continuable）、
+会话持久化、`llm`（模型目录与 effort 能力核查）、`sessionQuery`（读回已回收子会话）
+与 `webServer` 全部**可选**（`ctx.get`，缺则相应面自动退让）。缺依赖以
 「孵化失败→回待命」提示暴露，不留半成品状态。
 
 ## 相关插件
 
-`dsh-workbench`：工具箱开关行（本插件 UI 宿主）。
+`dsh-workbench`（v9 起）：工作箱开关行 + 二级菜单宿主（本插件出内容，它画通用件）。
+
+
+## v4.1（2026-11-03）：旧编排改为可选，默认**不阻塞**主会话
+
+用户指令：「新的插件就不需要阻塞主会话了」。
+
+旧双主智能的机制是「接管 + 阻塞」：人类消息一到就 `cancel` 掉主回合、孵化后台执行者、
+等它结算后回传报告并做挑刺者评估。合并后的「双智能指导」不再默认这么做：
+
+| 项 | 默认值 | 行为 |
+|---|---|---|
+| `guidance.orchestrate` | **false** | 主智能自己判断并用 `subagent` / `subagent_fork` / `workflow` 派活；主会话**照常答话**，不会被 cancel，也不会出现「等一个不会来的执行者」 |
+| 同上 = true | 可选项 | 恢复旧行为：你的消息被编排接管、主会话静默直到执行者结算并回传评估 |
+
+- 开关位置：工作箱本行 → 二级菜单 → 「主智能行为约束」→「旧编排：自动派执行者并接管主会话」。
+- 约束（只判断）、出处核验、子代理模型链**与这个开关无关**，始终按各自开关工作。
+- 旧流水线（孵化/转达/挑刺/12 角度/截断）代码完整保留；沙盒 E2E 的 1–15 场景显式
+  打开它继续回归（92 条断言），场景 16 专测默认（关）下主会话不被阻塞。
+
+## v4.2（build 4.1.0+family）：运行时设置按会话家族隔离
+
+用户需求：①设置跨会话持久化（保持）；②某会话（家族）里改设置**不影响其它会话
+已生效的策略**；③新会话**继承最近保存的偏好**（含模型链配置）。
+
+### 三层语义（模板 / 家族快照 / 链模板）
+
+| 层 | 落盘 | 谁写 | 谁读 |
+|---|---|---|---|
+| **模板**（template） | `doc.settings`（形状不变） | 二级菜单改动（同步）、程序化 `setSetting(id,value)`（无 sessionId） | 新家族初始化的继承源；`settingsView()` 无参 / `dualAgent.settings` 仍回它 |
+| **家族快照**（family settings） | `doc.families[rootId] = { settings: {guidance,verify,models}, since }` | 二级菜单改动带 sessionId 时写**该家族**快照 + 同步模板；武装时刻 `initFamily` 从模板物化 | `settingsFor(sessionId)`：家族有快照回快照、无回模板；**只读不物化**（/status 8s 轮询绝不写盘） |
+| **链模板**（chain template） | `doc.chainTemplate = { candidates, countAuxiliary, countTowardPool } \| null` | **只由二级菜单 op 驱动**（add-candidate / candidate-±/remove/unlimited / 记账开关 → 落模板；clear-chain → null；reset-counters 不动）；程序化 `chain.set` 不碰 | 新家族武装时无自己的链 → `chain.setChain` 复制一份（计数天然归零，不落用量） |
+
+- **家族 = 根会话**：沿 `session.header.parentSession` 上溯（等价 dg-chain 的
+  `lineageRoot` 语义，直接复用），子代理与其父会话同家族；取不到血缘回退 sessionId。
+- **STATE_VERSION 保持 3**：`families`/`chainTemplate` 是纯增量键，旧文件没有就
+  读成空表/null；读入时净化——形状不对的家族条目/链模板整条丢弃，不抛。
+- **家族上限 200**：超出按 `since`（每次写入刷新，LRU 口径）淘汰最旧。
+- **初始化（initFamily，幂等）只发生在武装时刻**：`transition` 的 arm、`ensureRun`
+  的恢复分支、`adoptChild` 接管、`autoArmForNewSessions`，以及插件装载时对落盘里
+  已有 armed/running 记录的升级遍历（旧版本升级后首次加载即完成家族初始化）。
+- **写入口双口径**：`setSetting(id, value, sessionId)` 带 sessionId → 该家族快照 +
+  同步模板 + **只对该会话**定点重装 enforce/段；不带 sessionId（程序化/e2e 沙箱
+  兼容口径，`dualAgent.setSetting` 键名形状不变）→ 旧语义：模板 + **所有**家族
+  快照 + 全部 runs 重装。
+- **消费点全部按会话取**：chain 的 `gate(rootId)`、enforce deps 的
+  `settings(sessionId)`（dg-enforce 的 `settingsOf`/`allowSetFor`/guard 回调/
+  `install`/`describe` 全部带 sessionId）、`shapeSections`、`hatchExecutor` 的核验
+  开关、`runVerify`、orchestrate 门、delegation 核验门、`statusOf`（含 note 追加段）、
+  transition 武装日志。`autoArmForNewSessions` 保持读模板（诊断/行配置性质）。
+- `STATUS_VERSION` 之外的版本纪律照旧：入口换 `entry-v21.js`（`?v=dg-2`），四个
+  `dg-*.js` 的 import specifier 一起 bump（宿主按完整 URL 缓存 ESM，见坑 #10）。
+- 自测新增 **H 系列 29 条**（guidance-selftest）：家族物化/隔离互不影响/血缘/全局
+  兼容口径/跨重载持久/模板回退不物化/链模板继承与 clear/reset/程序化边界/升级
+  遍历/上限淘汰/畸形净化。

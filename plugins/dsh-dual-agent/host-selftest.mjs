@@ -1,6 +1,11 @@
 // dsh-dual-agent v2 host 自测：fake ctx + fake subagents 驱动 v2 状态机。
 // 覆盖：armed→running→evaluation、手动停止不评估、主动停止评估、
 // off↔armed↔running 全迁移、孵化失败回退、恢复降级、消息形态与来源过滤。
+// v4（2026-11-03 合并为「双智能指导」）：入口换 entry-v20；inject 变为
+// ['agents','tools']，fake ctx 必须交出 tools 注册面（guard/schemas/get/restrict），
+// 每个 fake agent 也要有 ctx.tools 与 ctx.systemPrompt.section；新增 /menu 路由、
+// llm 服务查找、v3 状态文件（带 settings/chains，旧 v2 文件必须仍能装载）、
+// 武装会话多出 dual-guidance:enforce 行为段、评估消息尾部拼【程序核验】块。
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,7 +19,8 @@ const check = (label, condition) => {
 // ── fake 基座 ───────────────────────────────────────────────────────────────
 
 /** host 半边当前发布的入口（换 entry 文件名 = 强制热更；自测必须跟它走）。 */
-const ENTRY = './entry-v19.js';
+// v21: 家族隔离版发布的是 entry-v21（v20 的全局共享设置时代结束）。
+const ENTRY = './entry-v21.js';
 
 /** 往 fake 会话里补一个已提交事件（seq 自动递增）。 */
 const appendEvent = (agent, event) => {
@@ -27,6 +33,83 @@ const appendEvent = (agent, event) => {
 /** 在 fake 会话里落一个「上一个回合」的结局（completed / error）。 */
 const seedTurnEnd = (agent, reason) => appendEvent(agent, { type: 'turn/end', data: { turn: 1, reason } });
 const SYSTEMIC_ERROR = { message: 'provider "our-free-model" model "deepseek-ai/deepseek-v4.1-flash" does not support reasoning effort "max"', code: 'UNSUPPORTED_REASONING_EFFORT' };
+
+// ── v4: fake tools 注册面 ─────────────────────────────────────────────────────
+// 合并版 inject=['agents','tools']：dg-enforce 在 apply 时就调 ctx.tools.guard(…)
+// 注册权威拦阻，statusOf/enforce.describe 会调 ctx.tools.schemas()，
+// hideMainTools 路径还会用 get(name)/agent.ctx.tools.register/restrict。
+// 这里建一个够忠实的模型：每个作用域一份 hidden Set + 一份 own 注册表；
+// schemas(scope) = 全局清单减去本作用域 hidden 再加上本作用域 own 注册
+// （对齐「own layer 的注册不受祖先 restriction 过滤」）；restrict({deny}) 改
+// hidden 并回 disposer；guard(fn) 收进 __guards —— 本文件按 unit 口径直接调
+// 被捕获的 guard（见 v4 smoke 块），不模拟内核的工具执行。
+
+/** 假全局工具清单：覆盖 dg-enforce 三张名单（CORE/READONLY/NEVER）+ 常见动手面。 */
+const FAKE_GLOBAL_TOOLS = [
+  'pwsh', 'bash', 'admin_exec', 'write', 'edit', 'create_worktree',
+  'terminal_open', 'terminal_send', 'terminal_signal', 'terminal_close',
+  'subagent', 'subagent_fork', 'workflow', 'ralph',
+  'list_agents', 'interrupt_agent', 'send_message',
+  'ask_user_question', 'exit_plan_mode',
+  'todo_write', 'create_goal', 'get_goal', 'update_goal',
+  'job_list', 'job_output', 'job_kill',
+  'read', 'read_image', 'grep', 'glob', 'working_directory', 'skill', 'present',
+  'list_mcp_resources', 'read_mcp_resource', 'project_list', 'project_active',
+  'terminal_list', 'terminal_read',
+  'web_search', 'advanced_search', 'research',
+];
+
+function makeToolsSurface() {
+  const hidden = new Set();
+  const own = new Map(); // own-layer registrations: name -> definition
+  const guards = [];
+  return {
+    __hidden: hidden,
+    __own: own,
+    __guards: guards,
+    guard(fn) {
+      guards.push(fn);
+      return () => { const at = guards.indexOf(fn); if (at >= 0) guards.splice(at, 1); };
+    },
+    schemas() {
+      const names = new Set(FAKE_GLOBAL_TOOLS.filter((name) => !hidden.has(name)));
+      for (const name of own.keys()) names.add(name);
+      return [...names].map((name) => ({ name }));
+    },
+    get(name) {
+      if (own.has(name)) return own.get(name);
+      if (FAKE_GLOBAL_TOOLS.includes(name)) return { name, description: `fake tool ${name}` };
+      return undefined;
+    },
+    register(definition) {
+      const name = String(definition?.name ?? '');
+      if (name === '') throw new Error('fake tools.register: 缺 name');
+      own.set(name, definition);
+      return () => { own.delete(name); };
+    },
+    restrict({ deny = [] } = {}) {
+      const added = [];
+      for (const name of deny) if (!hidden.has(name)) { hidden.add(name); added.push(name); }
+      let lifted = false;
+      return () => {
+        if (lifted) return;
+        lifted = true;
+        for (const name of added) hidden.delete(name);
+      };
+    },
+  };
+}
+
+/** v4: fake ctx.get('llm') 的模型目录（dg-chain 的 catalog / resolveModelInfo 用它）。 */
+const makeFakeLlm = () => ({
+  listProviders: () => [{ id: 'p1', name: 'P1' }],
+  listConfigurableProviders: () => [],
+  listModels: async (provider) => [{ provider, id: 'm-a', name: 'Model A' }],
+  resolveModelInfo: async (provider, model) => ({
+    provider, id: model, name: model,
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }] },
+  }),
+});
 
 function makeAgent(id) {
   const listeners = new Map(); // 事件名 → Set<listener>
@@ -69,6 +152,9 @@ function makeAgent(id) {
       systemPrompt: {
         section(definition) { sections.push(definition); return () => {}; },
       },
+      // v4: dg-enforce 的 hideMainTools/restoreForChild 路径要 agent.ctx.tools
+      // （register/schemas/restrict）；每个 agent 一份独立作用域。
+      tools: makeToolsSurface(),
     },
     __sections: sections,
     __followups: followups,
@@ -90,12 +176,18 @@ function makeCtx(agentsById, subagentsApi, extraServices = {}) {
   // 所以这里收在 ctx 级；agent.__emitEvent 委托到这里。
   const sessionEvents = [];
   const provided = new Map();
+  // v4: 合并版 inject=['agents','tools'] —— apply 时 dg-enforce 立刻 ctx.tools.guard(…)
+  // 注册权威拦阻（guards 捕获在 __guards，测试直接调用它们），statusOf/enforce.describe
+  // 每轮读 ctx.tools.schemas()。
+  const tools = makeToolsSurface();
+  const llm = makeFakeLlm();
   return {
     __routes: routes,
     __disposed: disposed,
     __created: created,
     __sessionEvents: sessionEvents,
     __provided: provided,
+    tools,
     logger: { info() {}, warn() {}, debug() {} },
     // 真实 Cordis 的 ctx 总有 provide；fake 记下它，供 E2E 经 get('dualAgent') 取用。
     provide(name, value) { provided.set(name, value); },
@@ -105,12 +197,15 @@ function makeCtx(agentsById, subagentsApi, extraServices = {}) {
       if (name === 'agent/created') created.push(listener);
       if (name === 'subagent/end') subEnd.push(listener);
       if (name === 'session/event') sessionEvents.push(listener);
+      // v4: 合并版新注册的事件面（agent/request、agent/request-error、llm/stream、
+      // system-prompt/assemble）本文件不发射，收到注册即可，别让它抛。
       return () => {};
     },
     __emitDisposed(agent) { for (const l of disposed) l({ agent }); },
     __emitSubagentEnd(info) { for (const l of subEnd) l(info); },
     agents: {
       get(id) { return agentsById.get(id); },
+      list: () => [...agentsById.values()], // v4: listChildIds 的兜底遍历
       withoutInitiator(fn) { return fn(); },
     },
     get(key) {
@@ -118,6 +213,11 @@ function makeCtx(agentsById, subagentsApi, extraServices = {}) {
       // 插件不再 inject webServer，改用 ctx.get('webServer') 可选查找；
       // fake 必须在这里把它的 webServer 交出去，否则路由挂不上、测试全 404。
       if (key === 'webServer') return this.webServer;
+      // v4: 合并版新增的可选查找键——llm（模型目录/元数据）、agents（链的血缘上溯）、
+      // tools（hideFromMain 的兜底取面）。
+      if (key === 'llm') return llm;
+      if (key === 'agents') return this.agents;
+      if (key === 'tools') return this.tools;
       // 自测用附加服务（sessionQuery：重载后读回已结束执行者的报告）。
       if (extraServices[key] !== undefined) return extraServices[key];
       // E2E / 自测经 ctx.get('dualAgent') 取可编程面（provide 注册的服务）。
@@ -171,6 +271,9 @@ function fakeSubagents(hatchImpl, options = {}) {
       if (p !== undefined) { pending.delete(childId); p.reject(err); }
     },
     interrupt(childId, authority) { calls.push({ interrupt: childId, authority }); },
+    // v4: dg-verify 的 session_tool 核验用 listChildren 枚举子会话（只有报告真带了
+    // 证据块才会走到；本文件的假报告不带证据，空数组即可）。
+    listChildren: async () => [],
     // 只 stub 服务面上真实存在的方法（见 cordis_inspect 的 subagents 方法清单）。
     // 故意不提供 queuePrompt —— 它不存在于服务面，stub 它会让「转达」在自测里
     // 假装成功、在生产上抛 TypeError。
@@ -230,7 +333,9 @@ async function startPlugin(stateFile, agentsById, subagentsApi, extraServices = 
   // 用**当前发布的入口文件**自测：和宿主真实加载路径一致。
   const pluginUrl = new URL(ENTRY, import.meta.url);
   const { apply } = await import(`${pluginUrl.href}?v=${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  apply(ctx, { stateFile });
+  // v4.1：旧编排（挑刺者/执行者回传）默认已关；本工装测的正是那套旧流水线，
+  // 所以显式打开 orchestrate（用户可见的默认值另有断言覆盖）。
+  apply(ctx, { stateFile, guidance: { orchestrate: true } });
   // 路由是**懒注册**的（等 webServer 服务出现，见 index.js whenWebServer）：
   // fake ctx 里 webServer 立即可见，但仍需一个宏任务让注册完成。
   await new Promise((r) => { setTimeout(r, 5); });
@@ -270,8 +375,12 @@ const stateFile = join(dir, 'dual-agent.json');
   check('arm returns 200 armed', result.status === 200 && result.json.action === 'armed');
   check('no child hatched on arm', sub.__calls.filter((c) => c.interrupt === undefined).length === 0);
   check('armed note tells user to type', typeof result.json.note === 'string' && result.json.note.includes('初始指令'));
-  check('two sections installed (critic+armed)', agent.__sections.length === 2);
+  // v4: 武装时除了挑刺者+待命两段，dg-enforce 还装第三段「dual-guidance:enforce」
+  //（主智能只判断的行为说明段），一次点击 = 三段。
+  check('three sections installed (critic+armed+enforce)', agent.__sections.length === 3);
   check('sections have finite order', agent.__sections.every((s) => Number.isFinite(s.order)));
+  check('armed session installs dual-guidance:enforce section',
+    agent.__sections.some((s) => s.name === 'dual-guidance:enforce'));
 }
 
 // ② 用户键入初始指令 → 孵化执行者 + 转达主上下文（不评估）
@@ -318,6 +427,13 @@ const stateFile = join(dir, 'dual-agent.json');
   check('evaluation injected on natural stop', evalMsg !== undefined);
   check('evaluation names child and reason', evalMsg !== undefined && evalMsg.content[0].text.includes('child-1') && evalMsg.content[0].text.includes('completed'));
   check('evaluation message is producer-sourced', evalMsg.role === 'user' && evalMsg.source.kind === 'plugin:dsh-dual-agent');
+  // v4: deliverCritic 改 async——先跑确定性核验再拼消息。评估消息仍以【挑刺者评估】
+  // 开头（孵化前缀防御与 UI 契约都认这个前缀，位置不能动），尾部多出一节
+  // 【程序核验】（fake 报告不带证据块，该节如实写「没有可核对的条目」）。
+  check('evaluation still starts with 挑刺者评估 marker',
+    evalMsg !== undefined && evalMsg.content[0].text.startsWith('【挑刺者评估】'));
+  check('evaluation embeds 程序核验 block',
+    evalMsg !== undefined && evalMsg.content[0].text.includes('【程序核验】'));
   const status = await call(ctx, '/dsh-dual-agent/status?sessionId=s3', 'GET');
   check('back to armed after evaluation', status.json.phase === 'armed');
 }
@@ -932,7 +1048,8 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
   const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s27', 'GET')).json;
   check('ghost running is no longer reported as executing', st.phase === 'armed', `phase=${st.phase}`);
   check('ghost status keeps the recorded child id for diagnosis', st.childId === 'gone-child', `child=${st.childId}`);
-  check('ghost status exposes the build marker', st.build === '3.5.1+preflight', String(st.build));
+  // v21: BUILD 随家族隔离版升到 4.1.0+family（诊断口径：确认进程里跑的是哪一版）。
+  check('ghost status exposes the build marker', st.build === '4.1.0+family', String(st.build));
   await sleep(40);
   const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
   check('ghost running converges to armed on disk',
@@ -1116,6 +1233,55 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
   const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s34', 'GET')).json;
   check('status note explains the suppressed evaluation',
     String(st.note).includes('没有注入评估轮'), String(st.note).slice(0, 60));
+}
+
+// ── v4 合并面 smoke（深度在 guidance-selftest.mjs，这里只保证合并版
+//     「装得上、拦得住、菜单在、消息形态对、老文件读得回」） ──────────────────
+
+// ㉞ tools 注入生效：guard 在 apply 时注册；武装根会话被精确拦、子代理放行；
+//     /menu 路由回 200 spec；关掉开关后 guard 立刻恢复惰性。
+{
+  const agent = makeAgent('g1');
+  const sub = fakeSubagents(async () => ({ childId: 'gc1' }));
+  const ctx = await startPlugin(stateFile, new Map([['g1', agent]]), sub);
+  const guard = ctx.tools.__guards[0];
+  check('v4 mounts with tools injected (guard captured)', typeof guard === 'function');
+  check('guard inert while session unarmed', guard({ agent, name: 'pwsh' }) === undefined);
+  await call(ctx, '/dsh-dual-agent/action', 'POST', { sessionId: 'g1', enabled: true });
+  const denial = guard({ agent, name: 'pwsh' });
+  check('guard denies non-allowlisted tool for armed root',
+    typeof denial === 'string' && denial.includes('pwsh') && denial.includes('交给子代理'), String(denial).slice(0, 60));
+  check('guard allows delegation tool for armed root', guard({ agent, name: 'subagent' }) === undefined);
+  // 子代理是干活的一方，绝不受约束（它自己的 id 不在武装簿上，guard 直接放行）。
+  const child = makeAgent('g1-child');
+  child.session.header = { parentSession: 'g1' };
+  check('guard allows the same tool for a child agent', guard({ agent: child, name: 'pwsh' }) === undefined);
+  // 二级菜单（GET spec）：内容由本插件出，通用件清单必须非空。
+  const menu = await call(ctx, '/dsh-dual-agent/menu?sessionId=g1', 'GET');
+  check('menu route answers 200 with items',
+    menu.status === 200 && Array.isArray(menu.json.items) && menu.json.items.length > 0, `status=${menu.status}`);
+  // 用户关开关 → 主智能必须恢复动手自由。
+  await call(ctx, '/dsh-dual-agent/action', 'POST', { sessionId: 'g1', enabled: false });
+  check('guard inert again after disarm', guard({ agent, name: 'pwsh' }) === undefined);
+}
+
+// ㉟ 状态文件 v3：{version:3, sessions, settings, chains} 形状；旧 v2 文件
+//     （没有 settings/chains）必须照常装载，首次重写升级为新形状。
+{
+  const sf = join(dir, 'v2-compat.json');
+  writeFileSync(sf, JSON.stringify({
+    version: 2,
+    sessions: { s90: { phase: 'armed', since: Date.now() - 5_000, updatedAt: Date.now() - 5_000 } },
+  }), 'utf8');
+  const agent = makeAgent('s90');
+  const ctx = await startPlugin(sf, new Map([['s90', agent]]), fakeSubagents(async () => ({ childId: 'c90' })));
+  const st = (await call(ctx, '/dsh-dual-agent/status?sessionId=s90', 'GET')).json;
+  check('v2 state file still restores an armed session', st.phase === 'armed', `phase=${st.phase}`);
+  await sleep(30); // status 排进微任务的 reconcile 已把盘重写
+  const onDisk = JSON.parse(readFileSync(sf, 'utf8'));
+  check('rewrite upgrades state to version 3 with settings/chains',
+    onDisk.version === 3 && Object.prototype.hasOwnProperty.call(onDisk, 'settings') && Array.isArray(onDisk.chains),
+    `version=${onDisk.version}`);
 }
 
 rmSync(dir, { recursive: true, force: true });
