@@ -10,10 +10,13 @@ DSH Desktop 设置 → 插件市场 → 添加数据源，粘贴官方市场索�
 https://raw.githubusercontent.com/Xraytest/exneo-useful-dsh-workshop/main/dsh-index.json
 ```
 
-> 仓库当前为 **private**：原先的 Cloudflare Pages 项目（`https://exneo-useful-dsh-workshop.pages.dev/dsh-index.json`）已随私有化下线，匿名拉取也不可用，raw 请求需自带 token。恢复 public 后重新 `wrangler pages deploy` 即可复原 Pages 两个端点。
+> **仓库当前为 private**：`git clone` 与 `raw.githubusercontent.com` 匿名拉取都要自带 token —— 市场能读到元数据，但**匿名安装会在拉取源码时失败**。要让市场真正对外可用，先把仓库转成 public。
+>
+> Cloudflare Pages 那套源是**独立部署、匿名可读**的，内容与本仓库同一次构建逐字节一致：`https://exneo-useful-dsh-workshop.pages.dev/marketplace.json`（format 1 索引）、`/dsh-index.json`（DSH Desktop 市场源）、`/index-source.json` + `/v1/plugins`（dsh-community-market 源）。
 
-- 托管在 Cloudflare Pages（直传项目，`wrangler pages deploy` 更新）；条目为 GitHub 安装（pinned commit + 子目录），无需发布 npm。
-- 插件更新后重新推送，再运行 `gen-dsh-index.mjs <repo目录> Xraytest/exneo-useful-dsh-workshop <新commit>` 重新生成 `dsh-index.json`，推送并重新部署 Pages，新版本才会进市场。
+- 索引托管在 Cloudflare Pages（直传项目，无 Git 集成）：`wrangler pages deploy <目录> --project-name exneo-useful-dsh-workshop --branch main`，需要带 `pages:write` 的凭据。该站点只发 JSON，访问根路径返回 404 属正常。
+- 条目本身走 GitHub 安装（pinned commit + 子目录），不发 npm。
+- 刷新顺序：改插件 → 推送到本仓库 → 重新生成 `marketplace.json` / `dsh-index.json` / `v1/plugins` 三个索引（`index-source.json` 与 `_headers` 通常不动）→ 一起 `wrangler pages deploy`，新版本才会进市场。索引生成脚本不进仓库，按 `dsh-index.json` 的 format 1 结构自行生成。
 - 另部署有一套 [dsh-community-market](https://github.com/anywhere-labs/dsh-desktop) 标准源：manifest [`index-source.json`](index-source.json) + 目录端点 [`v1/plugins`](v1/plugins)，[`_headers`](_headers) 为两者固定 `application/json`。
 
 ## 环境要求
