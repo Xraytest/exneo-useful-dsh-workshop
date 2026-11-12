@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
         'dialog.title': '工作区设置',
         'dialog.sub': '名称只是显示标签，不会重命名主路径文件夹。',
         'field.name': '工作区名称',
-        'field.namePlaceholder': '例如：数学课程',
+        'field.namePlaceholder': '例如：示例项目',
         'field.primary': '主路径',
         'field.paths': '支持的目录',
         'field.pathsHint': '这些目录与主路径同属一个工作区，会一并告知模型。',

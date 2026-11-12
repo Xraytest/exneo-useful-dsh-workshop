@@ -7,7 +7,7 @@
 
 ## 它解决什么
 
-DSH 原生模型里，每个会话只有**一个**工作目录（cwd）：`workingDirectory.get(session)` 返回单一绝对目录，相对路径都相对它解析；`resolveWorkspacePath(cwd, path)` 对绝对路径原样返回。跨多个目录协作（例如 `D:\WorkSpace` 主仓 + `mathbook` + `live2d_project`）时，模型只"看得见"cwd，需要你反复用绝对路径指点其它目录。
+DSH 原生模型里，每个会话只有**一个**工作目录（cwd）：`workingDirectory.get(session)` 返回单一绝对目录，相对路径都相对它解析；`resolveWorkspacePath(cwd, path)` 对绝对路径原样返回。跨多个目录协作（例如 `<workspace>` 主仓 + `proj-a` + `proj-b`）时，模型只"看得见"cwd，需要你反复用绝对路径指点其它目录。
 
 WorkSpacePlus 在这一层之上加了一个**项目层**：把若干目录归为一个项目，告诉模型"这些目录是一个项目"，从而让模型自然地跨主/次要路径工作。
 
@@ -22,8 +22,8 @@ WorkSpacePlus 在这一层之上加了一个**项目层**：把若干目录归�
     {
       "id": "uuid",
       "name": "WorkSpace",
-      "primaryPath": "D:\\WorkSpace",          // 唯一主路径（锚点）
-      "secondaryPaths": ["D:\\WorkSpace\\mathbook", "D:\\WorkSpace\\live2d_project"],
+      "primaryPath": "D:\\ProjRoot",          // 唯一主路径（锚点）
+      "secondaryPaths": ["D:\\ProjRoot\\proj-a", "D:\\ProjRoot\\proj-b"],
       "pinned": false,
       "createdAt": 1730000000000,
       "updatedAt": 1730000000000
@@ -62,7 +62,7 @@ WorkSpacePlus 在这一层之上加了一个**项目层**：把若干目录归�
 
 ## 为何不 import `@deepseek-ai/*`
 
-profile 安装的 bundle 是一个被 link 到 `D:\WorkSpace\plugins\workspace-plus` 的目录；Node 对该目录内 `index.js` 的裸标识符解析只会向上走 `D:\WorkSpace\...`，**看不到** app.asar 内 Harness 安装的 `node_modules`。首版 `import { defineTool } from "@deepseek-ai/dsh-tools"` 因此激活失败（`ERR_MODULE_NOT_FOUND`）。故本插件：
+profile 安装的 bundle 是一个被 link 到 `<workspace>\plugins\workspace-plus` 的目录；Node 对该目录内 `index.js` 的裸标识符解析只会向上走 `<workspace>\...`，**看不到** app.asar 内 Harness 安装的 `node_modules`。首版 `import { defineTool } from "@deepseek-ai/dsh-tools"` 因此激活失败（`ERR_MODULE_NOT_FOUND`）。故本插件：
 
 - 只用 `node:` 内建模块；
 - 不声明 `Config`（那会需要 `@deepseek-ai/schemastery`）；
@@ -154,10 +154,10 @@ DSH="$LOCALAPPDATA/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"
 # 1) 建隔离沙盒 profile（headless 模板），并确认插件已组合进去
 "$DSH" wspsandbox --from-default-profile headless --dump-config   # 见 "# == @local/workspace-plus"
 # 2) 把插件加入沙盒 profile
-"$DSH" plugin --profile wspsandbox add D:/WorkSpace/plugins/workspace-plus
+"$DSH" plugin --profile wspsandbox add <workspace>/plugins/workspace-plus
 # 3) 逻辑自测（用 dsh 自带 node，隔离 home）
 "$LOCALAPPDATA/Programs/DeepSeek Harness/resources/runtime/bin/node" \
-  D:/WorkSpace/plugins/workspace-plus/selftest.mjs
+  <workspace>/plugins/workspace-plus/selftest.mjs
 ```
 
 - 组合验证：`--dump-config` 显示 `workspace-plus` 行进入 `wspsandbox` 树。
@@ -174,13 +174,13 @@ DSH="$LOCALAPPDATA/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"
 - profile 依赖记录：`"@local/workspace-plus": "git+https://github.com/Xraytest/dsh-workspace-plus.git"`
 - 安装产物：`~/.dsh/profiles/desktop/node_modules/@local/workspace-plus`（git 检出副本，非 junction）
 
-发布/更新流程（开发副本 `D:\WorkSpace\plugins\workspace-plus` 即 git 工作区）：
+发布/更新流程（开发副本 `<workspace>\plugins\workspace-plus` 即 git 工作区）：
 
 ```bash
 # 1) 本地改动 → 提交并推送（必要时先升 package.json 版本号）
-git -C "D:/WorkSpace/plugins/workspace-plus" add -A
-git -C "D:/WorkSpace/plugins/workspace-plus" commit -m "..."
-git -C "D:/WorkSpace/plugins/workspace-plus" push
+git -C "<workspace>/plugins/workspace-plus" add -A
+git -C "<workspace>/plugins/workspace-plus" commit -m "..."
+git -C "<workspace>/plugins/workspace-plus" push
 
 # 2) 让本机 DSH 从 git 源重装（remove→install 才会加载新模块代）
 #    经 plugin_manager：remove_bundle @local/workspace-plus → install_bundle github:Xraytest/dsh-workspace-plus

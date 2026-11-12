@@ -20,7 +20,7 @@ const localAppData = process.env.LOCALAPPDATA ?? `${process.env.USERPROFILE ?? '
 const CANDIDATES = [
   process.argv[2] !== undefined && process.argv[2].startsWith('--') ? undefined : process.argv[2],
   `${localAppData}/Programs/DeepSeek Harness/resources/app.asar.unpacked/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js`,
-  'D:/WorkSpace/_tmp/dual-agent-v2/asar/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js',
+  '_tmp/dual-agent-v2/asar/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js',
 ].filter((path) => typeof path === 'string' && path !== '');
 
 const codecPath = CANDIDATES.find((path) => existsSync(path));

@@ -2,7 +2,7 @@
   "manifestVersion": "1.0.0",
   "providerId": "io.exneo.dsh-workshop",
   "name": "exneo-useful-dsh-workshop",
-  "description": "DSH 插件市场：36 个可安装 bundle 插件（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强），署名 ExNeo（eac-design-world 为 AGPL-3.0 上游署名）。",
+  "description": "DSH 插件市场：35 个可安装 bundle 插件（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强），署名 ExNeo（eac-design-world 为 AGPL-3.0 上游署名）。",
   "attribution": {
     "name": "ExNeo",
     "url": "https://github.com/Xraytest",
@@ -15,8 +15,8 @@
   },
   "query": {
     "supported": [],
-    "defaultLimit": 36,
-    "maxLimit": 36,
+    "defaultLimit": 35,
+    "maxLimit": 35,
     "sorts": []
   }
 }

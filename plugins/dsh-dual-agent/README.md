@@ -228,7 +228,7 @@ off ──开关拨开──► armed ──用户键入初始指令──► ru
 ## 验证（一键复跑）
 
 ```powershell
-node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs   # 4 项全跑，退出码即判定
+node <workspace>\_tmp\dual-agent-sandbox\run-checks.mjs   # 4 项全跑，退出码即判定
 ```
 基线：headless 92 断言 + GUI 组成 92 断言（全 10 场景）+ GUI HTTP 链路
 （arm/status/disarm 全 200）+ 真模型探针 13 断言，**4/4 全过**；摘要落

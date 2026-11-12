@@ -79,20 +79,20 @@ const check = (label, cond) => { if (cond) { pass++; console.log("  ok  -", labe
 console.log("== registered tools ==", [...tools.keys()].sort().join(", "));
 console.log("== registered contexts ==", contexts.map((c) => c.name).join(", "));
 
-// 1. create a project anchored at D:\WorkSpace with two secondary paths
+// 1. create a project anchored at D:\ProjRoot with two secondary paths
 const created = await call("project_create", {
   name: "WorkSpace",
-  primary_path: "D:\\WorkSpace",
-  secondary_paths: ["D:\\WorkSpace\\mathbook", "d:/workplace/live2d_project"], // mixed case + slash to test normalization
-}, sess("D:\\WorkSpace\\_tmp"));
+  primary_path: "D:\\ProjRoot",
+  secondary_paths: ["D:\\ProjRoot\\proj-a", "d:/other/proj-b"], // mixed case + slash to test normalization
+}, sess("D:\\ProjRoot\\_tmp"));
 const id = created.project?.id;
 console.log("CREATE_RAW=" + JSON.stringify(created));
 check("create returns id", typeof id === "string" && id.length > 0);
-check("primary normalized", created.project.primaryPath.endsWith("WorkSpace"));
+check("primary normalized", created.project.primaryPath.endsWith("ProjRoot"));
 check("secondary dedup/normalize (2)", created.project.secondaryPaths.length === 2);
 
 // 2. active project derived from cwd inside primary
-const active = await call("project_active", {}, sess("D:\\WorkSpace\\mathbook\\src"));
+const active = await call("project_active", {}, sess("D:\\ProjRoot\\proj-a\\src"));
 console.log("active ->", JSON.stringify(active));
 check("active matches project by cwd", active.project && active.project.id === id);
 
@@ -101,32 +101,32 @@ const none = await call("project_active", {}, sess("C:\\Windows"));
 check("active null outside project", none.project === null);
 
 // 4. add a relative secondary path (resolved against cwd)
-const added = await call("project_add_path", { id, path: "glb_illustrator" }, sess("D:\\WorkSpace"));
-check("add relative path resolved", added.project.secondaryPaths.some((p) => p.replace(/\\/g, "/").endsWith("/glb_illustrator")));
+const added = await call("project_add_path", { id, path: "proj-c" }, sess("D:\\ProjRoot"));
+check("add relative path resolved", added.project.secondaryPaths.some((p) => p.replace(/\\/g, "/").endsWith("/proj-c")));
 
 // 5. add duplicate secondary is idempotent
-const dup = await call("project_add_path", { id, path: "D:\\WorkSpace\\mathbook" }, sess("D:\\WorkSpace"));
-check("add duplicate idempotent", dup.project.secondaryPaths.filter((p) => p.replace(/\\/g, "/").endsWith("/mathbook")).length === 1);
+const dup = await call("project_add_path", { id, path: "D:\\ProjRoot\\proj-a" }, sess("D:\\ProjRoot"));
+check("add duplicate idempotent", dup.project.secondaryPaths.filter((p) => p.replace(/\\/g, "/").endsWith("/proj-a")).length === 1);
 
 // 6. add path equal to primary -> error
-const eq = await call("project_add_path", { id, path: "D:\\WorkSpace" }, sess("D:\\WorkSpace"));
+const eq = await call("project_add_path", { id, path: "D:\\ProjRoot" }, sess("D:\\ProjRoot"));
 check("add primary-as-secondary rejected", eq.code === "already_primary");
 
 // 7. set primary to a secondary; old primary becomes secondary
-const sp = await call("project_set_primary", { id, path: "D:\\WorkSpace\\mathbook" }, sess("D:\\WorkSpace"));
-check("set_primary swaps", sp.project.primaryPath.replace(/\\/g, "/").endsWith("/mathbook") && sp.project.secondaryPaths.some((p) => p.replace(/\\/g, "/").endsWith("/WorkSpace")));
+const sp = await call("project_set_primary", { id, path: "D:\\ProjRoot\\proj-a" }, sess("D:\\ProjRoot"));
+check("set_primary swaps", sp.project.primaryPath.replace(/\\/g, "/").endsWith("/proj-a") && sp.project.secondaryPaths.some((p) => p.replace(/\\/g, "/").endsWith("/ProjRoot")));
 
 // 8. remove a secondary path
-const rm = await call("project_remove_path", { id, path: "D:\\WorkSpace\\mathbook\\nope" }, sess("D:\\WorkSpace"));
+const rm = await call("project_remove_path", { id, path: "D:\\ProjRoot\\proj-a\\nope" }, sess("D:\\ProjRoot"));
 check("remove nonexistent secondary -> path_not_found", rm.code === "path_not_found");
 
 // 9. list + pinned sort
-await call("project_set_pinned", { id, pinned: true }, sess("D:\\WorkSpace"));
-const list = await call("project_list", {}, sess("D:\\WorkSpace"));
+await call("project_set_pinned", { id, pinned: true }, sess("D:\\ProjRoot"));
+const list = await call("project_list", {}, sess("D:\\ProjRoot"));
 check("list returns projects array", Array.isArray(list.projects) && list.projects.length === 1 && list.projects[0].pinned === true);
 
 // 10. unknown id error
-const nf = await call("project_add_path", { id: "nope", path: "D:\\x" }, sess("D:\\WorkSpace"));
+const nf = await call("project_add_path", { id: "nope", path: "D:\\x" }, sess("D:\\ProjRoot"));
 check("unknown project -> project_not_found", nf.code === "project_not_found");
 
 // 11. persistence file written and parseable
@@ -136,29 +136,29 @@ const onDisk = JSON.parse(readFileSync(dataFile, "utf8"));
 check("persisted has 1 project", onDisk.projects.length === 1 && onDisk.projects[0].name === "WorkSpace");
 
 // 12. system-prompt context renders non-empty for a session inside the project
-const ctxText = contexts[0].text({ agent: { session: sess("D:\\WorkSpace\\mathbook") } });
+const ctxText = contexts[0].text({ agent: { session: sess("D:\\ProjRoot\\proj-a") } });
 console.log("---- context text ----\n" + ctxText + "\n----------------------");
 check("context renders project block", typeof ctxText === "string" && ctxText.includes("Active project") && ctxText.includes("Primary path"));
 const ctxEmpty = contexts[0].text({ agent: { session: sess("C:\\Windows") } });
 check("context empty outside project", ctxEmpty === "");
 
 // 13. delete
-const del = await call("project_delete", { id }, sess("D:\\WorkSpace"));
+const del = await call("project_delete", { id }, sess("D:\\ProjRoot"));
 check("delete ok", del.deleted === true);
-const list2 = await call("project_list", {}, sess("D:\\WorkSpace"));
+const list2 = await call("project_list", {}, sess("D:\\ProjRoot"));
 check("list empty after delete", list2.projects.length === 0);
 
 // ---- workspace settings surface -------------------------------------------
 
 // 14. rename is a free-form label and never touches paths
-const created2 = await call("project_create", { name: "old", primary_path: "D:\\WorkSpace" }, sess("D:\\WorkSpace"));
-const renamed = await call("project_rename", { id: created2.project.id, name: "  鏁板璇剧▼  " }, sess("D:\\WorkSpace"));
-check("rename trims and applies", renamed.project.name === "鏁板璇剧▼");
+const created2 = await call("project_create", { name: "old", primary_path: "D:\\ProjRoot" }, sess("D:\\ProjRoot"));
+const renamed = await call("project_rename", { id: created2.project.id, name: "  Renamed Proj  " }, sess("D:\\ProjRoot"));
+check("rename trims and applies", renamed.project.name === "Renamed Proj");
 check("rename keeps primary path", renamed.project.primaryPath === created2.project.primaryPath);
 check("rename keeps secondary paths", renamed.project.secondaryPaths.length === created2.project.secondaryPaths.length);
-const blank = await call("project_rename", { id: created2.project.id, name: "   " }, sess("D:\\WorkSpace"));
+const blank = await call("project_rename", { id: created2.project.id, name: "   " }, sess("D:\\ProjRoot"));
 check("rename blank -> invalid_name", blank.code === "invalid_name");
-const renamedUnknown = await call("project_rename", { id: "nope", name: "x" }, sess("D:\\WorkSpace"));
+const renamedUnknown = await call("project_rename", { id: "nope", name: "x" }, sess("D:\\ProjRoot"));
 check("rename unknown -> project_not_found", renamedUnknown.code === "project_not_found");
 
 // 15. all four routes registered
@@ -179,28 +179,28 @@ check("same-origin with matching host passes", sameOriginRes.status === 200);
 // 18. POST /save creates a project anchored at a path
 const saved1 = await route("POST", "/workspace-plus/save", {
   body: JSON.stringify({
-    path: "D:\\WorkSpace\\mathbook",
-    name: "鏁板璇剧▼",
-    secondaryPaths: ["D:\\WorkSpace\\mathbook\\src", "D:\\WorkSpace\\mathbook", "d:/workplace/live2d_project/"],
+    path: "D:\\ProjRoot\\proj-a",
+    name: "Renamed Proj",
+    secondaryPaths: ["D:\\ProjRoot\\proj-a\\src", "D:\\ProjRoot\\proj-a", "d:/other/proj-b/"],
   }),
 });
 check("save route 200 + created", saved1.status === 200 && saved1.json.created === true);
 check("save drops primary from supported dirs", saved1.json.project.secondaryPaths.length === 2);
-check("save keeps the workspace path as primary", saved1.json.project.primaryPath.replace(/\\/g, "/").endsWith("/mathbook"));
+check("save keeps the workspace path as primary", saved1.json.project.primaryPath.replace(/\\/g, "/").endsWith("/proj-a"));
 check("save route returns the full list", Array.isArray(saved1.json.projects) && saved1.json.projects.length === 2);
 
 // 19. POST /save updates in place on a case/slash variant of the same path
 const saved2 = await route("POST", "/workspace-plus/save", {
-  body: JSON.stringify({ path: "d:/workspace/mathbook", name: "鏁板璇剧▼ v2", secondaryPaths: [] }),
+  body: JSON.stringify({ path: "d:/projroot/proj-a", name: "Renamed Proj v2", secondaryPaths: [] }),
 });
 check("save updates instead of duplicating", saved2.json.created === false && saved2.json.project.id === saved1.json.project.id);
-check("save replaces the supported-dir set", saved2.json.project.secondaryPaths.length === 0 && saved2.json.project.name === "鏁板璇剧▼ v2");
+check("save replaces the supported-dir set", saved2.json.project.secondaryPaths.length === 0 && saved2.json.project.name === "Renamed Proj v2");
 
 // 20. GET /workspace resolves both target kinds
 const unknownWorkspace = await route("GET", "/workspace-plus/workspace?workspaceId=w1");
 check("unknown workspace -> 404", unknownWorkspace.status === 404 && unknownWorkspace.json.error === "workspace_not_found");
 const byProject = await route("GET", `/workspace-plus/workspace?projectId=${saved1.json.project.id}`);
-check("workspace route by projectId", byProject.status === 200 && byProject.json.project.name === "鏁板璇剧▼ v2");
+check("workspace route by projectId", byProject.status === 200 && byProject.json.project.name === "Renamed Proj v2");
 const missingTarget = await route("GET", "/workspace-plus/workspace");
 check("workspace route without target -> 400", missingTarget.status === 400 && missingTarget.json.error === "missing_target");
 
@@ -216,7 +216,7 @@ check("bad body -> 500 with message", badBody.status === 500 && typeof badBody.j
 
 // 23. the rename made it to disk
 const onDisk2 = JSON.parse(readFileSync(dataFile, "utf8"));
-check("persisted rename", onDisk2.projects.some((p) => p.name === "鏁板璇剧▼ v2"));
+check("persisted rename", onDisk2.projects.some((p) => p.name === "Renamed Proj v2"));
 
 // 24. regression: routes must survive a webServer that appears AFTER apply.
 // The desktop host creates `webServer` once the plugin tree has applied, so a

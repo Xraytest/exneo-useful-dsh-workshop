@@ -32,7 +32,7 @@ whenIdle，绕开拆解窗口吞唤醒的坑）。
 
 ## 沙箱方案
 
-- `DSH_HOME = D:\WorkSpace\_tmp\dual-agent-sandbox\home`
+- `DSH_HOME = <workspace>\_tmp\dual-agent-sandbox\home`
 - 确定性离线 harness（不联网、不需凭据）：profile `e2e` = dsh-base + dsh-dual-agent
   + 驱动插件 dsh-dual-agent-e2e（同步注册假 LLM adapter `e2e-fake`）。一次进程内建
   真实父 Agent → `ctx.get('dualAgent').transition` 武装 → 人类 followup 任务 →
@@ -256,10 +256,10 @@ apply() 时刻 `ctx.get('webServer')` 为 **undefined**（webserver 条目后激
 ## 一键复跑
 
 ```powershell
-node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs              # 全部（4 项）
-node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs --headless   # 只要确定性 E2E
-node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs --gui        # GUI 组成 + HTTP 链路
-node D:\WorkSpace\_tmp\dual-agent-sandbox\run-checks.mjs --real       # 真模型探针（需额度）
+node <workspace>\_tmp\dual-agent-sandbox\run-checks.mjs              # 全部（4 项）
+node <workspace>\_tmp\dual-agent-sandbox\run-checks.mjs --headless   # 只要确定性 E2E
+node <workspace>\_tmp\dual-agent-sandbox\run-checks.mjs --gui        # GUI 组成 + HTTP 链路
+node <workspace>\_tmp\dual-agent-sandbox\run-checks.mjs --real       # 真模型探针（需额度）
 ```
 
 脚本自动：切 profile 驱动模式 → 起**新进程/新端口** → 抓 `E2E_RESULT`/报告 → 跑完
@@ -274,7 +274,7 @@ GUI HTTP 链路 arm/status/disarm 全 200 + 真模型 13）。
 用户指令（2026-11-03）：**「完成插件构建后先到沙盒里跑测试」**——合并版一律先在
 独立沙盒（`_tmp\dual-agent-sandbox\home` 作 DSH_HOME、真内核、假 adapter）里跑，
 全绿才动本机 live profile。沙盒里 e2e profile 的 `dsh-dual-agent` 是
-`link:D:/WorkSpace/plugins/dsh-dual-agent`，跑的正是待装的同一份源码。
+`link:<workspace>/plugins/dsh-dual-agent`，跑的正是待装的同一份源码。
 
 ## 五层覆盖
 

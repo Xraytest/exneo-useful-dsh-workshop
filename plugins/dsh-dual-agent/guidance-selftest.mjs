@@ -13,7 +13,7 @@
  * 约定：无框架；check(label, cond)；ok/FAIL 逐条打印；末尾 GUIDANCE SELFTEST PASS /
  * FAIL (n)；失败时非零退出。状态文件一律落 mkdtemp，并把 DSH_HOME 指到那里。
  *
- * 跑法：node D:\WorkSpace\plugins\dsh-dual-agent\guidance-selftest.mjs
+ * 跑法：node <workspace>\plugins\dsh-dual-agent\guidance-selftest.mjs
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

@@ -110,10 +110,10 @@ test('listSessions 对非法 limit 不限制而非退化成 1 条', () => {
 });
 
 test('describeSession 输出纯 JSON 摘要', () => {
-  const session = fakeSession('s1', { cwd: 'D:\\WorkSpace', parentSession: 'root', agentPreset: 'default', origin: 'subagent', delegationDepth: 1 });
+  const session = fakeSession('s1', { cwd: 'D:\\TestRoot', parentSession: 'root', agentPreset: 'default', origin: 'subagent', delegationDepth: 1 });
   const summary = describeSession(session, undefined);
   assert.equal(summary.id, 's1');
-  assert.equal(summary.cwd, 'D:\\WorkSpace');
+  assert.equal(summary.cwd, 'D:\\TestRoot');
   assert.equal(summary.parentSession, 'root');
   assert.equal(summary.agentPreset, 'default');
   assert.equal(summary.origin, 'subagent');

@@ -10,7 +10,7 @@ DSH Desktop 设置 → 插件市场 → 添加数据源，粘贴官方市场索�
 https://raw.githubusercontent.com/Xraytest/exneo-useful-dsh-workshop/main/dsh-index.json
 ```
 
-> **仓库当前为 private**：`git clone` 与 `raw.githubusercontent.com` 匿名拉取都要自带 token —— 市场能读到元数据，但**匿名安装会在拉取源码时失败**。要让市场真正对外可用，先把仓库转成 public。
+> 仓库为 **public**：`git clone` 与 `raw.githubusercontent.com` 均可匿名访问，市场条目可直接安装。
 >
 > Cloudflare Pages 那套源是**独立部署、匿名可读**的，内容与本仓库同一次构建逐字节一致：`https://exneo-useful-dsh-workshop.pages.dev/marketplace.json`（format 1 索引）、`/dsh-index.json`（DSH Desktop 市场源）、`/index-source.json` + `/v1/plugins`（dsh-community-market 源）。
 
@@ -56,7 +56,7 @@ dsh plugin --profile <profile> install
 
 ## 插件一览
 
-市场源现收录 36 个插件（`plugins/` 下另有 `dsh-ofm-compat` 宿主垫片，随 `dsh-our-free-model` 一起加载，不单独安装）：
+市场源现收录 35 个插件（`plugins/` 下另有 `dsh-ofm-compat` 宿主垫片，随 `dsh-our-free-model` 一起加载，不单独安装）：
 
 | 插件 | rowId | 分类 | 说明 |
 |---|---|---|---|
@@ -93,7 +93,6 @@ dsh plugin --profile <profile> install
 | [dsh-workspace-context](plugins/dsh-workspace-context) | `workspace-context` | 工作区 | 每个工作区一份常驻提示词，注入该工作区会话的 system prompt，可读写 |
 | [dsh-workspace-plugins](plugins/dsh-workspace-plugins) | `workspace-plugins` | 工作区 | 按工作区挂载普通 Cordis 插件，仅该工作区会话生效，会话结束卸载 |
 | [prts-omni-bridge](plugins/prts-omni-bridge) | `prts-omni-bridge` | 多设备 | 让 PRTS Omni Android 客户端经带令牌校验的本机 HTTP + WebSocket 桥接访问 DSH 的会话、智能体与工具，并注册工具 `prts_omni` |
-| [@dsh-external/dsh-blender-plugin](plugins/dsh-blender-plugin) | `dsh-blender-plugin` | 创作 | DSH × Blender 直连：15 个模型工具 + 34 family / 228 op 契约层（视口/持久内核/无头会话/作业/事务/装配/白模/QC/导出）。**BSD-3-Clause**，上游 sixtysevenlf/dsh-blender-plugin 的本地修改版，出处见 [UPSTREAM.md](plugins/dsh-blender-plugin/UPSTREAM.md) |
 | [@local/rea-mcp](plugins/rea-mcp) | `rea-mcp` | 工具 | REA 自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由 |
 | [@local/workspace-plus](plugins/workspace-plus) | `workspace-plus` | 工作区 | 把工作区当项目：一个主路径 + 多个次要路径，活动项目的完整路径集合注入会话上下文让模型跨目录读写；配项目工具与侧边栏/设置页面板 |
 
@@ -117,7 +116,7 @@ exneo-useful-dsh-workshop/
     │   ├── index.js              #   host 半边入口
     │   ├── client.js             #   浏览器半边（可选）
     │   └── ...
-    └── ...（共 37 个目录：36 个市场条目 + 1 个 ofm 宿主垫片）
+    └── ...（共 36 个目录：35 个市场条目 + 1 个 ofm 宿主垫片）
 ```
 
 ## ultracode 的新版实现
@@ -156,6 +155,5 @@ dsh plugin --profile <profile> add @goodandready/dsh-lanmode
 各插件按自己 `package.json` 的 `license` 授权，`marketplace.json` / `v1/plugins` 逐条记录：
 
 - 多数自研插件为 **MIT**；
-- `@dsh-external/dsh-blender-plugin` 为上游 **BSD-3-Clause**（[sixtysevenlf/dsh-blender-plugin](https://github.com/sixtysevenlf/dsh-blender-plugin)），本地修改版，出处见 [UPSTREAM.md](plugins/dsh-blender-plugin/UPSTREAM.md)；
 - `dsh-free-search` 为上游 **MIT**（[DDDMUC/dsh-free-search](https://github.com/DDDMUC/dsh-free-search)），镜像收录，出处见 [UPSTREAM.md](plugins/dsh-free-search/UPSTREAM.md)；
 - `eac-design-world` 为 **AGPL-3.0-or-later**（上游 [Ebony-Vinyl/EAC-design-world](https://github.com/Ebony-Vinyl/EAC-design-world)），见其目录内 LICENSE。

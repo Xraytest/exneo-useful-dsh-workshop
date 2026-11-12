@@ -5,8 +5,7 @@ This repository is licensed under the GNU Lesser General Public License v3.0
 (a modified fork of Ebony-Vinyl/EAC-design-world; see its own LICENSE).
 
 Third-party mirrors bundled under plugins/ keep their upstream licenses:
-plugins/dsh-blender-plugin is BSD-3-Clause (sixtysevenlf/dsh-blender-plugin),
-plugins/dsh-free-search is MIT (DDDMUC/dsh-free-search). Each carries an
+plugins/dsh-free-search is MIT (DDDMUC/dsh-free-search). It carries an
 UPSTREAM.md recording the upstream repository and the exact revision.
 
 ================================================================================

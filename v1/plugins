@@ -90,35 +90,6 @@
       "updatedAt": "2026-11-11T12:21:25.666Z"
     },
     {
-      "id": "dsh-blender-plugin",
-      "name": "@dsh-external/dsh-blender-plugin",
-      "displayName": "blender-plugin",
-      "summary": "DSH × Blender 直连：15 个模型工具 + 契约层（34 family / 228 op），覆盖视口取帧、持久内核 Python、交互式无头会话、作业层、事务回滚、装配/白模/QC/导出。上游 sixtysevenlf/dsh-blender-plugin（BSD-3-Clause）的本地修改版，出处见 UPSTREAM.md。",
-      "latestVersion": "2.6.2",
-      "license": "BSD-3-Clause",
-      "categories": [
-        "creative"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-blender-plugin"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "a279f0eadb0b075a004438a7e552f8ccdf3c4817"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
       "id": "dsh-device-mesh",
       "name": "dsh-device-mesh",
       "displayName": "device-mesh",
@@ -1048,6 +1019,6 @@
     }
   ],
   "page": {
-    "total": 36
+    "total": 35
   }
 }

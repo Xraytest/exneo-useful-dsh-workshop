@@ -96,7 +96,7 @@ Rows show display name, route id, protocol (plus `+n` when the route declares mo
 
 ```powershell
 New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-provider-alias" `
-  -Target "D:\WorkSpace\plugins\dsh-provider-alias"
+  -Target "<workspace>\plugins\dsh-provider-alias"
 ```
 
 Enable the entry in the Loader patch and restart it — the client bundle is read at Loader start, not by a live page. Removing the entry unregisters the routes in the same reload; stored keys stay.
