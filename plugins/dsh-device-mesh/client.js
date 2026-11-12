@@ -443,7 +443,7 @@ window.__ModuleLoader__.load({
     // ── 工作区归属：属主在别处的工作区不记在这台名下 ──────────────────────────
     //
     // 互联会话的 cwd 落在**属主那台**的路径上，于是会话端本机注册表也把这些工作区记了
-    // 一份（xray4668 报的那 4 个就是）。host 会给这类条目打上 `ownerDeviceId`
+    // 一份（user-a 报的那 4 个就是）。host 会给这类条目打上 `ownerDeviceId`
     // （声明的属主是另一台设备）；面板据此把工作区归到属主名下、把会话**合并**过去。
     // 没有这个字段 = 老 host 或本机就是属主 —— 两种都按「这台自己的」处理，
     // 所以没有声明的部署行为与改动前逐字一致。
@@ -476,7 +476,7 @@ window.__ModuleLoader__.load({
      * 合并同一个工作区在**所有设备**上的会话账目。
      *
      * 为什么必须合并：工作区归到属主名下之后，会话端那份账目如果没有跟过去，
-     * 「xray4668 的 1194 条会话」就会因为工作区被挪走而整段消失 —— 用户看到的是
+     * 「user-a 的 1194 条会话」就会因为工作区被挪走而整段消失 —— 用户看到的是
      * 工作区还在、里面的会话凭空少了一半。
      *
      * **只在确实有属主声明指向本设备时才合并**：没有声明（老 host / 纯本地部署）时返回
@@ -862,7 +862,7 @@ window.__ModuleLoader__.load({
               key: row.session.id || index,
               session: row.session,
               // 会话行上的「哪台」必须按**记录它的那台**说，不能按正在渲染的设备块 ——
-              // 否则 xray4668 的会话会顶着 orangepi5 的名字，看起来像在属主那台执行。
+              // 否则 user-a 的会话会顶着 node-b 的名字，看起来像在属主那台执行。
               deviceId: row.deviceId,
               self: row.self === true,
               tree: props.tree,
@@ -1247,7 +1247,7 @@ window.__ModuleLoader__.load({
           + "跨设备执行也只走这一条直连（「接入点的接入点」能看见、不能执行）。"),
         h("div", { key: "form", className: "dmesh-form" }, [
           h("input", { key: "l", className: "dmesh-in", placeholder: "名称", value: form.label, onChange: (e) => setForm({ ...form, label: e.target.value }) }),
-          h("input", { key: "u", className: "dmesh-in dmesh-in-wide", placeholder: "http://192.168.1.9:3080", value: form.url, onChange: (e) => setForm({ ...form, url: e.target.value }) }),
+          h("input", { key: "u", className: "dmesh-in dmesh-in-wide", placeholder: "http://203.0.113.9:3080", value: form.url, onChange: (e) => setForm({ ...form, url: e.target.value }) }),
           h("input", { key: "t", className: "dmesh-in dmesh-in-mono", placeholder: "令牌 id", value: form.tokenId, onChange: (e) => setForm({ ...form, tokenId: e.target.value }) }),
           h("input", {
             key: "s",
@@ -2291,7 +2291,7 @@ window.__ModuleLoader__.load({
       if (!wide) return null;
 
       // ── 去重：同一个工作区不许在列表里出现两遍 ────────────────────────────
-      // 设备网格的 workspaceId 是**跨设备共享**的（rpi 与本机注册表里
+      // 设备网格的 workspaceId 是**跨设备共享**的（node-a 与本机注册表里
       // DSHpluginWorkSpace 是同一条 db264e09…）。所以「远端设备也报了这个工作区」
       // 99% 的情况不是「那台机器上另有一个工作区」，而是**同一个工作区的另一份
       // 清单快照** —— 把它平铺进侧边栏，用户看到的就是同一行工作区出现两遍，

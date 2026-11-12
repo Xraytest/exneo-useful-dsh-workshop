@@ -45,9 +45,9 @@ function ok(value, label) {
   eq(value === true, true, label)
 }
 
-const SELF_OPI = { deviceId: 'a0d8c46c63f4f6e66b1b4dcc6ea14114', name: 'orangepi5' }
-const DEV_OPI = { deviceId: SELF_OPI.deviceId, name: 'orangepi5', self: true, liveness: 'online' }
-const DEV_RPI = { deviceId: 'bf7e92cf6de979871eb225736373ffc0', name: 'xray4668', self: false, liveness: 'online' }
+const SELF_OPI = { deviceId: 'a0d8c46c63f4f6e66b1b4dcc6ea14114', name: 'node-b' }
+const DEV_OPI = { deviceId: SELF_OPI.deviceId, name: 'node-b', self: true, liveness: 'online' }
+const DEV_RPI = { deviceId: 'bf7e92cf6de979871eb225736373ffc0', name: 'user-a', self: false, liveness: 'online' }
 const WS_PATH = '/root/DSHpluginWorkSpace'
 const WS_ID = 'db264e09-112c-478f-8bbd-f01baa20307c'
 const AT_PATH = '/root/nas/ArkTower'
@@ -122,7 +122,7 @@ const GROUPS_OWNER = [
     workspaceId: WS_ID,
     workspaceTitle: 'DSHpluginWorkSpace',
     orphan: false,
-    primary: { deviceId: SELF_OPI.deviceId, deviceName: 'orangepi5', path: WS_PATH, fromLiveRegistry: true, local: true, stale: false },
+    primary: { deviceId: SELF_OPI.deviceId, deviceName: 'node-b', path: WS_PATH, fromLiveRegistry: true, local: true, stale: false },
     members: [],
   },
   {
@@ -131,24 +131,24 @@ const GROUPS_OWNER = [
     workspaceId: AT_ID,
     workspaceTitle: 'ArkTower',
     orphan: false,
-    primary: { deviceId: SELF_OPI.deviceId, deviceName: 'orangepi5', path: AT_PATH, fromLiveRegistry: true, local: true, stale: false },
+    primary: { deviceId: SELF_OPI.deviceId, deviceName: 'node-b', path: AT_PATH, fromLiveRegistry: true, local: true, stale: false },
     members: [],
   },
 ]
 
 /** 真实镜像索引项（字段从 .19 的 index.json 摘的）。 */
 const REPLICAS = [
-  { deviceId: DEV_RPI.deviceId, sessionId: S1, cwd: WS_PATH, title: '', workspacePath: WS_PATH, sourceDeviceName: 'xray4668', firstSeq: 0, lastSeq: 1959, events: 1960, bytes: 9362868, createdAt: '2026-10-11T05:11:07.882Z', updatedAt: '2026-10-13T04:20:41.807Z' },
-  { deviceId: DEV_RPI.deviceId, sessionId: S2, cwd: WS_PATH, title: '', workspacePath: WS_PATH, sourceDeviceName: 'xray4668', firstSeq: 0, lastSeq: 507, events: 508, bytes: 1898036, createdAt: '2026-10-13T01:59:54.052Z', updatedAt: '2026-10-13T03:01:25.509Z' },
+  { deviceId: DEV_RPI.deviceId, sessionId: S1, cwd: WS_PATH, title: '', workspacePath: WS_PATH, sourceDeviceName: 'user-a', firstSeq: 0, lastSeq: 1959, events: 1960, bytes: 9362868, createdAt: '2026-10-11T05:11:07.882Z', updatedAt: '2026-10-13T04:20:41.807Z' },
+  { deviceId: DEV_RPI.deviceId, sessionId: S2, cwd: WS_PATH, title: '', workspacePath: WS_PATH, sourceDeviceName: 'user-a', firstSeq: 0, lastSeq: 507, events: 508, bytes: 1898036, createdAt: '2026-10-13T01:59:54.052Z', updatedAt: '2026-10-13T03:01:25.509Z' },
 ]
 
 /** 真实入站审计条目形状（direction=in）。 */
 const AUDIT = [
-  { id: 'df5272a7dcec', at: '2026-10-13T10:45:11.980Z', deviceId: DEV_RPI.deviceId, deviceName: 'xray4668', direction: 'in', actor: 'remote', path: WS_PATH, cwd: WS_PATH, command: 'tail -c +3870721 "/root/.dsh/sessions/--root-DSHpluginWorkSpace--/' + S1 + '/session.v4.jsonl.zstd" | head -c 184320 | base64 -w0', outcome: 'ok', exitCode: 0 },
-  { id: 'aa11', at: '2026-10-13T10:40:00.000Z', deviceId: DEV_RPI.deviceId, deviceName: 'xray4668', direction: 'in', actor: 'remote', path: WS_PATH, cwd: WS_PATH, command: 'git status --short', outcome: 'ok', exitCode: 0 },
-  { id: 'bb22', at: '2026-10-13T10:39:00.000Z', deviceId: DEV_RPI.deviceId, deviceName: 'xray4668', direction: 'in', actor: 'remote', path: WS_PATH, cwd: WS_PATH, command: 'sudo rm -rf /', outcome: 'denied', code: 'exec-denied' },
-  { id: 'dd44', at: '2026-10-13T10:38:30.000Z', deviceId: DEV_RPI.deviceId, deviceName: 'xray4668', direction: 'in', actor: 'remote', path: '/etc', cwd: '/etc', command: 'cat /etc/shadow', outcome: 'denied', code: 'path-not-exported' },
-  { id: 'cc33', at: '2026-10-13T10:38:00.000Z', deviceId: SELF_OPI.deviceId, deviceName: 'orangepi5', direction: 'out', actor: 'browser', path: WS_PATH, cwd: WS_PATH, command: 'echo 本机发出去的，不算入站', outcome: 'ok' },
+  { id: 'df5272a7dcec', at: '2026-10-13T10:45:11.980Z', deviceId: DEV_RPI.deviceId, deviceName: 'user-a', direction: 'in', actor: 'remote', path: WS_PATH, cwd: WS_PATH, command: 'tail -c +3870721 "/root/.dsh/sessions/--root-DSHpluginWorkSpace--/' + S1 + '/session.v4.jsonl.zstd" | head -c 184320 | base64 -w0', outcome: 'ok', exitCode: 0 },
+  { id: 'aa11', at: '2026-10-13T10:40:00.000Z', deviceId: DEV_RPI.deviceId, deviceName: 'user-a', direction: 'in', actor: 'remote', path: WS_PATH, cwd: WS_PATH, command: 'git status --short', outcome: 'ok', exitCode: 0 },
+  { id: 'bb22', at: '2026-10-13T10:39:00.000Z', deviceId: DEV_RPI.deviceId, deviceName: 'user-a', direction: 'in', actor: 'remote', path: WS_PATH, cwd: WS_PATH, command: 'sudo rm -rf /', outcome: 'denied', code: 'exec-denied' },
+  { id: 'dd44', at: '2026-10-13T10:38:30.000Z', deviceId: DEV_RPI.deviceId, deviceName: 'user-a', direction: 'in', actor: 'remote', path: '/etc', cwd: '/etc', command: 'cat /etc/shadow', outcome: 'denied', code: 'path-not-exported' },
+  { id: 'cc33', at: '2026-10-13T10:38:00.000Z', deviceId: SELF_OPI.deviceId, deviceName: 'node-b', direction: 'out', actor: 'browser', path: WS_PATH, cwd: WS_PATH, command: 'echo 本机发出去的，不算入站', outcome: 'ok' },
 ]
 
 // ── 场景 1：属主/执行端（.19）—— 人工声明 + 运行时证据 ─────────────────────────
@@ -157,7 +157,7 @@ const AUDIT = [
     self: SELF_OPI,
     devices: devicesOwnerSide(),
     pathGroups: GROUPS_OWNER,
-    roles: { [WS_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true }, [AT_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true } },
+    roles: { [WS_PATH]: { owner: 'node-b', session: 'user-a', mesh: true }, [AT_PATH]: { owner: 'node-b', session: 'user-a', mesh: true } },
     replicas: REPLICAS,
     auditEntries: AUDIT,
   })
@@ -167,7 +167,7 @@ const AUDIT = [
   eq(hit.owner.isSelf, true, '属主侧：owner 是本机（命令在这里跑）')
   eq(hit.owner.source, 'roles', '属主侧：owner 来自声明')
   eq(hit.session.isSelf, false, '属主侧：会话侧不是本机')
-  eq(hit.session.name, 'xray4668', '属主侧：会话侧设备名')
+  eq(hit.session.name, 'user-a', '属主侧：会话侧设备名')
   eq(hit.mesh, true, '属主侧：mesh 来自声明')
   eq(hit.remote, true, '属主侧：判定为「会话在远端执行」')
   eq(hit.active, true, '属主侧：有运行时证据')
@@ -178,7 +178,7 @@ const AUDIT = [
   eq(hit.evidence.inboundTotal, 3, '属主侧：本工作区的入站尝试总数')
   eq(hit.evidence.inboundExec + hit.evidence.inboundDenied, 3, '属主侧：out 方向的条目没被算进来')
   eq(hit.evidence.inboundLastAt, '2026-10-13T10:45:11.980Z', '属主侧：最近一次入站时间')
-  eq(hit.evidence.inboundDevices.join(','), 'xray4668', '属主侧：入站设备名去重')
+  eq(hit.evidence.inboundDevices.join(','), 'user-a', '属主侧：入站设备名去重')
   eq(hit.evidence.inboundLastCommand.startsWith('tail -c +3870721'), true, '属主侧：最近一条命令原文')
   eq(hit.evidence.inboundLastCommand.includes('/etc/shadow'), false, '属主侧：/etc 的拒绝不算进本工作区')
   eq(hit.remoteDevices.length, 1, '属主侧：报了这个工作区的对端设备 1 台')
@@ -190,7 +190,7 @@ const AUDIT = [
   eq(s1.source, 'exec', '属主侧：S1 有入站执行证据（命令原文里点到它）→ exec 优先')
   eq(s1.inbound, 1, '属主侧：S1 的入站执行次数')
   eq(s1.workspaceId, WS_ID, '属主侧：S1 归属到该工作区')
-  eq(s1.deviceName, 'xray4668', '属主侧：S1 的会话侧设备名')
+  eq(s1.deviceName, 'user-a', '属主侧：S1 的会话侧设备名')
   eq(s1.mirrorEvents, 1960, '属主侧：S1 的镜像事件数')
   const s2 = drivers.sessions.find((item) => item.sessionId === S2)
   ok(s2 !== undefined, '属主侧：会话 S2 有证据条目（只有镜像）')
@@ -214,13 +214,13 @@ const AUDIT = [
 // ── 场景 2：会话端（.3）—— 方向反过来，不能标成「会话在远端」 ────────────────
 {
   const drivers = computeDrivers({
-    self: { deviceId: DEV_RPI.deviceId, name: 'xray4668' },
+    self: { deviceId: DEV_RPI.deviceId, name: 'user-a' },
     devices: [
       { ...DEV_RPI, self: true, inventory: { workspaces: [{ id: WS_ID, path: WS_PATH, title: 'DSHpluginWorkSpace', sessions: [] }] } },
       { ...DEV_OPI, self: false, inventory: { workspaces: [{ id: WS_ID, path: WS_PATH, localMatch: { workspaceId: WS_ID, path: WS_PATH }, sessions: [] }] } },
     ],
-    pathGroups: [{ workspaceId: WS_ID, primary: { deviceId: DEV_OPI.deviceId, deviceName: 'orangepi5', path: WS_PATH, local: false } }],
-    roles: { [WS_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true }, [AT_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true } },
+    pathGroups: [{ workspaceId: WS_ID, primary: { deviceId: DEV_OPI.deviceId, deviceName: 'node-b', path: WS_PATH, local: false } }],
+    roles: { [WS_PATH]: { owner: 'node-b', session: 'user-a', mesh: true }, [AT_PATH]: { owner: 'node-b', session: 'user-a', mesh: true } },
     replicas: [],
     auditEntries: [],
   })
@@ -243,7 +243,7 @@ const AUDIT = [
   const hit = findDriver(drivers, { workspaceId: WS_ID })
   eq(hit.session.isSelf, false, '无声明：会话侧由 localMatch 推出，不是本机')
   eq(hit.session.source, 'inventory', '无声明：来源标 inventory')
-  eq(hit.session.name, 'xray4668', '无声明：会话侧设备名')
+  eq(hit.session.name, 'user-a', '无声明：会话侧设备名')
   eq(hit.mesh, false, '无声明：mesh 缺省 false（纯本地工作区）')
   eq(hit.remote, false, '无声明：**不标**远端执行（纯本地工作区一律本机落地）')
   eq(hit.active, false, '无声明且无证据：active 为 false（纯静态判定）')
@@ -255,7 +255,7 @@ const AUDIT = [
     self: SELF_OPI,
     devices: devicesOwnerSide(),
     pathGroups: GROUPS_OWNER,
-    roles: { [WS_PATH]: { owner: 'orangepi5', session: 'xray4668' } },
+    roles: { [WS_PATH]: { owner: 'node-b', session: 'user-a' } },
     replicas: REPLICAS,
     auditEntries: AUDIT,
   })
@@ -271,7 +271,7 @@ const AUDIT = [
     self: SELF_OPI,
     devices: devicesOwnerSide(),
     pathGroups: GROUPS_OWNER,
-    roles: { [WS_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: false } },
+    roles: { [WS_PATH]: { owner: 'node-b', session: 'user-a', mesh: false } },
     replicas: [],
     auditEntries: [],
   })
@@ -291,9 +291,9 @@ const AUDIT = [
         inventory: {
           workspaces: [{
             id: 'ffffffff-0000-0000-0000-000000000000',
-            path: '/root/only-on-rpi',
-            title: 'rpi 独有',
-            sessions: [{ id: S2, cwd: '/root/only-on-rpi', live: true }],
+            path: '/root/only-on-node-a',
+            title: 'node-a 独有',
+            sessions: [{ id: S2, cwd: '/root/only-on-node-a', live: true }],
           }],
         },
       },
@@ -303,7 +303,7 @@ const AUDIT = [
     replicas: [],
     auditEntries: [],
   })
-  const hit = drivers.workspaces.find((item) => item.path === '/root/only-on-rpi')
+  const hit = drivers.workspaces.find((item) => item.path === '/root/only-on-node-a')
   eq(hit.remote, false, '对端独有工作区：方向是反的，不标')
   eq(hit.owner.source, 'unknown', '对端独有工作区：属主未知（不猜）')
 }
@@ -314,13 +314,13 @@ const AUDIT = [
     self: SELF_OPI,
     devices: [DEV_OPI],
     pathGroups: [],
-    roles: { [WS_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true }, [AT_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true } },
+    roles: { [WS_PATH]: { owner: 'node-b', session: 'user-a', mesh: true }, [AT_PATH]: { owner: 'node-b', session: 'user-a', mesh: true } },
     replicas: [],
     auditEntries: [],
   })
   const hit = findDriver(drivers, { path: WS_PATH })
   ok(hit !== null, '离线声明：清单里没有也要有一条判定')
-  eq(hit.session.name, 'xray4668', '离线声明：名字仍然给出来')
+  eq(hit.session.name, 'user-a', '离线声明：名字仍然给出来')
   eq(hit.session.unresolved, true, '离线声明：标 unresolved，不假装在线')
   eq(hit.session.online, false, '离线声明：online=false')
   eq(hit.remote, true, '离线声明：仍然是远端会话（那台就是不在线而已）')
@@ -376,7 +376,7 @@ const AUDIT = [
     self: SELF_OPI,
     devices: devicesOwnerSide(),
     pathGroups: GROUPS_OWNER,
-    roles: { [WS_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true }, [AT_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true } },
+    roles: { [WS_PATH]: { owner: 'node-b', session: 'user-a', mesh: true }, [AT_PATH]: { owner: 'node-b', session: 'user-a', mesh: true } },
     replicas: [],
     auditFile: file,
   })

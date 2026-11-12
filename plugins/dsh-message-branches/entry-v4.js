@@ -98,7 +98,7 @@ function expandHome(value) {
   return value;
 }
 
-/** $DSH_HOME（本部署 = /home/xray4668/.dsh）。 */
+/** $DSH_HOME（本部署 = /home/user-a/.dsh）。 */
 export function dshHomeDir() {
   const home = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== '' ? process.env.DSH_HOME : join(homedir(), '.dsh');
   return resolve(expandHome(home));

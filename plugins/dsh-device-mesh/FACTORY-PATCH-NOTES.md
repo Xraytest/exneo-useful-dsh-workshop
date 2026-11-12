@@ -10,7 +10,7 @@
 —— 注册会抛 `single slot already has a registration`，换优先级注册则是**顶掉**
 出厂浏览器而不是并列。所以「远程工作区进主界面侧边栏」必须由工厂开一个槽。
 
-**补丁内容**（两处，均在本机 0.1.5-rc.3 与 rpi 0.2.0-rc.2 两份文件上分别打过，
+**补丁内容**（两处，均在本机 0.1.5-rc.3 与 node-a 0.2.0-rc.2 两份文件上分别打过，
 锚点不同、语义相同）：
 
 1. `WorkspaceBrowser` 所属 entry 的 `children` 声明里增加：
@@ -33,7 +33,7 @@
    并把 `renderSlot` 通过形参/调用点传进 `SessionTree` 与 `FlatList`（0.2.0-rc.2
    的这两个组件本来就带 `renderSlot` 形参，无需改签名）。
 
-   0.2.0-rc.2（rpi，列表容器是 `AnimatedRows`）：
+   0.2.0-rc.2（node-a，列表容器是 `AnimatedRows`）：
 
    ```js
    children: [groups.length === 0 && jsx(EmptySessions, {...}), groupRows,
@@ -51,7 +51,7 @@ overflow-y:auto`）。槽位挂在 `listArea` 之后 = 被钉在滚动区**下�
 
 **备份**：
 - 本机：`/tmp/workspace-client-local.bak`（另见插件目录 git 外的部署记录）
-- rpi：`/home/xray4668/workspace-client-0.2.0.bak`；
+- node-a：`/home/user-a/workspace-client-0.2.0.bak`；
   `client.js.bak-<日期时间>`（本次「进会话选择区」改动前的备份）
 
 **验证**：
@@ -65,15 +65,15 @@ overflow-y:auto`）。槽位挂在 `listArea` 之后 = 被钉在滚动区**下�
   远程设备名、工作区标题、网络标示紧跟工作区名称、会话行（含复制 id 的 tooltip）、
   `⇄设备` 会话标示、断连时的「（未连接）」升级。
 
-## 2. `@goodandready/dsh-lanmode/lib/{bridge,bridge-ws,dsh-auth-cookie}.js` —— rpi 持续重连
+## 2. `@goodandready/dsh-lanmode/lib/{bridge,bridge-ws,dsh-auth-cookie}.js` —— node-a 持续重连
 
-**现象**：浏览器访问 rpi 的 DSH（`http://192.168.1.3:3088`）无限「重新连接」，
+**现象**：浏览器访问 node-a 的 DSH（`http://203.0.113.3:3088`）无限「重新连接」，
 `/api/remote.mux` 的 WebSocket 升级恒 401。
 
 **根因**：lanmode 把每个上游请求的 Host 改写成 loopback（`127.0.0.1:3080`），
 而出厂 BrowserAuth 的 cookie 是**按 authority 绑定**的（cookie 名 = authority 的
 哈希，payload.authority 必须等于请求 authority）。0.8.40 的 `prepareClientHeaders`
-给浏览器发的 cookie 却按**浏览器的公网 authority**（`192.168.1.3:3088`）铸造；
+给浏览器发的 cookie 却按**浏览器的公网 authority**（`203.0.113.3:3088`）铸造；
 HTTP 路径还靠 `mergeDshAuthCookie` 把 loopback pair 补进上游请求（且它保留
 「第一个 dsh-auth cookie」，陈错的 LAN cookie 会顶掉 loopback pair），而 **WS 升级
 路径干脆原样转发浏览器的 cookie** —— 核心只认 loopback authority，于是 401。
@@ -93,37 +93,37 @@ cookie，所以本机 LAN 访问一直是好的。）
     pair 来源）。
 - `bridge-ws.js`：升级前对 `upgradeHeaders.cookie` 应用同一个替换。
 
-**备份**：`/home/xray4668/lanmode-bak-20261011/`（bridge.js / bridge-ws.js /
+**备份**：`/home/user-a/lanmode-bak-20261011/`（bridge.js / bridge-ws.js /
 dsh-auth-cookie.js 三个原件）。
 
 **验证**：`GET /` 200 且 set-cookie 为 loopback 名；带该 cookie 的
 `/api/remote.mux` 升级 → **101 Switching Protocols**；带陈错 LAN cookie 同样 101；
-rpi DSH 稳态 CPU 从 ~104%（生命周期均值）降到 ~11%。
+node-a DSH 稳态 CPU 从 ~104%（生命周期均值）降到 ~11%。
 
-## 3. `dsh-agent-instructions/lib/index.js` —— 跨设备 cwd 的 project-root 向上探测（仅 rpi）
+## 3. `dsh-agent-instructions/lib/index.js` —— 跨设备 cwd 的 project-root 向上探测（仅 node-a）
 
-**现象**：rpi 上任何会话（cwd 为 `/root/...`，真实工作树在 orangepi5）续跑时，
+**现象**：node-a 上任何会话（cwd 为 `/root/...`，真实工作树在 node-b）续跑时，
 `turn/start` 后立刻 `turn/end {kind:"error"}`：
 `EACCES: permission denied, realpath '/root/.git'`。
 
 **根因**：出厂的 `findProjectRoot` 从 cwd 逐级向上 realpath 找 `.git`
 （`DEFAULT_PROJECT_ROOT_MARKERS`）。`/root/DSHpluginWorkSpace/.git` 经设备网格路由到
-orangepi5（ENOENT → 正常跳过），再上一级的 `/root/.git` 落在任何已登记路径之外 →
-本机 realpath → `/root` 对 `xray4668` 不可穿越 → EACCES；`existsAsMarker` 只把
+node-b（ENOENT → 正常跳过），再上一级的 `/root/.git` 落在任何已登记路径之外 →
+本机 realpath → `/root` 对 `user-a` 不可穿越 → EACCES；`existsAsMarker` 只把
 `FS_NOT_FOUND` 当「不是标记」，其余错误**直接抛** → 整轮失败。
 
 **补丁**：`findProjectRoot` 对每个标记的探测包 try/catch；探测**答不出来**时
 （EACCES / 网格不可用 / …）就地在**当前层**停下，把最深的可读目录当 project root，
 而不是让整轮失败。语义上等价于「看不见更上一层，就认为这里就是根」。
 
-**备份**：`/home/xray4668/agent-instructions-index.js.bak`
+**备份**：`/home/user-a/agent-instructions-index.js.bak`
 
 **验证**：补丁后同一会话的 `turn/end` 不再是 error（`blocked` 只出现在**已归档**
 会话上，那是出厂设计：归档会话的 pre-step 会被拒）。
 
-## 4. rpi 部署侧修正：工作区路径必须在本机可 realpath
+## 4. node-a 部署侧修正：工作区路径必须在本机可 realpath
 
-**现象**：`迁移过去的对话处于错误地未分组状态` —— rpi 的侧边栏里 DSHpluginWorkSpace
+**现象**：`迁移过去的对话处于错误地未分组状态` —— node-a 的侧边栏里 DSHpluginWorkSpace
 的会话全部落进「未归入工作区」。
 
 **根因**（实测 `/tree` 之外还要看 `workspace/follow` 的 baseline）：
@@ -135,12 +135,12 @@ orangepi5（ENOENT → 正常跳过），再上一级的 `/root/.git` 落在任�
 get sessionIds() { return this.record.sessionIds.filter((id) => this.host.sessionPath(id) === this.record.path) }
 ```
 
-rpi 上 `/root` 是 `drwx------ root root`，`/root/DSHpluginWorkSpace` 也不存在 →
+node-a 上 `/root` 是 `drwx------ root root`，`/root/DSHpluginWorkSpace` 也不存在 →
 每个会话的 cwd realpath 失败 → `sessionPaths` 为空 → 账目被过滤成 0 条 →
 侧边栏全部未分组。同一启动期里账目表还被写坏过一次（只剩 1 条），已按
-orangepi5 的权威账目（10 条 − 同步后新建的 db8fec3f）恢复成 9 条。
+node-b 的权威账目（10 条 − 同步后新建的 db8fec3f）恢复成 9 条。
 
-**修正**（需要 root，rpi 上 `xray4668` 可用 docker）：
+**修正**（需要 root，node-a 上 `user-a` 可用 docker）：
 
 ```sh
 docker run --rm -v /:/host alpine sh -c '
@@ -151,29 +151,29 @@ docker run --rm -v /:/host alpine sh -c '
             /host/root/code /host/root/code/Stronghold-Protocol-NetworkUnion /host/root/code/rustdesk_server'
 ```
 
-四个目录是**空壳**：真实内容经设备网格路由到 orangepi5（附加路径 `prefer: true`
-保证同长并列时走 orangepi5），空壳只服务于出厂的 `node:fs` 检查（工作区账目、
+四个目录是**空壳**：真实内容经设备网格路由到 node-b（附加路径 `prefer: true`
+保证同长并列时走 node-b），空壳只服务于出厂的 `node:fs` 检查（工作区账目、
 新会话创建）。**不要把 `.git`、文件或数据放进这些空壳**。
 
 **验证**：`workspace/follow` baseline 报 9 / 50 / 2 / 2；可见顶层会话 20 条中 19 条
 归入工作区（唯一 1 条是 cwd=`/root/code` 的会话，本机同样如此）；重启后账目稳定。
 
-## 5. rpi DSH 日志落盘（诊断用，保留）
+## 5. node-a DSH 日志落盘（诊断用，保留）
 
 `~/.config/systemd/user/dsh.service` 增加：
 
 ```ini
-StandardOutput=append:/home/xray4668/dsh.log
-StandardError=append:/home/xray4668/dsh.log
+StandardOutput=append:/home/user-a/dsh.log
+StandardError=append:/home/user-a/dsh.log
 ```
 
 原来进程 stdout/stderr 是一个 socket，**读不到任何日志**（本会话排查时因此反复摸黑）。
-备份：`/home/xray4668/dsh.service.bak-20261011`。日志只追加、无轮转；不需要时
+备份：`/home/user-a/dsh.service.bak-20261011`。日志只追加、无轮转；不需要时
 删掉两行并 `systemctl --user daemon-reload` 即可。
 
-## 6. rpi 会话加载核查（2026-10-11）
+## 6. node-a 会话加载核查（2026-10-11）
 
-`rpi-session-tools.mjs loadcheck [--visible|--subagents|--all]` 按 GUI 的打开路径
+`node-a-session-tools.mjs loadcheck [--visible|--subagents|--all]` 按 GUI 的打开路径
 逐条探：`session/follow` 的开局帧 + 用开局帧的 address/throughSeq 拉一次
 `session/page`。
 
@@ -187,9 +187,9 @@ StandardError=append:/home/xray4668/dsh.log
 - 因此侧边栏的远程工作区**不列**子代理会话与已归档会话（与出厂
   `sessionVisible()` 一致）：列出来却点不开比不列更糟。
 
-## 7. `dsh-session-format-v3-to-v4/lib/index.js` —— 放行「完整消息表」形式的标题请求（仅 rpi）
+## 7. `dsh-session-format-v3-to-v4/lib/index.js` —— 放行「完整消息表」形式的标题请求（仅 node-a）
 
-**现象**：部分旧会话在 rpi 上**整条打不开**：
+**现象**：部分旧会话在 node-a 上**整条打不开**：
 `failed to observe session "…": Session migration from v3 to v4 refuses the transformed
 artifact: session/title-llm-request messages do not represent messageSeqs`。
 
@@ -204,7 +204,7 @@ artifact: session/title-llm-request messages do not represent messageSeqs`。
 **补丁**：`titleSources()` 里把「messages 不止一条、但每条都是合法消息对象」当作
 **合法遗留形状**放行（仍要求 messageSeqs 非空），其余形状照旧严格。
 
-**备份**：`/home/xray4668/session-format-v3-to-v4.js.bak-20261011`
+**备份**：`/home/user-a/session-format-v3-to-v4.js.bak-20261011`
 
 **注意**：这是出厂包（进程内缓存），改完**必须重启 dsh** 才生效。
 
@@ -227,7 +227,7 @@ node session-log-repair.mjs --fix        # 就地修复（先备份）
 
 结果：该会话修复后**能正常加载**（`session/follow` 出开局帧）。
 
-## 9. 侧边栏去重 + 网络标示（2026-10-11 续作，仅 orangepi5 已部署）
+## 9. 侧边栏去重 + 网络标示（2026-10-11 续作，仅 node-b 已部署）
 
 **要解决的问题**：工作区账目是**按设备克隆**的 —— 同一个工作区（同 id、同路径）在两台
 机器上都有账目，于是侧边栏把同一份工作区、同一批会话各列一遍（用户原话：「依然是同
@@ -277,7 +277,7 @@ curl -s http://127.0.0.1:3080/dsh-device-mesh/status   # importTag 应变成 mes
   row.mark 槽位注册 / 本机行拿到网络标示 / 无关工作区不加标示）。
 - `node selftest.mjs`：134 项 PASS。
 
-**未做**：rpi（0.2.0-rc.2）侧**还没同步这套改动** —— 它的 `entry-v20.js` 有
+**未做**：node-a（0.2.0-rc.2）侧**还没同步这套改动** —— 它的 `entry-v20.js` 有
 `session-pull`（拉回历史）但没有 `annotateLocalOverlap`，`client.js` 没有去重/标示，
 工厂 `client.js` 只打了 `sidebar.workspaces.remote`、没有 `sidebar.workspaces.row.mark`。
 
@@ -291,62 +291,62 @@ curl -s http://127.0.0.1:3080/dsh-device-mesh/status   # importTag 应变成 mes
 | 位置 | 内容 |
 | --- | --- |
 | opi 本机会话目录 `sessions/--root-DSHpluginWorkSpace--/<id>/session.v3.jsonl.zstd` | 855 行，止于 `seq 853 session/end-seed`（**旧**） |
-| opi 的 rpi 会话副本 `device-mesh/session-replica/bf7e92cf…/<id>.jsonl` | 1322 行，止于 `seq 1321 turn/end turn=9 TIMEOUT`（**就是 rpi 的新历史**） |
-| rpi 原始 `session.v4.jsonl.zstd` | 1323 行，同样的 `seq 1321` 结尾（**权威**） |
+| opi 的 node-a 会话副本 `device-mesh/session-replica/bf7e92cf…/<id>.jsonl` | 1322 行，止于 `seq 1321 turn/end turn=9 TIMEOUT`（**就是 node-a 的新历史**） |
+| node-a 原始 `session.v4.jsonl.zstd` | 1323 行，同样的 `seq 1321` 结尾（**权威**） |
 
 结论：新历史**已经拉到 opi 了**（session-replica 里就是它），但 opi 的会话存储/侧边栏
 读的是自己那份旧的 v3 日志 —— 副本是**只存储、不落地成会话**（`entry-v20.js` 里那处
 注释：写进 `session-replica/`，不创建会话、不跑 agent、不进会话账目）。
 
-`session-pull`（把对端历史拉回**本机会话**）只在 rpi 的 `entry-v20.js` 上实现
+`session-pull`（把对端历史拉回**本机会话**）只在 node-a 的 `entry-v20.js` 上实现
 （`route:session-pull` → `UI.sessionPull` POST），opi 侧没有。
 
-### 10.1 已按「opi 权威」执行重新派生（2026-10-11 23:03，仅 rpi）
+### 10.1 已按「opi 权威」执行重新派生（2026-10-11 23:03，仅 node-a）
 
-用户在 2026-10-11 明确策略：**opi 的权威，rpi 上的是 opi 转换来的**；分叉时以 opi 为准
-（明知 rpi 那份多出的续跑会被丢弃）。
+用户在 2026-10-11 明确策略：**opi 的权威，node-a 上的是 opi 转换来的**；分叉时以 opi 为准
+（明知 node-a 那份多出的续跑会被丢弃）。
 
 **影响面**（脚本 `/tmp/sync-impact.py`，只比文件大小/世代，不读内容）：
 
 | 分类 | 数量 | 含义 |
 | --- | --- | --- |
 | in-sync | 1179 | 两边同世代同大小 |
-| **rpi-extra** | **13** | rpi 多出一个 v4（迁移/续跑出来的）—— 唯一的冲突面 |
-| only-opi | 273 | rpi 整份没有（opi 当日新建的子代理会话等），rpi 经镜像仍可见 |
-| only-rpi | 1 | rpi 自建，opi 不拥有，不动 |
+| **node-a-extra** | **13** | node-a 多出一个 v4（迁移/续跑出来的）—— 唯一的冲突面 |
+| only-opi | 273 | node-a 整份没有（opi 当日新建的子代理会话等），node-a 经镜像仍可见 |
+| only-node-a | 1 | node-a 自建，opi 不拥有，不动 |
 
 **操作**（脚本 `/tmp/rederive-sessions.py`，缺省 dry-run，`--apply` 才动手；逐条先整目录备份）：
 
-1. 把 opi 的 `session.v3.jsonl.zstd` 覆盖到 rpi（2 条大小不同的：`session-48bf355a` 从
+1. 把 opi 的 `session.v3.jsonl.zstd` 覆盖到 node-a（2 条大小不同的：`session-48bf355a` 从
    417 B 补成 4 249 352 B、`session-6e107355` 从 4 550 459 B 补成 6 332 099 B）；
-2. 删掉 rpi 那个分叉的 `session.v4.jsonl.zstd`，让 rpi 下次观察时**按权威 v3 重新迁移**。
+2. 删掉 node-a 那个分叉的 `session.v4.jsonl.zstd`，让 node-a 下次观察时**按权威 v3 重新迁移**。
 
-备份：`rpi:/home/xray4668/.dsh-session-authority-bak-20261011-230311/<sessionId>/`
+备份：`node-a:/home/user-a/.dsh-session-authority-bak-20261011-230311/<sessionId>/`
 
 **验证**：
 
-- 重跑影响面脚本：`in-sync 1192 / rpi-has-v4 0`（当时的判定口径）。
-- `node rpi-session-tools.mjs loadcheck`（在 opi 上驱动 rpi 的
+- 重跑影响面脚本：`in-sync 1192 / node-a-has-v4 0`（当时的判定口径）。
+- `node node-a-session-tools.mjs loadcheck`（在 opi 上驱动 node-a 的
   `POST /api/session/follow` + `session/page`）：10 条可见会话 **10 ok / 0 failed**。
-- rpi 上已重新生成 v4：`session-8ee27c35` v3 1 033 098 → v4 678 100（旧的分叉 v4 1 127 695
-  已移除）；`session-48bf355a` v4 2 697 608（此前 rpi 只有 417 B 的空桩）。
+- node-a 上已重新生成 v4：`session-8ee27c35` v3 1 033 098 → v4 678 100（旧的分叉 v4 1 127 695
+  已移除）；`session-48bf355a` v4 2 697 608（此前 node-a 只有 417 B 的空桩）。
 
-**⚠ 判定口径的坑（2026-10-12 修正）**：rpi 是 0.2.0，**观察到一条 v3 会话就会生成 v4**
-（迁移），所以「rpi 上有 v4」本身**不是**分叉信号 —— 重启 / 打开会话都会造出 v4。
-`sync-impact.py` 里那一桶因此从 `rpi-extra` 改名为 **`rpi-has-v4`**，并在输出里写明要再用
-`check-v4-fidelity.py` 逐帧判。该脚本的判据是「rpi 的 v4 尾帧 seq == opi 权威 v3 尾帧 seq」：
+**⚠ 判定口径的坑（2026-10-12 修正）**：node-a 是 0.2.0，**观察到一条 v3 会话就会生成 v4**
+（迁移），所以「node-a 上有 v4」本身**不是**分叉信号 —— 重启 / 打开会话都会造出 v4。
+`sync-impact.py` 里那一桶因此从 `node-a-extra` 改名为 **`node-a-has-v4`**，并在输出里写明要再用
+`check-v4-fidelity.py` 逐帧判。该脚本的判据是「node-a 的 v4 尾帧 seq == opi 权威 v3 尾帧 seq」：
 
 - 9 条有 v4 的会话里 **4 条完全相等**（忠实迁移）；
 - **4 条只多 1 帧**，那一帧是 `session/end-seed`（打开会话时补的观察标记，时间戳正是
   我做 loadcheck 的时刻），前一条真实帧与 opi **逐字节相同** —— 也是忠实迁移；
-- 1 条（`session-c0c74ddc`）opi 侧没有 v3，是 rpi 自建会话，不归权威管。
+- 1 条（`session-c0c74ddc`）opi 侧没有 v3，是 node-a 自建会话，不归权威管。
 
-结论：**没有真分叉**；权威策略生效后 rpi 的 v4 都是 opi v3 的忠实迁移。
+结论：**没有真分叉**；权威策略生效后 node-a 的 v4 都是 opi v3 的忠实迁移。
 
 
-## 11. orangepi5 升级到 0.2.0-rc.2（2026-10-12）
+## 11. node-b 升级到 0.2.0-rc.2（2026-10-12）
 
-**目标**：opi 从 0.1.5-rc.3 升到与 rpi/本机一致的 0.2.0-rc.2（npm `latest`），
+**目标**：opi 从 0.1.5-rc.3 升到与 node-a/本机一致的 0.2.0-rc.2（npm `latest`），
 让两台在网格里跑同一套插件与同一版前端。
 
 **备份（可离线完整回滚）**：`/root/.dsh-upgrade-backups-20261012-054707/`
@@ -367,15 +367,15 @@ profile node_modules）/ `dsh-home-config.tgz` / `device-mesh-state.tgz`（身�
    bundle」，lanmode 被跳过 = 3088 局域网入口整个消失（本流程在旁路前缀里实测到过这条告警）。
 4. 出厂补丁 3 处（都在新装的包里）：
    - `@goodandready/dsh-lanmode/lib/{bridge,bridge-ws,dsh-auth-cookie}.js` —— §2 的 cookie
-     authority 修正。**先 md5 校验新装原件与 rpi 记录的 `orig/` 一致**（三个都一致），
-     再覆盖 rpi 的 patched 版 —— 等价于重打同一条补丁，而不是「拷一个不知道对不对的文件」。
+     authority 修正。**先 md5 校验新装原件与 node-a 记录的 `orig/` 一致**（三个都一致），
+     再覆盖 node-a 的 patched 版 —— 等价于重打同一条补丁，而不是「拷一个不知道对不对的文件」。
    - `dsh-client-ui-workspace/lib/client.js` —— `sidebar.workspaces.remote` +
-     `sidebar.workspaces.row.mark` 两个槽位（与 rpi 的 patched 版逐字节相同；原件 md5 也一致）。
+     `sidebar.workspaces.row.mark` 两个槽位（与 node-a 的 patched 版逐字节相同；原件 md5 也一致）。
    - `dsh-session-format-v3-to-v4/lib/index.js` —— §7 放行完整消息表标题形状（opi 的
      titleShape 有 14 个，这条必须打）。
 5. 插件差异文件（两台的插件目录 452 个文件本来就逐字节相同，只差这几处）：
    `dsh-device-mesh/{entry-v21.js,client.js,protocol.js,README.md,client-sidebar-selftest.mjs}`、
-   `dsh-settings-nav/{entry-v2.js,index.js,README.md}`（opi 向 rpi 拉）。
+   `dsh-settings-nav/{entry-v2.js,index.js,README.md}`（opi 向 node-a 拉）。
 6. patch 行（**同一行 id**）：`entry-v20.js → entry-v21.js`、`settings-nav/entry-v1.js → entry-v2.js`。
 7. `dsh --profile web --dump-config` 先组装校验（1462 行、device-mesh 在内、无报错）再起服务。
 
@@ -383,7 +383,7 @@ profile node_modules）/ `dsh-home-config.tgz` / `device-mesh-state.tgz`（身�
 
 | 项 | 结果 |
 | --- | --- |
-| `/dsh-device-mesh/status` | `ok=true importTag=mesh-20 device=orangepi5` |
+| `/dsh-device-mesh/status` | `ok=true importTag=mesh-20 device=node-b` |
 | 局域网入口 | `GET :3088/ → 303`；发下的 cookie 名与 loopback(3080) **同名**（`dsh-auth-VPhEEcLK…`） |
 | WebSocket `/api/remote.mux` | 正常 cookie → **101**；**陈错 authority 的 LAN cookie → 也是 101**（§2 那个 bug 不在） |
 | 网格 | 两个方向都 `state=joined`；另一台 `/tree` 里 opi `liveness=online` 且远端工作区带 `localMatch` |
@@ -391,8 +391,8 @@ profile node_modules）/ `dsh-home-config.tgz` / `device-mesh-state.tgz`（身�
 | 侧边栏 harness / 插件自测 | **18/18**（0 FAIL）/ **selftest 134 PASS** |
 | 启动日志 | 无 `skipping profile bundle` / 无兼容性告警（只剩 MODULE_TYPELESS 与 SQLite experimental 两条既有警告） |
 
-**已知未变**：opi 的 `agent-instructions` 没打 rpi 那条 `findProjectRoot` 补丁 ——
-rpi 需要它是因为它的 cwd 是 `/root/...` 而本机没有 `/root`；opi 自己就是 root，不适用。
+**已知未变**：opi 的 `agent-instructions` 没打 node-a 那条 `findProjectRoot` 补丁 ——
+node-a 需要它是因为它的 cwd 是 `/root/...` 而本机没有 `/root`；opi 自己就是 root，不适用。
 
 ## 12. 互联插件工作区样式收尾（2026-10-12，两台同改）
 
@@ -417,7 +417,7 @@ opi 上自带 firefox-esr，所以不需要装任何东西。
    `--dsh-workspace-indent: 12px`（现在是「项目行的图标」与「会话行的圆点」对齐）。
 
 **一次误判（记下来免得再犯）**：我先把 `.dmesh-rw-dev` 改成可收缩（`flex: 0 1 auto`），
-想让标题少截一点 —— 截图显示结果是 `DSHpluginW… ⇄ · xray…  ＋1`：标题本来就截不全，
+想让标题少截一点 —— 截图显示结果是 `DSHpluginW… ⇄ · user-a…  ＋1`：标题本来就截不全，
 再把设备名也截掉，这一行的可辨识信息就归零了。一行里四样东西（标题/网络标/设备名/计数）
 在窄侧边栏里必然有一样要截，优先级应是**计数 > 设备名 > 标题**（标题在上一行已经完整写了）。
 已回退，设备名恢复 `flex:none`。
@@ -429,38 +429,38 @@ opi 上自带 firefox-esr，所以不需要装任何东西。
 标题折叠有 `titleFoldBudget` 预算，超出预算的会话 `title: null`，UI 按设计**不拿 id 冒充标题**。
 要让它好看得改预算或换标题来源，属于功能取舍，这次没动。
 
-**顺带说明**：rpi 的 `client.js` **本来就有**一份更早的、客户端判据的去重
+**顺带说明**：node-a 的 `client.js` **本来就有**一份更早的、客户端判据的去重
 （用本机清单 `droppedSessions`/`localById` 自行判重合，见文件里「── 去重：同一个工作区
-不许在列表里出现两遍 ──」那段）。所以 rpi 侧不是「没有去重」，而是「判据在客户端」；
-opi 这套把判据挪到 host(`localMatch`) 并加了本机行的网络标示。要不要把 rpi 升级成
+不许在列表里出现两遍 ──」那段）。所以 node-a 侧不是「没有去重」，而是「判据在客户端」；
+opi 这套把判据挪到 host(`localMatch`) 并加了本机行的网络标示。要不要把 node-a 升级成
 host 判据的版本，是独立的取舍。
 
-### 10.2 rpi 侧也升到 host 判据（2026-10-12，三个文件）
+### 10.2 node-a 侧也升到 host 判据（2026-10-12，三个文件）
 
-用户选择「两个都做」后，把 opi 那套搬到 rpi：
+用户选择「两个都做」后，把 opi 那套搬到 node-a：
 
 | 文件 | 改动 | 备份 |
 | --- | --- | --- |
-| `profiles/web/plugins/dsh-device-mesh/entry-v21.js` | = `entry-v20.js` + `annotateLocalOverlap`（含文档注释）+ `buildTree` 里的调用。**没换 `?v=mesh-N` 标记**：只改入口、lib 一字节没动，新入口路径本身就够让 loader 重新求值 | `/home/xray4668/.dsh-backups-20261012-071003/` |
+| `profiles/web/plugins/dsh-device-mesh/entry-v21.js` | = `entry-v20.js` + `annotateLocalOverlap`（含文档注释）+ `buildTree` 里的调用。**没换 `?v=mesh-N` 标记**：只改入口、lib 一字节没动，新入口路径本身就够让 loader 重新求值 | `/home/user-a/.dsh-backups-20261012-071003/` |
 | `profiles/web/plugins/dsh-device-mesh/client.js` | 搬入 `/tree` 共享存储 + `useMeshTree` + `WorkspaceNetworkMark` + `row.mark` 注册（正确签名）；去重改为 **host 的 `localMatch`/`presentLocally` 优先**，缺省退回原有客户端判据 | `client.js.bak-hostdedup-20261012-120814` |
 | `dsh-client-ui-workspace/lib/client.js` | 工厂第 3 处补丁：`ProjectRowItem` 加 `renderSlot` 形参、`.title` 里跟在工作区名后渲染、调用点穿参、children 表声明 `sidebar.workspaces.row.mark`（kind:list, scope:root） | `~/workspace-client-rowmark-bak-20261012-120921.js` |
 | `profiles/web/cordis.patch.yml` | device-mesh 行 `name` → `entry-v21.js`（同一行 id） | `.dsh-backups-20261012-071003/cordis.patch.yml` |
 
-**踩到的坑（已修，值得记）**：第一版把 rpi 原有的 `droppedSessions > 0 → continue`
+**踩到的坑（已修，值得记）**：第一版把 node-a 原有的 `droppedSessions > 0 → continue`
 也搬进了 host 判据分支。后果是**整个远端区块不渲染**（`rows.length === 0` → 组件返回
 null）：两台的 DSHpluginWorkSpace 清单都恰好顶到 500 条上限，于是每个工作区都被当成
 「清单被截断、无法判断」整行跳过。`presentLocally` 是 host 按本机账目**逐条**判的，
 远端清单截断不影响结论 —— 这个护栏属于客户端判据，不该带进 host 分支。
 （是`verify-sidebar-section.mjs` 的 `FAIL: no workspace row rendered` 抓到的。）
 
-**激活方式与 opi 不同**：rpi 的 DSH **不热读** `cordis.patch.yml`（opi 会）。改完
+**激活方式与 opi 不同**：node-a 的 DSH **不热读** `cordis.patch.yml`（opi 会）。改完
 host 半边必须 `systemctl --user restart dsh`（`XDG_RUNTIME_DIR=/run/user/1000`）；
 client 半边与工厂补丁由浏览器刷新即可（服务端 bundle 已带 `rev` 校验）。重启前确认
-`rpi-session-tools.mjs list` 的 `running` 为 0，别打断在跑的会话。
+`node-a-session-tools.mjs list` 的 `running` 为 0，别打断在跑的会话。
 
 **验证（2026-10-12）**：
-- `python3 tree-summary.py`：rpi 的远端(opi)工作区全部带 `localMatch`。
-- `node ~/.dsh-remote-tools/verify-sidebar-section-rpi.mjs`：**18/18 全绿**
+- `python3 tree-summary.py`：node-a 的远端(opi)工作区全部带 `localMatch`。
+- `node ~/.dsh-remote-tools/verify-sidebar-section-node-a.mjs`：**18/18 全绿**
   （同一份 harness，只换了 CLIENT 路径与对端设备名断言；`＋N` 徽标与 opi 的
   「本机没有的 N 条」是同一件事，断言两种写法都接受）。
 - `node selftest.mjs`：**134 PASS**。
@@ -470,9 +470,9 @@ client 半边与工厂补丁由浏览器刷新即可（服务端 bundle 已带 `
 ### 10.3 供应商列表：补上 opi 后加的 `muse-spark-1.3`（2026-10-12）
 
 2026-10-11 的迁移只搬了当时那 6 个模型；opi 之后又加了 `muse-spark-1.3`
-（并且把 **opi 自己**的 `agent-default-model` 换成了它）。rpi 侧已补进
+（并且把 **opi 自己**的 `agent-default-model` 换成了它）。node-a 侧已补进
 `llm-pi-ai.providers.localhost.models`（现在 7 个，与 opi 一致），
-rpi 的 `agent-default-model` **保持 `step-5-preview` 不动**。
+node-a 的 `agent-default-model` **保持 `step-5-preview` 不动**。
 
 验证：`curl -s -X POST http://127.0.0.1:3088/api/session/modelCatalog -H 'content-type: application/json'
 --data-binary '{"type":"client-request","rpcId":"...","method":"session/modelCatalog","payload":{"args":{}}}'`
@@ -486,15 +486,15 @@ rpi 的 `agent-default-model` **保持 `step-5-preview` 不动**。
 
 **用户确认的模型**：工作区有「属主/执行侧」(owner) 与「会话侧」(session)。以
 `DSHpluginWorkSpace` 为例：**owner = opi（文件与命令真正跑在那台，也是会话行为的
-权威）**，**session = rpi（在那台驱动会话）**。规则是
+权威）**，**session = node-a（在那台驱动会话）**。规则是
 **所有会话行为先送权威判定，结果回来后才由会话侧应用**。
 
 ### P1：角色 + 方向标注
 
 | 改动 | 位置 |
 | --- | --- |
-| `sessionAuthority: orangepi5`（空 = 本机即权威） | `cordis.patch.yml` 网格行 config |
-| `workspaceRoles`：4 个工作区 `{ owner: orangepi5, session: xray4668 }` | 同上 |
+| `sessionAuthority: node-b`（空 = 本机即权威） | `cordis.patch.yml` 网格行 config |
+| `workspaceRoles`：4 个工作区 `{ owner: node-b, session: user-a }` | 同上 |
 | `/tree` 出参带 `tree.authority = {deviceId, name, isSelf, configured}` | 宿主 `entry-vNN.js` |
 | 标注**只在副本侧渲染**（`authority.isSelf !== false` 直接返回 null），文案改为「副本工作区：属主/执行侧是 X；本机的会话行为先送属主判定，结果回来后才应用」 | 出厂 `dsh-client-ui-workspace/lib/client.js` |
 
@@ -502,7 +502,7 @@ rpi 的 `agent-default-model` **保持 `step-5-preview` 不动**。
 自己的工作区也被画上 ⇄ 并写着「转发执行工作区」—— 而 opi 是那台的属主，用户指出
 这是错标。方向必须来自权威关系。
 
-验证：opi `isSelf=true`（不标）／rpi `isSelf=false`（标副本）；harness 加了
+验证：opi `isSelf=true`（不标）／node-a `isSelf=false`（标副本）；harness 加了
 「属主侧不画 / 副本侧画」两条断言。
 
 ### P2：状态面 + 动作鉴权 + 同步 + 拉取补洞
@@ -537,17 +537,17 @@ settle 后再走原本地路径（归档是集合写、幂等；提示与本地�
 
 | 场景 | 结果 |
 | --- | --- |
-| 副本发起归档 | rpi propose → 转发 opi（审计记 `by=xray4668` + ts/nonce）→ 回执 v2 → rpi 本地应用（47 条） |
+| 副本发起归档 | node-a propose → 转发 opi（审计记 `by=user-a` + ts/nonce）→ 回执 v2 → node-a 本地应用（47 条） |
 | 副本发起恢复 | 回执 v3 → 两边恢复（46 条）；测试会话还原为「未归档」 |
-| 权威发起归档 | opi v4；**40 秒内** rpi 同步为 v4/47 条并落注册表（log: `{kind:"sync", from:"orangepi5", version:4}`） |
-| 权威发起恢复 | opi v5；rpi 跟随 v5/46 条 |
+| 权威发起归档 | opi v4；**40 秒内** node-a 同步为 v4/47 条并落注册表（log: `{kind:"sync", from:"node-b", version:4}`） |
+| 权威发起恢复 | opi v5；node-a 跟随 v5/46 条 |
 | 拉取归档会话（原先 404） | HTTP 200，**3,936,333 字节 / 22 块**，落在 `--root-DSHpluginWorkSpace--` 正确 slug ✅ |
 | 回归 | harness **22 ok / 0 FAIL**、插件自测 **134 PASS**（两台）；`/tree`、`/session-state` 正常 |
 
 ### 备份与还原
 
 所有改动都带 `*.bak-p1-*` / `*.bak-p2-*` 备份（宿主入口、`protocol.js`、`client.js`、
-出厂 `client.js`）。入口版本：opi `entry-v26` / rpi `entry-v25`（编号各自独立，
+出厂 `client.js`）。入口版本：opi `entry-v26` / node-a `entry-v25`（编号各自独立，
 下次改动会自然收敛）。
 
 ### 尚未覆盖
@@ -560,8 +560,8 @@ settle 后再走原本地路径（归档是集合写、幂等；提示与本地�
 
 ## 14. 执行端标识：远端会话驱动检测（2026-10-13）
 
-**用户提出的问题**：在**会话端** rpi（192.168.1.3:3088）跑会话、**执行端** opi
-（192.168.1.19:3088）看界面时，opi 的侧边栏工作区上**没有任何标识**说明「这个工作区
+**用户提出的问题**：在**会话端** node-a（203.0.113.3:3088）跑会话、**执行端** opi
+（203.0.113.19:3088）看界面时，opi 的侧边栏工作区上**没有任何标识**说明「这个工作区
 的会话正在远端执行、可能把命令发到本机」。
 
 **根因**：§13 P1 为了修掉「属主侧被误标成转发执行工作区」，把属主/执行侧的标注
@@ -573,7 +573,7 @@ settle 后再走原本地路径（归档是集合写、幂等；提示与本地�
 | 文件 | 改动 |
 | --- | --- |
 | `drivers.js`（新） | `computeDrivers()`：判定哪些工作区的**会话侧不是本机**、有哪些运行时证据；`readAuditTail()` 有界读审计尾部；`findDriver()` 按 id/路径查询 |
-| `entry-v27.js`（opi）/ `entry-v26.js`（rpi） | `driverInput()` 组装输入；`/tree` 内嵌 `tree.drivers`（与独立路由**同源**）；新增 `GET /dsh-device-mesh/drivers` |
+| `entry-v27.js`（opi）/ `entry-v26.js`（node-a） | `driverInput()` 组装输入；`/tree` 内嵌 `tree.drivers`（与独立路由**同源**）；新增 `GET /dsh-device-mesh/drivers` |
 | `protocol.js` | `UI.drivers` |
 | `client.js` | 属主侧工作区行 `DriverMark`（⇄ + 琥珀色，与「转发执行」的地球图标区分）；`RemoteWorkspacesSection` 行内标示三态；`RemoteSessionRow`/面板会话行复用 `DriverSessionTag`；`drivers` 缺失时与改动前完全一致 |
 | `drivers-selftest.mjs`（新） | 70 条断言（含畸形输入、原型污染、审计尾部边界） |
@@ -585,8 +585,8 @@ settle 后再走原本地路径（归档是集合写、幂等；提示与本地�
 
 | 项 | 结果 |
 | --- | --- |
-| opi `/drivers` | 4 个工作区全部 `remote=true`（owner=orangepi5 isSelf=true / session=xray4668 isSelf=false）；DSHpluginWorkSpace `mirror=7 inbound=93`、ArkTower `mirror=1 inbound=0` |
-| rpi `/drivers` | 4 个工作区全部 `remote=false`（session=xray4668 isSelf=true）→ **不标**（方向不反） |
+| opi `/drivers` | 4 个工作区全部 `remote=true`（owner=node-b isSelf=true / session=user-a isSelf=false）；DSHpluginWorkSpace `mirror=7 inbound=93`、ArkTower `mirror=1 inbound=0` |
+| node-a `/drivers` | 4 个工作区全部 `remote=false`（session=user-a isSelf=true）→ **不标**（方向不反） |
 | 证据会话 | opi 10 条（稀疏：只放有镜像/入站证据的，不是 1454 条清单副本） |
 | payload 代价 | `drivers` ≈ **7.4 KB**（`/tree` 本身 757 KB），计算 **8 ms** |
 | 键对齐 | `drivers.workspaces[].workspaceId` 与工厂行传的 `row.workspaceId`（本机注册表 id）**4/4 逐条相等** → 侧边栏标识查得到判定 |
@@ -597,11 +597,11 @@ settle 后再走原本地路径（归档是集合写、幂等；提示与本地�
 
 opi：`entry-v26.js → entry-v27.js`（标记 `mesh-25 → mesh-26`），
 `systemctl restart dsh-web.service`。
-rpi：`entry-v25.js → entry-v26.js`（标记 `mesh-24 → mesh-25`），
+node-a：`entry-v25.js → entry-v26.js`（标记 `mesh-24 → mesh-25`），
 `XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart dsh.service`。
-备份：`/root/.dsh-backups-driver-*`（opi）、`/home/xray4668/.dsh-backups-driver-*`（rpi），
+备份：`/root/.dsh-backups-driver-*`（opi）、`/home/user-a/.dsh-backups-driver-*`（node-a），
 各含整份 `plugin/` 与 `cordis.patch.yml`；patch 另有一份 `cordis.patch.yml.bak-driver-*`。
-**回退**：把 patch 行的 `name` 指回 `entry-v26.js`（opi）/ `entry-v25.js`（rpi）并重启。
+**回退**：把 patch 行的 `name` 指回 `entry-v26.js`（opi）/ `entry-v25.js`（node-a）并重启。
 
 > **更正 §11「三种改动」里的一条**：本 profile 的 `patchReload: live` **实际不生效**。
 > 实测：把 patch 行的 `name` 改成新入口后等 2 分钟，`/status` 的 `importTag` 仍是旧值、
@@ -618,8 +618,8 @@ rpi：`entry-v25.js → entry-v26.js`（标记 `mesh-24 → mesh-25`），
   `command/path/timeoutMs/jobId`），所以「这条会话把命令发到过本机」只能从命令原文里
   捞 `session-<uuid>`（镜像/回填类命令带 id，agent 的普通命令通常不带）。工作区级次数
   是精确的，会话级只会少不会多。要精确归属得给 `exec` 协议加可选的 `sessionId`。
-- **rpi 的出厂侧边栏没有 `sidebar.workspaces.row.mark` 槽**（§9 的补丁只在 opi 部署），
-  所以 rpi 上属主侧工作区行的标识不会出现；不过 rpi 的判定本来就是 `remote=false`
+- **node-a 的出厂侧边栏没有 `sidebar.workspaces.row.mark` 槽**（§9 的补丁只在 opi 部署），
+  所以 node-a 上属主侧工作区行的标识不会出现；不过 node-a 的判定本来就是 `remote=false`
   （它是会话端），不影响本次需求。
 - 面板会话行 `.dmesh-sess` 不是固定行高，18px 小标签会让该行约 +2px；侧边栏 34/32px
   固定行高不受影响。
@@ -629,7 +629,7 @@ rpi：`entry-v25.js → entry-v26.js`（标记 `mesh-24 → mesh-25`），
 **用户报的缺陷**：「互联会话读到本地路径了」。根因是路由的**安全缺省**：`routePath()`
 对「谁都匹配不上」的路径回落到**本机执行** —— 对纯本地部署合理，但互联会话的 agent 在
 会话端、文件在属主那台，回落到本机就是**静默读到会话端自己的文件系统**。实测复现：
-会话端（xray4668）的互联会话读 `/etc/hosts`，读到的是**会话端本机**的 `/etc/hosts`，
+会话端（user-a）的互联会话读 `/etc/hosts`，读到的是**会话端本机**的 `/etc/hosts`，
 看起来却像「成功读到了文件」。
 
 **用户确认的模型**：给工作区加一个显式开关 `workspaceRoles[path].mesh`
@@ -654,7 +654,7 @@ rpi：`entry-v25.js → entry-v26.js`（标记 `mesh-24 → mesh-25`），
 | `routing.js` | 新增 `collectWorkspacePolicy(roles, groups)`（**账目里的每个工作区都进表**，未声明的按纯本地）、`workspaceForPath`、`collectDeviceNames`、`resolveOwnerToken`、`ownerDeviceForWorkspacePath`、`routePathWithPolicy`；`explainRoute` 认 `denied` 与两种新模式。`routePath`（旧接口）逐字不变 |
 | `fs-bridge.js` | 收 `workspacePolicy` 提供者；`decide()` 走新判定并把 **cwd（= 会话 cwd）** 传进去；denied → 抛 `FsError(FS_PERMISSION_DENIED)`（刻意避开 `FS_SANDBOX_DENIED`：出厂会替换它的文案并给出错误的提权提示）；`stats().denied` |
 | `shell-bridge.js` | 同一套；`resolve()` 上 denied → 同步抛；`stats().denied` |
-| `entry-v32.js`（opi）/ `entry-v28.js`（rpi） | `workspacePolicy()` 提供者（策略 + 名字解析表，名字来自**节点表/接入点表**）；两条挂载都转交；`/tree` 的 drivers 与 `/route` 干跑带 `mesh` / `ownerVia`；`/route` 新增可选 `cwd` |
+| `entry-v32.js`（opi）/ `entry-v28.js`（node-a） | `workspacePolicy()` 提供者（策略 + 名字解析表，名字来自**节点表/接入点表**）；两条挂载都转交；`/tree` 的 drivers 与 `/route` 干跑带 `mesh` / `ownerVia`；`/route` 新增可选 `cwd` |
 | `drivers.js` | `remote` 与 `mesh` 取交集：`remote = mesh && 会话侧不是本机`（界面标识与路由共用同一个开关） |
 | `cordis.patch.yml`（两台） | 4 个工作区加 `mesh: true`（幂等脚本 `enable-mesh-roles.sh`） |
 | 自测 | `routing-selftest` 26 → **30**、`drivers-selftest` 70 → **77**、`bridge-selftest` 21 → **34**、整包 `selftest.mjs` 仍 **134** |
@@ -662,30 +662,30 @@ rpi：`entry-v25.js → entry-v26.js`（标记 `mesh-24 → mesh-25`），
 ### 部署与实测（两台，2026-10-17）
 
 opi：`entry-v30 → entry-v32`（`mesh-29 → mesh-31`），`systemctl restart dsh-web.service`。
-rpi：`entry-v26 → entry-v28`（`mesh-25 → mesh-27`，同时把落后三个版本的实现一起补齐），
+node-a：`entry-v26 → entry-v28`（`mesh-25 → mesh-27`，同时把落后三个版本的实现一起补齐），
 `XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart dsh.service`。
 
 | 项 | 结果 |
 | --- | --- |
 | 自测（两台都跑） | routing **30**、drivers **77 PASS**、bridge **34 checks**、整包 **134 checks** |
 | opi（属主侧）干跑 | mesh 工作区的 4 条路径（工作区内 / `/etc/hosts` / `/tmp/x` / 无 cwd）**全部 local** —— 属主侧在本机落地是对的 |
-| rpi（会话端）干跑 | 工作区内 → `remote (member)`；**`/etc/hosts` → `remote (mesh-owner)`**；**`/tmp/x` → `remote (mesh-owner)`** —— 缺陷消失（不再 local） |
-| `/drivers` | 两台都是 `mesh=true`；opi `owner.isSelf=true`、rpi `owner.isSelf=false` |
+| node-a（会话端）干跑 | 工作区内 → `remote (member)`；**`/etc/hosts` → `remote (mesh-owner)`**；**`/tmp/x` → `remote (mesh-owner)`** —— 缺陷消失（不再 local） |
+| `/drivers` | 两台都是 `mesh=true`；opi `owner.isSelf=true`、node-a `owner.isSelf=false` |
 | 反向保证 | 本部署 4 个工作区**全部**声明了 mesh，节点上没有「未声明 mesh 的工作区」可测 → 该条只能由单元测试覆盖（`routing-selftest` 有两条断言：未声明的账目工作区、`mesh:false` 的工作区都不转发） |
 
 ### 部署中踩到并修掉的两个问题
 
-1. **声明里的属主名字解析不出来 → 互联会话被误判成「属主不明」而拒绝执行**（rpi 实测：
-   `/etc/hosts` → `denied：owner「orangepi5」解析不到设备`）。根因：路由用的路径组是
+1. **声明里的属主名字解析不出来 → 互联会话被误判成「属主不明」而拒绝执行**（node-a 实测：
+   `/etc/hosts` → `denied：owner「node-b」解析不到设备`）。根因：路由用的路径组是
    `buildPathGroups([])` 建的（**不带设备清单**），组里的 `deviceName` 是空的，于是名字表
    里根本没有对端。两处一起修：
    - 名字表改从**节点表/接入点表**取（那才是稳的来源）；
    - 名字仍解析不出来时，用**账目**兜底 —— 工作区路径上挂着谁就归谁
      （`ownerDeviceForWorkspacePath`）。名字是提示，账目才是权威。判定结果带
      `ownerVia: 'declared' | 'ledger'`，`/route` 干跑会打出来，便于发现名字表不全。
-2. **rpi 的 `index.js` 指向了 opi 的入口名**（整棵树同步时把 opi 的 `index.js` 一起搬了
+2. **node-a 的 `index.js` 指向了 opi 的入口名**（整棵树同步时把 opi 的 `index.js` 一起搬了
    过去，而 opi 的 `entry-v30.js` 不在上传集合里）→ `import('./index.js')` 直接
-   `ERR_MODULE_NOT_FOUND`，整包自测跑不起来。修法：上传后先把它指回 rpi 自己的当前入口
+   `ERR_MODULE_NOT_FOUND`，整包自测跑不起来。修法：上传后先把它指回 node-a 自己的当前入口
    （`fix-pi-index.sh`），换版脚本随后会把它指到新入口。
 
 ### 一条**误判**（记下来免得下次白改工厂）
@@ -714,11 +714,11 @@ cwd，部署默认根只对**无会话**调用生效（那种调用本来也没�
 
 用户报了两件事，**一件要改代码、一件不用改**：
 
-### 16.1 错误归类：xray4668 名下那 4 个工作区其实属于 orangepi5（**已修**）
+### 16.1 错误归类：user-a 名下那 4 个工作区其实属于 node-b（**已修**）
 
 **根因**：本机注册表会把「会话的 cwd 落在某个工作区路径上」记成**本机的工作区** —— 互联
-会话正是这种情形（会话在会话端跑、文件在属主那台）。于是设备网格面板里 xray4668 名下
-冒出 4 个其实属于 orangepi5 的工作区；`pathTable` 的 `homeDeviceId` 也被 `syncLocalGroups()`
+会话正是这种情形（会话在会话端跑、文件在属主那台）。于是设备网格面板里 user-a 名下
+冒出 4 个其实属于 node-b 的工作区；`pathTable` 的 `homeDeviceId` 也被 `syncLocalGroups()`
 写成会话端自己。归属的权威应该是配置声明 `workspaceRoles[path].owner`，不是「谁先登记」。
 
 **改法（host）**：新增 `annotateWorkspaceOwners(devices)`（`buildTree` 里调用，**两种 scope
@@ -732,10 +732,10 @@ cwd，部署默认根只对**无会话**调用生效（那种调用本来也没�
 
 **实测（两台，2026-10-17）**：
 
-| 节点 | xray4668 名下 | orangepi5 名下 |
+| 节点 | user-a 名下 | node-b 名下 |
 | --- | --- | --- |
-| opi（属主侧） | 4 条，全部标 `owner=orangepi5`（属主在别处） | 4 条，无 owner 字段（自己的） |
-| rpi（会话端） | 4 条，全部标 `owner=orangepi5` | 4 条，无 owner 字段 |
+| opi（属主侧） | 4 条，全部标 `owner=node-b`（属主在别处） | 4 条，无 owner 字段（自己的） |
+| node-a（会话端） | 4 条，全部标 `owner=node-b` | 4 条，无 owner 字段 |
 
 ### 16.2 「权限溢出」：用户确认口径 = **与在属主上直接运行一致**（**不改代码**）
 
@@ -763,12 +763,12 @@ README §4.1 的「权限边界」小节把这套口径与四个开关写全了�
 | 共享层（新） | `declaredOwnerOf()`、`deviceNameOf()`、`mergeWorkspaceSessions()`、`ForeignWorkspacesNote()` |
 | `DeviceBlock` | 按 `ownerDeviceId` 分流 own / foreign；头部「N 工作区」**只数自己的**，另给一枚「N 个属主在别处」徽标；body 只渲染 own + 一行说明 |
 | `WorkspaceBlock` | 会话列表 / 计数 / 未列出数 / 活跃标记都走 `mergeWorkspaceSessions()` 的结果；带一句「这个工作区的会话来自 N 台设备（已合并）」 |
-| 会话标签 | **复用既有** `dmesh-rw-devtag`（`⇄xray4668`）+ 命中入站证据时的 `dmesh-rw-devtagWarn`，没有第二套 |
+| 会话标签 | **复用既有** `dmesh-rw-devtag`（`⇄user-a`）+ 命中入站证据时的 `dmesh-rw-devtagWarn`，没有第二套 |
 
 最终文案：
 
 - 说明行：`[属主在别处] 这台名下另有 N 个工作区的文件与命令在别的设备上，已归到那台`，
-  逐属主一行：`ArkTower、DSHpluginWorkSpace → 属主 orangepi5（会话也合并在那台名下）`
+  逐属主一行：`ArkTower、DSHpluginWorkSpace → 属主 node-b（会话也合并在那台名下）`
 - 头部徽标：`N 个属主在别处`
 - 合并提示：`这个工作区的会话来自 N 台设备（已合并）；每条会话的标签标明 agent 在哪台跑。`
 
@@ -777,11 +777,11 @@ README §4.1 的「权限边界」小节把这套口径与四个开关写全了�
 1. **去重按 session id**：两台可能报同一批会话（实测 ArkTower 两边都报 486 条），
    不去重会列两遍。
 2. **兜底：属主那台当前没上报时不移走**（离线 / 清单降级）。移走会让那些会话整段消失，
-   所以这种工作区**留在本行**并打徽标 `属主 orangepi5 暂未上报`；只有「属主确实报了同一份
+   所以这种工作区**留在本行**并打徽标 `属主 node-b 暂未上报`；只有「属主确实报了同一份
    账目」才挪。线上 4 个工作区两边都报，正常不走这个分支。
-3. **语义消歧**（防「以为它在 orangepi5 上执行」）：每条跨设备会话带 `⇄xray4668`、
+3. **语义消歧**（防「以为它在 node-b 上执行」）：每条跨设备会话带 `⇄user-a`、
    合并提示明说标签标明 agent 在哪台跑、会话行仍按**记录它的那台**传 `deviceId`
-   （所以「拉回历史 / 接管」打的是 xray4668，不会打错台）。
+   （所以「拉回历史 / 接管」打的是 user-a，不会打错台）。
 
 **降级**：`mergeWorkspaceSessions()` 返回 `null`（没有任何属主声明指向本设备）时走的还是
 原来的单设备路径 —— 老 host / 纯本地部署与改动前**逐字一致**。
@@ -805,16 +805,16 @@ README §4.1 的「权限边界」小节把这套口径与四个开关写全了�
 ### 16.4 部署与踩到的坑
 
 opi：`entry-v32 → entry-v33`（`mesh-31 → mesh-32`），`systemctl restart dsh-web.service`；
-rpi：`entry-v28 → entry-v29`（`mesh-27 → mesh-28`），
+node-a：`entry-v28 → entry-v29`（`mesh-27 → mesh-28`），
 `XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart dsh.service`。
-备份：`/root/.dsh-backups-owner-*`、`/home/xray4668/.dsh-backups-owner-*`。
+备份：`/root/.dsh-backups-owner-*`、`/home/user-a/.dsh-backups-owner-*`。
 
 - **重启后约 60 秒内，本机的清单可能是「0 个工作区」的空采集**（既有现象，不是本次引入：
   `selftest.mjs` 里就有这条「采残的快照」的断言）。我实测踩到过一次 —— 重启 25 秒后
   查 `/tree`，会话端自己的 4 个工作区一条都没有；等到下一轮采集（TTL 20 s + 采集 ~3 s）
   就正常了。**排查清单类问题时先等一轮再下结论。**
 - 上传入口文件时用**绝对路径**读写：`.NET` 的 `[IO.File]` 相对路径解析基准与 PowerShell
-  的当前目录不是一回事，我因此往 rpi 上传过一个 **0 字节的 entry**（幸好当时运行的实例
+  的当前目录不是一回事，我因此往 node-a 上传过一个 **0 字节的 entry**（幸好当时运行的实例
   已缓存旧模块，没炸）。现在上传后都会 `ls -l` + `node --check` 复核一次。
 
 ## 17. 会话权限模型：属主照**会话权限**执行（2026-10-17 深夜）
@@ -827,7 +827,7 @@ rpi：`entry-v28 → entry-v29`（`mesh-27 → mesh-28`），
 | 文件 | 改动 |
 | --- | --- |
 | `exec.js` | `PERMISSION_MODES` / `readPermissionMode()` / `strictestMode()` / `sessionPermissionFromCandidates()` / `checkPermission()` / `allowedRootsFor()` / `checkExported()`；`checkPath` / `checkFsPath` 改成**先权限、再存在**（`checkPath` 新增 `{write}`：命令目录按写算、**目录列举是读**）；`list(target, permission)`；`run()` 审计记 `mode` |
-| `entry-v34.js`（opi）/ `entry-v30.js`（rpi） | 入站 exec / fsGate 读权限 + 审计记 `mode`；`sessionPermission(cwd)`（agents → `sandboxPolicy.resolve({session})` → 纯函数，**多会话同 cwd 取最严**）；两处挂载传 `permissionFor`，`mountFsInbound` 传 `permissionOf` |
+| `entry-v34.js`（opi）/ `entry-v30.js`（node-a） | 入站 exec / fsGate 读权限 + 审计记 `mode`；`sessionPermission(cwd)`（agents → `sandboxPolicy.resolve({session})` → 纯函数，**多会话同 cwd 取最严**）；两处挂载传 `permissionFor`，`mountFsInbound` 传 `permissionOf` |
 | `caller.js` | `withPermission()`；exec / request / list 三处并权限；计数 `forwardedWithMode` / `forwardedWithoutMode` |
 | `fs-bridge.js` / `shell-bridge.js` | `resolvePermission()`；权限随目标（WeakMap）/随 spec 走到出网请求；计数 `permissionWithout` |
 | `fs-inbound.js` | 写/改按请求 mode/root 传**一次性沙箱策略** |
@@ -860,8 +860,8 @@ rpi：`entry-v28 → entry-v29`（`mesh-27 → mesh-28`），
 
 ### 部署
 
-opi：`entry-v33 → entry-v34`（`mesh-32 → mesh-33`）；rpi：`entry-v29 → entry-v30`
-（`mesh-28 → mesh-29`）。备份 `/root/.dsh-backups-perm*`、`/home/xray4668/.dsh-backups-perm*`。
+opi：`entry-v33 → entry-v34`（`mesh-32 → mesh-33`）；node-a：`entry-v29 → entry-v30`
+（`mesh-28 → mesh-29`）。备份 `/root/.dsh-backups-perm*`、`/home/user-a/.dsh-backups-perm*`。
 
 ### 这一轮踩到的四个坑
 
@@ -925,11 +925,11 @@ role=authority/replica，两边 version=24、archived=64 一致）/ B（镜像 2
 
 
 
-## 19. 恢复「隐藏已归档」出厂默认（2026-10-19，rpi/192.168.1.3 = 本机）
+## 19. 恢复「隐藏已归档」出厂默认（2026-10-19，node-a/203.0.113.3 = 本机）
 
-**用户报的缺陷**：「192.168.1.3 的 dsh 存在归档依然显示在工作区」。
+**用户报的缺陷**：「203.0.113.3 的 dsh 存在归档依然显示在工作区」。
 
-**定位**：192.168.1.3 就是本机（rpi；从 orangepi5 `ssh pi` 连回的 machine-id/uptime/
+**定位**：203.0.113.3 就是本机（node-a；从 node-b `ssh node-a` 连回的 machine-id/uptime/
 dsh 进程 PID 与本机完全一致）。归档会话留在 workspace 的 `sessionIds` 槽位是出厂设计
 （`dsh-workspace`：归档不碰记账，恢复时还原位置；`workspaceRegistry.archivedSessionIds`
 是全局归档集，UI 各分组面自行过滤）。真正原因是 2026-10-12 的一处本地工厂补丁把

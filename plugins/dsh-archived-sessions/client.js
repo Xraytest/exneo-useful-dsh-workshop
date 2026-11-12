@@ -27,7 +27,7 @@
  * 2026-10-19 两处改动：
  *   ① 恢复流程在本地 /restore 落地后，再送一次
  *      POST /dsh-device-mesh/session-state/propose {action:'unarchive'}——
- *      本机是副本（权威 orangepi5）时，设备网格每 30 s 从权威拉归档态并
+ *      本机是副本（权威 node-b）时，设备网格每 30 s 从权威拉归档态并
  *      重新应用，只改本地 registry 的恢复会在 30 s 内被撤销；propose 把
  *      unarchive 同步给权威后，这轮同步不再收回。网格不在（404）时跳过，
  *      纯单机部署行为不变；权威不可达时恢复仍成立（propose 自身降级）。
@@ -586,7 +586,7 @@ window.__ModuleLoader__.load({
             }
           })
           // ── 多机会话状态同步（2026-10-19）───────────────────────────────────
-          // 本机是副本（权威 orangepi5）时，dsh-device-mesh 每 30 s 从权威拉一次
+          // 本机是副本（权威 node-b）时，dsh-device-mesh 每 30 s 从权威拉一次
           // 会话归档态：权威说 archived=true 而本地没有 → 重新归档。只走本插件的
           // /restore（直接改本地 registry）会被这轮同步**在 30 s 内撤销**——这就是
           // 「恢复按钮看似成功、会话很快又消失」的真实原因。出厂侧边栏的「归档」

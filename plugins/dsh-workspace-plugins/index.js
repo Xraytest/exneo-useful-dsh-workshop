@@ -620,7 +620,7 @@ export function apply(ctx, config = {}) {
     return summary;
   }
 
-  /** 设备网格的人类可读摘要（设置页顶部那条「本机 xray4668 · 已接入 orangepi5」）。 */
+  /** 设备网格的人类可读摘要（设置页顶部那条「本机 user-a · 已接入 node-b」）。 */
   function meshView() {
     const self = { deviceId: meshIndex.selfDeviceId, name: meshIndex.selfDeviceName };
     const peers = meshIndex.devices.filter((device) => device.self !== true);

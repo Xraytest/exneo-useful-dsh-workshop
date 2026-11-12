@@ -2,7 +2,7 @@
   "name": "ultracode-pack",
   "version": "0.1.0",
   "description": "Replicates Claude Code's ultracode: keyword-triggered exhaustive multi-agent orchestration with a standing-mode state machine (enter / sparse re-reminder / exit)",
-  "author": { "name": "xray4668" },
+  "author": { "name": "user-a" },
   "skills": "./skills",
   "commands": "./commands"
 }

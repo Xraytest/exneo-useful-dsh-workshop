@@ -176,7 +176,7 @@ host 半边只消费出厂服务（`webServer` / `workspaceRegistry` / `sessionQ
 
 **问题**：路由原本**只按路径**判定，而「谁都匹配不上」的路径回落到**本机执行**（对纯本地
 部署是安全缺省）。但互联会话的 agent 在会话端、文件在属主那台 —— 回落到本机就是**静默
-读到会话端自己的文件系统**。实测报过这条：会话端（xray4668）的互联会话读工作区之外的
+读到会话端自己的文件系统**。实测报过这条：会话端（user-a）的互联会话读工作区之外的
 路径（如 `/etc/hosts`），读到的是会话端本机的文件，看起来却像「成功读到了项目的文件」。
 
 **修法**：给工作区加一个显式开关 —— `workspaceRoles[path].mesh`（**是否作为互联会话**）。
@@ -514,7 +514,7 @@ node selftest.mjs          # 117 项
 copy），所以远程工作区在侧边栏里看起来就是一条普通工作区。
 
 **同一个工作区只在列表里出现一遍。** mesh 的 `workspaceId` 是跨设备共享的
-（本机与 orangepi5 注册表里 DSHpluginWorkSpace 是同一条 id），所以「对端也报了这个
+（本机与 node-b 注册表里 DSHpluginWorkSpace 是同一条 id），所以「对端也报了这个
 工作区」绝大多数情况不是「那台机器上另有一个工作区」，而是同一个工作区的另一份清单
 快照。规则：
 
@@ -530,9 +530,9 @@ copy），所以远程工作区在侧边栏里看起来就是一条普通工作�
 ```
 DSHpluginWorkSpace                         ← 本机执行
 ArkTower
-DSHpluginWorkSpace 🌐 · orangepi5 ＋1       ← 同一工作区，对端另有 1 条本机没有的会话
-  ● 多设备插件修复与工作区迁移  ⇄orangepi5  ← 远端会话：行内设备标签
-Stronghold 🌐 · orangepi5                   ← 对端独有的工作区（本机没这条 id）
+DSHpluginWorkSpace 🌐 · node-b ＋1       ← 同一工作区，对端另有 1 条本机没有的会话
+  ● 多设备插件修复与工作区迁移  ⇄node-b  ← 远端会话：行内设备标签
+Stronghold 🌐 · node-b                   ← 对端独有的工作区（本机没这条 id）
 ```
 
 - **本地执行 vs 转发执行**：工作区名称后紧跟一个**网络图标** = 这个工作区的命令与
@@ -633,21 +633,21 @@ ctx.on('session/event')  ──实时事件──▶   POST /dsh-device-mesh/api
 - `GET /dsh-device-mesh/drivers` → 同一份判定（单独一条路由是为了用 curl 就能核对）
 
 ```jsonc
-{ "schema": 1, "selfDeviceId": "…", "selfName": "orangepi5",
+{ "schema": 1, "selfDeviceId": "…", "selfName": "node-b",
   "workspaces": [{
     "workspaceId": "db264e09-…", "path": "/root/DSHpluginWorkSpace", "title": "DSHpluginWorkSpace",
-    "owner":   { "deviceId": "a0d8…", "name": "orangepi5", "isSelf": true,  "online": true, "source": "roles" },
-    "session": { "deviceId": "bf7e…", "name": "xray4668", "isSelf": false, "online": true, "source": "roles" },
+    "owner":   { "deviceId": "a0d8…", "name": "node-b", "isSelf": true,  "online": true, "source": "roles" },
+    "session": { "deviceId": "bf7e…", "name": "user-a", "isSelf": false, "online": true, "source": "roles" },
     "remote": true,          // ← 执行端要标的就是它：会话侧不是本机
     "active": true,          // 有运行时证据
     "evidence": { "mirrorSessions": 18, "mirrorLastAt": "2026-10-13T04:20:41.807Z",
                   "inboundExec": 214, "inboundDenied": 3, "inboundTotal": 217,
                   "inboundLastAt": "2026-10-13T10:45:11.980Z",
                   "inboundLastCommand": "tail -c +3870721 … /session.v4.jsonl.zstd | head -c 184320 | base64 -w0",
-                  "inboundDevices": ["xray4668"] },
-    "remoteDevices": [ { "deviceId": "bf7e…", "deviceName": "xray4668", "online": true, "sessions": 1193 } ]
+                  "inboundDevices": ["user-a"] },
+    "remoteDevices": [ { "deviceId": "bf7e…", "deviceName": "user-a", "online": true, "sessions": 1193 } ]
   }],
-  "sessions": [ { "sessionId": "session-db8fec3f-…", "deviceId": "bf7e…", "deviceName": "xray4668",
+  "sessions": [ { "sessionId": "session-db8fec3f-…", "deviceId": "bf7e…", "deviceName": "user-a",
                   "workspaceId": "db264e09-…", "workspacePath": "/root/DSHpluginWorkSpace",
                   "title": "", "live": false, "lastActivityAt": 1791900000000,
                   "mirror": true, "mirrorEvents": 1960, "mirrorLastAt": "2026-10-13T04:20:41.807Z",
@@ -667,7 +667,7 @@ ctx.on('session/event')  ──实时事件──▶   POST /dsh-device-mesh/api
 
 | 位置 | 标记 |
 | --- | --- |
-| 执行端的**本机工作区行** | `⇄`（琥珀色）+ tooltip「远端执行会话：agent 在 xray4668 上运行，命令与文件在本机执行」以及证据行（本机已收到 N 次执行请求 / 最近一条命令 / 已镜像 N 条历史） |
+| 执行端的**本机工作区行** | `⇄`（琥珀色）+ tooltip「远端执行会话：agent 在 user-a 上运行，命令与文件在本机执行」以及证据行（本机已收到 N 次执行请求 / 最近一条命令 / 已镜像 N 条历史） |
 | 会话端的本机工作区行 | 不变（副本工作区标注，见 §12.5） |
 | 侧边栏「远程工作区」段里**属主是本机**的那些行 | 从「转发执行：命令与文件在 X 上执行」（方向错）改为「远端会话：agent 在 X，命令与文件在本机执行」 |
 | 每条**远端会话行** | `⇄设备名` 保留；tooltip 写清命令在本机执行；命中运行时证据的会话追加「本机已收到它发来的 N 次执行（最近 …）」并转警示色 |

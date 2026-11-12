@@ -168,28 +168,20 @@ DSH="$LOCALAPPDATA/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"
 
 ## 安装 / 卸载
 
-**当前发布源（release source）= GitHub 仓库**，已从本地 `link:` 切换为 git 源并装入本机 DSH（desktop profile）：
+**发布源（release source）= `Xraytest/exneo-useful-dsh-workshop` 仓库的 `plugins/workspace-plus/` 子目录**（MIT，public）：
 
-- 仓库：https://github.com/Xraytest/dsh-workspace-plus （**private**，MIT）
-- profile 依赖记录：`"@local/workspace-plus": "git+https://github.com/Xraytest/dsh-workspace-plus.git"`
-- 安装产物：`~/.dsh/profiles/desktop/node_modules/@local/workspace-plus`（git 检出副本，非 junction）
+- 目录：https://github.com/Xraytest/exneo-useful-dsh-workshop/tree/main/plugins/workspace-plus
+- 本机安装为本地 `link:` 依赖：`"@local/workspace-plus": "link:<workspace>/plugins/workspace-plus"`——开发副本即安装源，改完 `plugin_manager` disable→enable 即生效。
+- 安装产物：`~/.dsh/profiles/desktop/node_modules/@local/workspace-plus`（junction 指向开发副本）。
 
-发布/更新流程（开发副本 `<workspace>\plugins\workspace-plus` 即 git 工作区）：
+发布/更新流程：
 
 ```bash
-# 1) 本地改动 → 提交并推送（必要时先升 package.json 版本号）
-git -C "<workspace>/plugins/workspace-plus" add -A
-git -C "<workspace>/plugins/workspace-plus" commit -m "..."
-git -C "<workspace>/plugins/workspace-plus" push
-
-# 2) 让本机 DSH 从 git 源重装（remove→install 才会加载新模块代）
-#    经 plugin_manager：remove_bundle @local/workspace-plus → install_bundle github:Xraytest/dsh-workspace-plus
+# 1) 改开发副本 <workspace>/plugins/workspace-plus → disable→enable 本机生效
+# 2) 把同一份源码同步进 workshop 仓库的 plugins/workspace-plus/ 并推送，
+#    市场索引（dsh-index.json / v1/plugins）随之重生成、pin 到新提交
 ```
 
-- `dsh-plugin-autoupdate` 会把该 bundle 识别为 **git 源**（显示远端 HEAD；git 源默认只报告、手动单个「更新」）。
-- 若重装报 `ERR_PNPM_EPERM ... rename ... -> node_modules\@local\workspace-plus`：是先存留的 `link:` junction 挡住了 rename，先 `cmd /c rmdir "%DSH_PROFILE_DIR%\node_modules\@local\workspace-plus"` 删掉这个 junction（不动源目录）再装。
-- github.com 在本机可能间歇性 `Connection was reset`；`git ls-remote` 重试即可，`gh auth setup-git` 已把 gh 凭据配给 git（私有仓库可克隆）。
-
-**离线热补丁（临时手段）**：安装产物是 git 检出副本，不是 junction。GitHub 不可达时，可以先把开发副本的 `index.js` / `client.js` / `package.json` 直接覆盖进 `~/.dsh/profiles/desktop/node_modules/@local/workspace-plus/`，重启应用即可生效；但这只是本机补丁——**任何 `pnpm install`（包括 `plugin_manager` 装/卸别的 bundle）都会把它覆盖回 git 提交**，正式发布仍须推送到仓库再重装。
+- 若从 `link:` 切换成 git/registry 源时重装报 `ERR_PNPM_EPERM ... rename ... -> node_modules\@local\workspace-plus`：是先存留的 junction 挡住了 rename，先 `cmd /c rmdir "%DSH_PROFILE_DIR%\node_modules\@local\workspace-plus"` 删掉这个 junction（不动源目录）再装。
 
 卸载：`plugin_manager remove_bundle @local/workspace-plus`。

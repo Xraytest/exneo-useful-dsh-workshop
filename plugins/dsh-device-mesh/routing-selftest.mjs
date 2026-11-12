@@ -103,17 +103,17 @@ const MESH_PATH = '/root/meshproj'
 const LOCAL_PATH = '/root/localproj'
 // 两台机器都跑同一份策略：本机是 self（会话端）或 child（属主）。
 const meshGroups = [
-  { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'orangepi5', path: MESH_PATH }, members: [] },
-  { workspaceId: 'w-local', primary: { deviceId: self, deviceName: 'xray4668', path: LOCAL_PATH }, members: [] },
+  { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'node-b', path: MESH_PATH }, members: [] },
+  { workspaceId: 'w-local', primary: { deviceId: self, deviceName: 'user-a', path: LOCAL_PATH }, members: [] },
 ]
 const meshRoles = {
-  [MESH_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true },
-  [LOCAL_PATH]: { owner: 'xray4668', session: 'xray4668' },
+  [MESH_PATH]: { owner: 'node-b', session: 'user-a', mesh: true },
+  [LOCAL_PATH]: { owner: 'user-a', session: 'user-a' },
 }
-/** 会话端的视角：本机 = self，属主 = child（名字 orangepi5）。 */
+/** 会话端的视角：本机 = self，属主 = child（名字 node-b）。 */
 const policyFromSessionSide = () => {
   const owners = collectPathOwners(meshGroups)
-  const names = collectDeviceNames(meshGroups, { deviceId: self, name: 'xray4668' })
+  const names = collectDeviceNames(meshGroups, { deviceId: self, name: 'user-a' })
   return {
     owners,
     names,
@@ -137,10 +137,10 @@ ok('策略表：归一化路径、mesh 缺省为 false、按最长前缀排序',
 })
 
 ok('策略表：账目里的每个工作区都进表，未声明的按纯本地；声明覆盖账目', () => {
-  const roles = { [MESH_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true } }
+  const roles = { [MESH_PATH]: { owner: 'node-b', session: 'user-a', mesh: true } }
   const groups = [
-    { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'orangepi5', path: MESH_PATH }, members: [] },
-    { workspaceId: 'w-undeclared', primary: { deviceId: child, deviceName: 'orangepi5', path: '/root/undeclared' }, members: [] },
+    { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'node-b', path: MESH_PATH }, members: [] },
+    { workspaceId: 'w-undeclared', primary: { deviceId: child, deviceName: 'node-b', path: '/root/undeclared' }, members: [] },
   ]
   const p = collectWorkspacePolicy(roles, groups)
   const byPath = new Map(p.entries.map((e) => [e.path, e]))
@@ -152,11 +152,11 @@ ok('策略表：账目里的每个工作区都进表，未声明的按纯本地�
 
 ok('未声明的工作区（账目里有）→ 反向保证生效：即使命中远端主路径也不转发', () => {
   const groups = [
-    { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'orangepi5', path: MESH_PATH }, members: [] },
-    { workspaceId: 'w-undeclared', primary: { deviceId: self, deviceName: 'xray4668', path: '/root/undeclared' }, members: [] },
+    { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'node-b', path: MESH_PATH }, members: [] },
+    { workspaceId: 'w-undeclared', primary: { deviceId: self, deviceName: 'user-a', path: '/root/undeclared' }, members: [] },
   ]
   const owners = collectPathOwners(groups)
-  const names = collectDeviceNames(groups, { deviceId: self, name: 'xray4668' })
+  const names = collectDeviceNames(groups, { deviceId: self, name: 'user-a' })
   const policy = collectWorkspacePolicy(meshRoles, groups)
   const resolveOwner = (t) => resolveOwnerToken(names, t)
   // 目标落在**对端**的主路径下，但会话的 cwd 在一个未声明的工作区里 → 必须本机
@@ -176,15 +176,15 @@ ok('会话归属按 cwd 判定（最长前缀），目标路径不参与反推',
 })
 
 ok('设备名解析表：名字与 id 都能命中（大小写不敏感）', () => {
-  const names = collectDeviceNames(meshGroups, { deviceId: self, name: 'xray4668' })
-  assert.equal(resolveOwnerToken(names, 'orangepi5'), child)
-  assert.equal(resolveOwnerToken(names, 'ORANGEPI5'), child)
-  assert.equal(resolveOwnerToken(names, ' orangepi5 '), child)
+  const names = collectDeviceNames(meshGroups, { deviceId: self, name: 'user-a' })
+  assert.equal(resolveOwnerToken(names, 'node-b'), child)
+  assert.equal(resolveOwnerToken(names, 'NODE-B'), child)
+  assert.equal(resolveOwnerToken(names, ' node-b '), child)
   assert.equal(resolveOwnerToken(names, child), child)
-  assert.equal(resolveOwnerToken(names, 'xray4668'), self)
+  assert.equal(resolveOwnerToken(names, 'user-a'), self)
   assert.equal(resolveOwnerToken(names, ''), undefined)
   assert.equal(resolveOwnerToken(names, undefined), undefined)
-  assert.equal(resolveOwnerToken(undefined, 'orangepi5'), undefined)
+  assert.equal(resolveOwnerToken(undefined, 'node-b'), undefined)
 })
 
 ok('互联会话：工作区内的路径 → 发到属主', () => {
@@ -200,7 +200,7 @@ ok('互联会话：工作区之外的路径 → 仍然发到属主（**绝不回
   assert.equal(d.route.deviceId, child)
   assert.equal(d.route.source, 'mesh-owner')
   assert.equal(d.route.root, MESH_PATH)
-  assert.match(explainRoute(d, () => 'orangepi5'), /互联会话/)
+  assert.match(explainRoute(d, () => 'node-b'), /互联会话/)
 })
 
 ok('互联会话：本机自己的工作区路径也发到属主（互联会话不在会话端落地）', () => {
@@ -258,11 +258,11 @@ ok('纯本地会话：本机路径本机执行；未登记路径也本机执行'
 
 ok('显式附加路径（member）在两种模式下都优先', () => {
   const groups = [
-    { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'orangepi5', path: MESH_PATH }, members: [{ deviceId: third, deviceName: 'third', path: '/mnt/scratch' }] },
-    { workspaceId: 'w-local', primary: { deviceId: self, deviceName: 'xray4668', path: LOCAL_PATH }, members: [{ deviceId: child, deviceName: 'orangepi5', path: '/srv/mounted' }] },
+    { workspaceId: 'w-mesh', primary: { deviceId: child, deviceName: 'node-b', path: MESH_PATH }, members: [{ deviceId: third, deviceName: 'third', path: '/mnt/scratch' }] },
+    { workspaceId: 'w-local', primary: { deviceId: self, deviceName: 'user-a', path: LOCAL_PATH }, members: [{ deviceId: child, deviceName: 'node-b', path: '/srv/mounted' }] },
   ]
   const owners = collectPathOwners(groups)
-  const names = collectDeviceNames(groups, { deviceId: self, name: 'xray4668' })
+  const names = collectDeviceNames(groups, { deviceId: self, name: 'user-a' })
   const policy = collectWorkspacePolicy(meshRoles)
   const resolveOwner = (t) => names.get(String(t ?? '').trim().toLowerCase())
   const meshMember = routePathWithPolicy('/mnt/scratch/a', { owners, selfDeviceId: self, policy, cwd: MESH_PATH, resolveOwner })
@@ -283,7 +283,7 @@ ok('无法归属会话（cwd 不在任何已声明工作区）→ 沿用旧的�
 
 ok('策略判定与声明顺序无关', () => {
   const view = policyFromSessionSide()
-  const reversed = collectWorkspacePolicy({ [LOCAL_PATH]: { owner: 'xray4668' }, [MESH_PATH]: { owner: 'orangepi5', session: 'xray4668', mesh: true } })
+  const reversed = collectWorkspacePolicy({ [LOCAL_PATH]: { owner: 'user-a' }, [MESH_PATH]: { owner: 'node-b', session: 'user-a', mesh: true } })
   const d = routePathWithPolicy('/etc/hosts', { owners: view.owners, selfDeviceId: self, policy: reversed, cwd: MESH_PATH, resolveOwner: view.resolveOwner })
   assert.equal(d.route.kind, 'remote')
   assert.equal(d.route.deviceId, child)
@@ -301,12 +301,12 @@ ok('设备名解析表：可以从**节点表/接入点表**补名字（路径�
     { workspaceId: 'w-mesh', primary: { deviceId: child, path: MESH_PATH }, members: [{ deviceId: child, path: MESH_PATH }] },
   ]
   const owners = collectPathOwners(namelessGroups)
-  const fromGroupsOnly = collectDeviceNames(namelessGroups, { deviceId: self, name: 'xray4668' })
-  assert.equal(resolveOwnerToken(fromGroupsOnly, 'orangepi5'), undefined, '只有路径组时名字确实解析不出来（这就是实测踩到的坑）')
-  const withDevices = collectDeviceNames(namelessGroups, { deviceId: self, name: 'xray4668' }, [
-    { deviceId: child, name: 'orangepi5' },
+  const fromGroupsOnly = collectDeviceNames(namelessGroups, { deviceId: self, name: 'user-a' })
+  assert.equal(resolveOwnerToken(fromGroupsOnly, 'node-b'), undefined, '只有路径组时名字确实解析不出来（这就是实测踩到的坑）')
+  const withDevices = collectDeviceNames(namelessGroups, { deviceId: self, name: 'user-a' }, [
+    { deviceId: child, name: 'node-b' },
   ])
-  assert.equal(resolveOwnerToken(withDevices, 'orangepi5'), child, '补上设备清单后名字能解析')
+  assert.equal(resolveOwnerToken(withDevices, 'node-b'), child, '补上设备清单后名字能解析')
   // 于是互联会话的「工作区之外」能正常转发，而不是被拒
   const policy = collectWorkspacePolicy(meshRoles, namelessGroups)
   const d = routePathWithPolicy('/etc/hosts', {
@@ -323,7 +323,7 @@ ok('属主名字解析不出来时用**账目**兜底（名字是提示，账目
   ]
   const owners = collectPathOwners(namelessGroups)
   const policy = collectWorkspacePolicy(meshRoles, namelessGroups)
-  const names = collectDeviceNames(namelessGroups, { deviceId: self, name: 'xray4668' }) // 名字表里没有 orangepi5
+  const names = collectDeviceNames(namelessGroups, { deviceId: self, name: 'user-a' }) // 名字表里没有 node-b
   const d = routePathWithPolicy('/etc/hosts', {
     owners, selfDeviceId: self, policy, cwd: MESH_PATH, resolveOwner: (t) => resolveOwnerToken(names, t),
   })

@@ -1932,7 +1932,7 @@ export function apply(ctx, rawConfig) {
    *
    * 为什么必须有这一步：本机注册表会把「会话的 cwd 落在某个工作区路径上」记成**本机的**
    * 工作区 —— 互联会话正是这种情形（会话在本机跑、文件在属主那台）。于是面板里
-   * xray4668 名下会冒出 4 个其实属于 orangepi5 的工作区，用户实测指出这是**错误归类**。
+   * user-a 名下会冒出 4 个其实属于 node-b 的工作区，用户实测指出这是**错误归类**。
    * 归属的权威是配置声明 `workspaceRoles[path].owner`，不是「谁先登记」。
    *
    * 只标**非本机**的属主：属主就是本机时不加字段（UI 的缺省就是「这台自己的」）。
@@ -2948,7 +2948,7 @@ export function apply(ctx, rawConfig) {
    *
    * 背景（用户报的「网络会话里缺省上下文占用量UI」的真实根因）：出厂的「上下文占用」
    * 圆环按钮读的是 `contextPressure` 会话投影，而投影要从**本机这份会话日志**里折出来
-   * （`request/context` 给容量、assistant 的 usage 给用量）。真实日志在 orangepi5 上的
+   * （`request/context` 给容量、assistant 的 usage 给用量）。真实日志在 node-b 上的
    * 会话，本机只剩一个几百字节的空桩 —— 没有事件，按钮必然不渲染。所以正解不是改 UI，
    * 是**把日志拿回来**。
    *

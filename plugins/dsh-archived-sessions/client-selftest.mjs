@@ -368,7 +368,7 @@ restorePayload = { restored: true };
 // /restore 改不了那台设备的归档集，按钮只会 restored:false——所以远程行给说明。
 // 组件的清单来自 state 槽 0（host 的 /list 落进 setData 之后的样子），这里直接
 // 用带 remote 行的快照渲染。
-const REMOTE_S2 = { ...S2, remote: true, deviceName: 'orangepi5' };
+const REMOTE_S2 = { ...S2, remote: true, deviceName: 'node-b' };
 const REMOTE_DATA = {
   workspaces: [{ id: 'w1', title: 'ArkTower', path: '/root/nas/ArkTower', sessions: [S1, REMOTE_S2] }],
   unassigned: [],
@@ -377,7 +377,7 @@ const REMOTE_DATA = {
 requests.length = 0;
 const remoteTree = renderSection([REMOTE_DATA, false, null, null, null]);
 const remoteText = collectText(remoteTree);
-assert.ok(remoteText.includes('归档于 orangepi5'), '远程行的动作区给「归档于 设备名」说明');
+assert.ok(remoteText.includes('归档于 node-b'), '远程行的动作区给「归档于 设备名」说明');
 const remoteRowButtons = buttonsIn(remoteTree).filter((b) => collectText(b) === '恢复' || collectText(b) === '恢复并打开');
 // 全树只剩本机行（S1）的「恢复 + 恢复并打开」两个按钮；远程行（REMOTE_S2）不给按钮。
 assert.equal(remoteRowButtons.length, 2, '本机行保留恢复两按钮，远程行不给按钮');
@@ -436,19 +436,19 @@ payloadForOverride = null;
 // （fetch 桩也回放，见 payloadFor 的 drivers 分支）。
 const DRIVERS = {
   workspaces: [
-    { workspaceId: 'w-local', path: '/home/x/AgentsWorkspace', owner: { isSelf: true, name: 'xray4668' } },
-    { workspaceId: 'w-mixed', path: '/root/nas/ArkTower', owner: { isSelf: false, name: 'orangepi5' } },
+    { workspaceId: 'w-local', path: '/home/x/AgentsWorkspace', owner: { isSelf: true, name: 'user-a' } },
+    { workspaceId: 'w-mixed', path: '/root/nas/ArkTower', owner: { isSelf: false, name: 'node-b' } },
   ],
 };
 const LOCAL_WS = { id: 'w-local', title: 'AgentsWorkspace', path: '/home/x/AgentsWorkspace', sessions: [S1] };
 const REMOTE_WS = {
   id: 'remote:dev1:/root/only-there', title: 'OnlyOnPi', path: '/root/only-there',
-  sessions: [{ id: 's-r1', title: '只在橙派', cwd: '/root/only-there', createdAt: 1750000000000, live: false, persisted: true, remote: true, deviceName: 'orangepi5' }],
-  remote: true, deviceId: 'dev1', deviceName: 'orangepi5',
+  sessions: [{ id: 's-r1', title: '只在橙派', cwd: '/root/only-there', createdAt: 1750000000000, live: false, persisted: true, remote: true, deviceName: 'node-b' }],
+  remote: true, deviceId: 'dev1', deviceName: 'node-b',
 };
 const MIXED_WS = {
   id: 'w-mixed', title: 'ArkTower', path: '/root/nas/ArkTower',
-  sessions: [S2, { id: 's-r2', title: '橙派那半', cwd: '/root/nas/ArkTower', createdAt: 1750000500000, live: false, persisted: true, remote: true, deviceName: 'orangepi5' }],
+  sessions: [S2, { id: 's-r2', title: '橙派那半', cwd: '/root/nas/ArkTower', createdAt: 1750000500000, live: false, persisted: true, remote: true, deviceName: 'node-b' }],
   mixed: true,
 };
 const SCOPE_DATA = { workspaces: [LOCAL_WS, REMOTE_WS, MIXED_WS], unassigned: [], sessions: [] };
@@ -457,20 +457,20 @@ const scopeState = [SCOPE_DATA, false, null, null, null, '', 'meta', false, 'all
 const scopeTree = renderSection(scopeState);
 const scopeText = collectText(scopeTree);
 assert.ok(scopeText.includes('本机工作区'), '属主是本机的工作区标「本机工作区」');
-assert.ok(scopeText.includes('执行于 orangepi5'), '属主在别台的工作区标「执行于 属主」——互联工作区不得再错标「本机工作区」');
-assert.ok(scopeText.includes('归档记录在 orangepi5'), '远程独有组另标「归档记录在 设备名」');
-assert.ok(scopeText.includes('归档记录 本机+orangepi5（本机 1 / 远程 1）'), '合并组另标「归档记录 本机+设备（本机 X / 远程 Y）」');
+assert.ok(scopeText.includes('执行于 node-b'), '属主在别台的工作区标「执行于 属主」——互联工作区不得再错标「本机工作区」');
+assert.ok(scopeText.includes('归档记录在 node-b'), '远程独有组另标「归档记录在 设备名」');
+assert.ok(scopeText.includes('归档记录 本机+node-b（本机 1 / 远程 1）'), '合并组另标「归档记录 本机+设备（本机 X / 远程 Y）」');
 // 状态行分组账目按执行端分开数：
 assert.ok(scopeText.includes('3 个分组（本机执行 1 · 远程执行 1）'), '状态行按执行端分开计分组数');
 // 工作区筛选下拉：执行端后缀（属主在别台）+ 归档记录后缀：
-assert.ok(scopeText.includes('ArkTower · orangepi5 · 归档本机+orangepi5'), '下拉带执行端与归档记录双后缀');
+assert.ok(scopeText.includes('ArkTower · node-b · 归档本机+node-b'), '下拉带执行端与归档记录双后缀');
 // drivers 缺席（网格不在 / 还没回来）：不标执行端——宁可不标也不错标。
 requests.length = 0;
 const noDrvTree = renderSection([SCOPE_DATA, false, null, null, null, '', 'meta', false, 'all', 'created-desc', new Set(), new Map(), false, null, [], null]);
 const noDrvText = collectText(noDrvTree);
 assert.ok(!noDrvText.includes('本机工作区'), '无 drivers 判定时不得标「本机工作区」');
 assert.ok(!noDrvText.includes('执行于'), '无 drivers 判定时不得标「执行于」');
-assert.ok(noDrvText.includes('归档记录在 orangepi5'), '归档记录标识不依赖 drivers（来自 /list 本身）');
+assert.ok(noDrvText.includes('归档记录在 node-b'), '归档记录标识不依赖 drivers（来自 /list 本身）');
 
 // ── 14. __test 纯函数缝 ───────────────────────────────────────────────────
 const T = exports.__test;
@@ -485,7 +485,7 @@ assert.equal(T.matchSession({ id: 's1', workspaceTitle: 'ArkTower' }, ['arktower
 assert.equal(T.matchSession({ id: 's1', workspacePath: '/root/code/x' }, ['code']), true, '工作区路径参与匹配');
 assert.equal(T.matchSession({ id: 's1', cwd: '/root/nas' }, ['arktower']), false);
 assert.equal(T.baseName('/root/nas/ArkTower/'), 'ArkTower');
-assert.equal(T.baseName('C:\\Users\\xray\\ArkTower'), 'ArkTower');
+assert.equal(T.baseName('C:\\Users\\user-a\\ArkTower'), 'ArkTower');
 assert.equal(T.baseName(''), '');
 assert.equal(T.groupKeyOf({ workspaceId: 'w1', cwd: '/x' }), 'ws:w1');
 assert.equal(T.groupKeyOf({ cwd: '/x' }), 'cwd:/x');

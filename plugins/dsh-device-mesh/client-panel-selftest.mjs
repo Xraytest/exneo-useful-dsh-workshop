@@ -1,8 +1,8 @@
 /**
  * 设备网格面板「工作区归属」自测（client 半边，无浏览器）。
  *
- * 背景（用户实测）：面板里 **xray4668 名下**列着 4 个工作区，而它们的属主其实是
- * **orangepi5**（文件与命令都在那台）—— 只是互联会话的 cwd 落在属主那台的路径上，
+ * 背景（用户实测）：面板里 **user-a 名下**列着 4 个工作区，而它们的属主其实是
+ * **node-b**（文件与命令都在那台）—— 只是互联会话的 cwd 落在属主那台的路径上，
  * 于是会话端本机注册表也把它们记了一份。host 给这类条目打了 `ownerDeviceId`
  * （声明的属主是另一台设备）。面板必须：
  *
@@ -42,26 +42,26 @@ const PATH_MESH = '/root/DSHpluginWorkSpace';
 const PATH_ARK = '/root/nas/ArkTower';
 
 /**
- * 造一份 /tree：本机是 orangepi5（属主），对端 xray4668 报了 2 个「其实属于 orangepi5」的工作区。
+ * 造一份 /tree：本机是 node-b（属主），对端 user-a 报了 2 个「其实属于 node-b」的工作区。
  *
  * 形状抄线上：**属主那台也报同样那 2 个**（不带 owner 字段），对端那台带 `ownerDeviceId` ——
  * 两边都报，工作区挪到属主名下之后会话才有着落（这一点单独有用例 C 钉住）。
- * @param {boolean} withClaims 是否给 xray4668 那两条加上 `ownerDeviceId`（false = 老 host 形状）。
+ * @param {boolean} withClaims 是否给 user-a 那两条加上 `ownerDeviceId`（false = 老 host 形状）。
  * @returns {object} /tree 响应。
  */
 function treeFixture(withClaims) {
   const claim = withClaims
-    ? { ownerDeviceId: 'dev-opi', ownerDeviceName: 'orangepi5', ownerDeclared: true }
+    ? { ownerDeviceId: 'dev-opi', ownerDeviceName: 'node-b', ownerDeclared: true }
     : {};
   return {
     ok: true,
     tree: {
       schema: 1,
       selfDeviceId: 'dev-opi',
-      authority: { deviceId: 'dev-opi', name: 'orangepi5', isSelf: true, configured: true },
+      authority: { deviceId: 'dev-opi', name: 'node-b', isSelf: true, configured: true },
       devices: [
         {
-          deviceId: 'dev-opi', name: 'orangepi5', self: true, liveness: 'online',
+          deviceId: 'dev-opi', name: 'node-b', self: true, liveness: 'online',
           inventory: {
             totals: { workspaces: 2, sessions: 4, listed: 4, live: 0 },
             workspaces: [
@@ -80,7 +80,7 @@ function treeFixture(withClaims) {
           },
         },
         {
-          deviceId: 'dev-rpi', name: 'xray4668', self: false, liveness: 'online',
+          deviceId: 'dev-node-a', name: 'user-a', self: false, liveness: 'online',
           inventory: {
             totals: { workspaces: 2, sessions: 4, listed: 4, live: 1 },
             workspaces: [
@@ -88,14 +88,14 @@ function treeFixture(withClaims) {
                 id: WS_MESH, title: 'DSHpluginWorkSpace', path: PATH_MESH,
                 sessionCount: 3, droppedSessions: 0, liveCount: 1,
                 ...claim,
-                // rpi-1/rpi-2 是 xray4668 自己的；opi-1 两台都报了（presentLocally 那种）
-                sessions: [session('rpi-1', true), session('rpi-2'), session('opi-1')],
+                // node-a-1/node-a-2 是 user-a 自己的；opi-1 两台都报了（presentLocally 那种）
+                sessions: [session('node-a-1', true), session('node-a-2'), session('opi-1')],
               },
               {
                 id: WS_ARK, title: 'ArkTower', path: PATH_ARK,
                 sessionCount: 1, droppedSessions: 0, liveCount: 0,
                 ...claim,
-                sessions: [session('rpi-3')],
+                sessions: [session('node-a-3')],
               },
             ],
             unassigned: [],
@@ -107,7 +107,7 @@ function treeFixture(withClaims) {
 }
 
 /**
- * 用例 C 的夹具：对端报了「属主在 orangepi5」的工作区，但**属主那台没报它**
+ * 用例 C 的夹具：对端报了「属主在 node-b」的工作区，但**属主那台没报它**
  * （离线 / 清单降级 / 那台注册表里没有）。这种工作区不能挪走 —— 挪了会话就整段消失。
  * @returns {object} /tree 响应。
  */
@@ -330,37 +330,37 @@ function ok(value, label) {
 }
 
 // ── 用例 A：有属主声明（用户实测的那份形状）──────────────────────────────────
-console.log('用例 A：xray4668 报的工作区属主在 orangepi5');
+console.log('用例 A：user-a 报的工作区属主在 node-b');
 {
   const { tree, text } = await mountPanel(treeFixture(true));
-  // ① 不记在别人名下：xray4668 名下没有工作区块，只有一行说明
+  // ① 不记在别人名下：user-a 名下没有工作区块，只有一行说明
   const heads = countClass(tree, 'dmesh-ws-head');
-  ok(heads === 2, `① 只应渲染属主（orangepi5）那 2 个工作区块，实际 ${heads}`);
+  ok(heads === 2, `① 只应渲染属主（node-b）那 2 个工作区块，实际 ${heads}`);
   ok(text.includes('属主在别处'), '① 要有「属主在别处」说明行');
   ok(text.includes('2 个工作区的文件与命令在别的设备上'), '① 说明行要点出数量');
   ok(text.includes('DSHpluginWorkSpace、ArkTower'), '① 说明行要列出这些工作区的名字');
-  ok(text.includes('→ 属主 orangepi5（会话也合并在那台名下）'), '① 说明行要指出归到了谁');
-  ok(!text.includes('属主 orangepi5 暂未上报'), '① 属主报了这些工作区时，不该出现「暂未上报」兜底');
+  ok(text.includes('→ 属主 node-b（会话也合并在那台名下）'), '① 说明行要指出归到了谁');
+  ok(!text.includes('属主 node-b 暂未上报'), '① 属主报了这些工作区时，不该出现「暂未上报」兜底');
 
   // ⑤ 头部计数只数自己的
-  ok(text.includes('0 工作区'), '⑤ xray4668 头部工作区计数应为 0（不再撒谎）');
+  ok(text.includes('0 工作区'), '⑤ user-a 头部工作区计数应为 0（不再撒谎）');
   ok(text.includes('2 个属主在别处'), '⑤ 头部要另给一枚「N 个属主在别处」');
   ok(text.includes('2 工作区 · 4 会话'), '⑤ 属主自己那台计数不受影响');
 
   // ② 会话合并到属主那条：两台的会话都在，条数=合并后
-  for (const id of ['opi-1', 'opi-2', 'opi-3', 'rpi-1', 'rpi-2', 'rpi-3']) {
+  for (const id of ['opi-1', 'opi-2', 'opi-3', 'node-a-1', 'node-a-2', 'node-a-3']) {
     ok(text.includes(id), `② 合并后应能看到 ${id}`);
   }
   ok(text.includes('4 会话'), '② DSHpluginWorkSpace 的计数用合并后的数量（2 本机 + 2 对端）');
   ok(text.includes('2 会话'), '② ArkTower 的计数也是合并后的（1 本机 + 1 对端）');
   ok(text.includes('这个工作区的会话来自 2 台设备（已合并）'), '② 合并要有说明');
-  ok(text.includes('⇄xray4668'), '② 跨设备的会话要带「哪台在跑」标签');
-  ok(!text.includes('⇄orangepi5'), '② 属主自己的会话不该被标成别台');
+  ok(text.includes('⇄user-a'), '② 跨设备的会话要带「哪台在跑」标签');
+  ok(!text.includes('⇄node-b'), '② 属主自己的会话不该被标成别台');
 
   // ③ 同一个 session id 只渲染一行（opi-1 两台都报了）
   ok(countSessionRows(tree, 'opi-1') === 1, `③ 两台都报的会话只能渲染一行（实际 ${countSessionRows(tree, 'opi-1')} 行）`);
-  ok(countSessionRows(tree, 'rpi-1') === 1, '③ 对端会话也只渲染一行');
-  ok(countSessionRows(tree, 'rpi-3') === 1, '③ 只在对端账目里的会话要跟到属主那条（渲染一行）');
+  ok(countSessionRows(tree, 'node-a-1') === 1, '③ 对端会话也只渲染一行');
+  ok(countSessionRows(tree, 'node-a-3') === 1, '③ 只在对端账目里的会话要跟到属主那条（渲染一行）');
 }
 
 // ── 用例 B：没有属主声明（老 host / 纯本地）→ 与改动前逐字一致 ───────────────
@@ -377,8 +377,8 @@ console.log('用例 B：没有 ownerDeviceId（老 host / 纯本地）');
   // ④ 两台各自渲染自己的工作区（2 + 2 = 4 块），计数按各自清单
   const heads = countClass(tree, 'dmesh-ws-head');
   ok(heads === 4, `④ 两边各自渲染工作区（应为 2+2=4 块，实际 ${heads}）`);
-  ok(text.includes('2 工作区 · 4 会话'), '④ xray4668 的头部计数保持改动前的口径');
-  ok(text.includes('3 会话'), '④ xray4668 那条工作区仍按自己的账目显示条数（3，不是合并后的 5）');
+  ok(text.includes('2 工作区 · 4 会话'), '④ user-a 的头部计数保持改动前的口径');
+  ok(text.includes('3 会话'), '④ user-a 那条工作区仍按自己的账目显示条数（3，不是合并后的 5）');
 
   // ④ 两台都报的同一条会话**各列一遍**（改动前就是如此：不合并、不去重跨设备）
   ok(countSessionRows(tree, 'opi-1') === 2, `④ 没有声明时不做跨设备去重（两台各列一行，实际 ${countSessionRows(tree, 'opi-1')} 行）`);
@@ -390,12 +390,12 @@ console.log('用例 C：属主当前没上报某个工作区');
 {
   const { tree, text } = await mountPanel(ownerSilentFixture());
   const heads = countClass(tree, 'dmesh-ws-head');
-  // 属主报了的 ws-mesh 挪过去了（opi 1 块），属主没报的 ArkTower 留在 xray4668 名下（1 块）
+  // 属主报了的 ws-mesh 挪过去了（opi 1 块），属主没报的 ArkTower 留在 user-a 名下（1 块）
   ok(heads === 2, `⑥ 属主没报的工作区要留下（实际 ${heads} 个工作区块）`);
-  ok(text.includes('属主 orangepi5 暂未上报'), '⑥ 留下的那行要标明属主与原因');
-  ok(countSessionRows(tree, 'rpi-3') === 1, '⑥ 留下的工作区里，会话不能消失');
+  ok(text.includes('属主 node-b 暂未上报'), '⑥ 留下的那行要标明属主与原因');
+  ok(countSessionRows(tree, 'node-a-3') === 1, '⑥ 留下的工作区里，会话不能消失');
   ok(text.includes('1 个工作区的文件与命令在别的设备上'), '⑥ 说明行只算真正挪走的那 1 个');
-  ok(text.includes('1 工作区 · 1 会话'), '⑥ xray4668 头部：留下的 1 个工作区算在自己头上');
+  ok(text.includes('1 工作区 · 1 会话'), '⑥ user-a 头部：留下的 1 个工作区算在自己头上');
 }
 
 // ── 用例 D：会话权限的显示与修改 ─────────────────────────────────────────────
@@ -407,7 +407,7 @@ console.log('用例 D：会话权限（显示 + 改）');
     const device = (id) => fx.tree.devices.find((one) => one.deviceId === id);
     const sess = (deviceId, wsId, sessionId) => device(deviceId).inventory.workspaces
       .find((workspace) => workspace.id === wsId).sessions.find((one) => one.id === sessionId);
-    sess('dev-rpi', WS_MESH, 'rpi-1').mode = 'danger-full-access';
+    sess('dev-node-a', WS_MESH, 'node-a-1').mode = 'danger-full-access';
     sess('dev-opi', WS_ARK, 'opi-3').mode = 'read-only';
     return fx;
   }
@@ -459,9 +459,9 @@ console.log('用例 D：会话权限（显示 + 改）');
       await flush();
       ok(posted.length === 1, `⑦ 改权限要恰好发一次请求（实际 ${posted.length}）`);
       ok(posted[0].target.includes('/dsh-device-mesh/session-mode'), `⑦ 打到浏览器侧那条路由（实际 ${posted[0].target}）`);
-      ok(posted[0].body.sessionId === 'rpi-1', '⑦ 要带上是哪条会话');
+      ok(posted[0].body.sessionId === 'node-a-1', '⑦ 要带上是哪条会话');
       ok(posted[0].body.mode === 'read-only', '⑦ 要带上改成什么权限');
-      ok(posted[0].body.deviceId === 'dev-rpi', '⑦ 要带上是哪台在跑（属主侧据此一跳转发）');
+      ok(posted[0].body.deviceId === 'dev-node-a', '⑦ 要带上是哪台在跑（属主侧据此一跳转发）');
       ok(liveText.includes('会话权限：'), '⑦ 标签的 title 要说清这条权限意味着什么');
     } finally {
       globalThis.fetch = realFetch;

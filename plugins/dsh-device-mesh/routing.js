@@ -308,7 +308,7 @@ export function workspaceForPath(rawPath, policy) {
 /**
  * 收集「设备名 → deviceId」解析表。
  *
- * 声明里写的是**名字**（`owner: orangepi5`），而归属记录里只有 deviceId；两边对不上
+ * 声明里写的是**名字**（`owner: node-b`），而归属记录里只有 deviceId；两边对不上
  * 就会「声明了属主但判不出来」。所以这张表要尽量全 —— 三个来源都要收：
  *
  *   1. 本机身份；
@@ -359,7 +359,7 @@ export function collectDeviceNames(groups, self, devices) {
  * 把声明里的属主写法（名字或 deviceId，大小写任意）解析成 deviceId。
  *
  * 单拎出来是为了**只有一处**做大小写与去空白：`collectDeviceNames()` 的表键是小写的，
- * 调用方直接 `get()` 会在「配置里写 Orangepi5」时静默拿不到 —— 那种失败看起来像
+ * 调用方直接 `get()` 会在「配置里写 Node-b」时静默拿不到 —— 那种失败看起来像
  * 「声明了属主但解析不出来」，很容易被误判成设备离线。
  *
  * @param {Map<string, string>} names `collectDeviceNames()` 的表。
@@ -377,7 +377,7 @@ export function resolveOwnerToken(names, token) {
 /**
  * 在账目里找**这条工作区路径自己的**属主设备（非本机）。
  *
- * 为什么需要它：声明里写的是**名字**（`owner: orangepi5`），而名字能不能解析成
+ * 为什么需要它：声明里写的是**名字**（`owner: node-b`），而名字能不能解析成
  * deviceId 取决于「这台机器是否见过那台设备的名字」。实测踩过：会话端上路由用的
  * 路径组是 `buildPathGroups([])` 建的（**不带设备清单**），组里的 `deviceName` 是空的，
  * 于是名字解析不出来，判定退化成 `denied` —— 一个本来完全正常的互联会话突然读不了

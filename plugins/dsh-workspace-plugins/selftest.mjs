@@ -266,8 +266,8 @@ function meshProjection(self, groups) {
 const NET_WS_ID = '863de1b8-a5f4-4560-beb7-fda46cf99189';
 const MIRROR_PATH = join(root, 'ws-a-mirror');
 mkdirSync(MIRROR_PATH, { recursive: true });
-const SELF_DEVICE = { deviceId: 'dev-self', name: 'xray4668' };
-const PEER_DEVICE = { deviceId: 'dev-peer', name: 'orangepi5' };
+const SELF_DEVICE = { deviceId: 'dev-self', name: 'user-a' };
+const PEER_DEVICE = { deviceId: 'dev-peer', name: 'node-b' };
 
 /** 一条真实形状的工作区账目组：本机主路径 + 本机 mirror + 对端 mirror（同一个路径串）。 */
 function netGroup(options = {}) {
@@ -316,9 +316,9 @@ await t('网络工作区：本机附加路径参与匹配，远端设备的路�
   const [withMembers] = store.resolveWorkspaces([{ key: `ws:${NET_WS_ID}`, workspaceId: NET_WS_ID, match: 'exact', includeMembers: true, plugins: [] }], registry, mesh);
   assert.deepEqual(withMembers.matchPaths.map((entry) => [entry.path, entry.kind]), [[workspaceA, 'primary'], [MIRROR_PATH, 'member']]);
   assert.equal(withMembers.network.remoteMembers.length, 1);
-  assert.equal(withMembers.network.remoteMembers[0].deviceName, 'orangepi5');
-  assert.deepEqual(withMembers.network.remoteDevices, ['orangepi5']);
-  assert.ok(withMembers.hints.some((line) => /orangepi5/.test(line) && /声明/.test(line)), `要有「在那台设备上声明」的提示：${JSON.stringify(withMembers.hints)}`);
+  assert.equal(withMembers.network.remoteMembers[0].deviceName, 'node-b');
+  assert.deepEqual(withMembers.network.remoteDevices, ['node-b']);
+  assert.ok(withMembers.hints.some((line) => /node-b/.test(line) && /声明/.test(line)), `要有「在那台设备上声明」的提示：${JSON.stringify(withMembers.hints)}`);
   const hitMember = store.matchWorkspace([withMembers], MIRROR_PATH);
   assert.equal(hitMember.kind, 'member', '本机 mirror 路径要命中，并且标明命中的是附加路径');
   const [withoutMembers] = store.resolveWorkspaces([{ key: `ws:${NET_WS_ID}`, workspaceId: NET_WS_ID, match: 'exact', includeMembers: false, plugins: [] }], registry, mesh);
@@ -343,7 +343,7 @@ await t('网络工作区：本机没有路径的声明（remoteOnly）不匹配�
   assert.equal(resolved.remoteOnly, true);
   assert.deepEqual(resolved.matchPaths, []);
   assert.equal(store.matchWorkspace([resolved], '/srv/ark'), undefined, '远端路径不可能是本机会话的 cwd');
-  assert.ok(/orangepi5/.test(resolved.network.hint), `提示里要有设备名：${resolved.network.hint}`);
+  assert.ok(/node-b/.test(resolved.network.hint), `提示里要有设备名：${resolved.network.hint}`);
   assert.ok(resolved.hints.some((line) => /mesh_workspace_paths|声明同一行/.test(line)));
 });
 
@@ -1139,12 +1139,12 @@ await t('网络工作区（真运行时）：主路径与本机附加路径的�
   assert.equal(ws.disableKey, `ws:${NET_WS_ID}`, 'configDisabled 的键要能被设置页直接用');
   assert.deepEqual(ws.matchPaths.map((entry) => [entry.path, entry.kind]), [[workspaceA, 'primary'], [MIRROR_PATH, 'member']]);
   assert.equal(ws.network.remoteMembers.length, 1);
-  assert.deepEqual(ws.network.remoteDevices, ['orangepi5']);
-  assert.ok(ws.hints.some((line) => /orangepi5/.test(line) && /声明/.test(line)), `要有「在对端也声明一行」的提示：${JSON.stringify(ws.hints)}`);
+  assert.deepEqual(ws.network.remoteDevices, ['node-b']);
+  assert.ok(ws.hints.some((line) => /node-b/.test(line) && /声明/.test(line)), `要有「在对端也声明一行」的提示：${JSON.stringify(ws.hints)}`);
   assert.equal(viewed.body.routes, 'registered');
   assert.equal(viewed.body.mesh.available, true);
-  assert.equal(viewed.body.mesh.self.name, 'xray4668');
-  assert.deepEqual(viewed.body.mesh.peers.map((peer) => peer.name), ['orangepi5']);
+  assert.equal(viewed.body.mesh.self.name, 'user-a');
+  assert.deepEqual(viewed.body.mesh.peers.map((peer) => peer.name), ['node-b']);
   assert.deepEqual(viewed.body.registry.workspaces.map((item) => item.id), [NET_WS_ID]);
   const mirrorMount = viewed.body.mounts.find((mount) => mount.sessionId === 'session-net-mirror');
   assert.equal(mirrorMount.matchedKind, 'member', '要标明命中的是本机附加路径');
@@ -1192,7 +1192,7 @@ await t('行状态 unavailable：网络工作区上本机没有的路径类子�
   const mount = viewed.body.mounts.find((item) => item.sessionId === 'session-net-missing');
   const row = mount.rows[0];
   assert.equal(row.state, 'unavailable', `网络工作区上应记 unavailable，实际 ${String(row.state)}：${String(row.error)}`);
-  assert.ok(/orangepi5/.test(String(row.error)), `错误里要有设备名：${String(row.error)}`);
+  assert.ok(/node-b/.test(String(row.error)), `错误里要有设备名：${String(row.error)}`);
   assert.ok(/声明/.test(String(row.error)), '要给出可行动的说明');
   const live = viewed.body.workspaces.find((item) => item.workspaceId === NET_WS_ID).plugins[0].live;
   assert.equal(live.unavailable, 1, '设置页要能读到「本机没有」这一档计数');

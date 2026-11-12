@@ -251,16 +251,16 @@ await t('rowStateText：组合冲突/停用/无命中/生效/失败/等待各有
 
 await t('deviceText/meshLine：网络维度文案（不可用时如实说、不编数据）', () => {
   assert.equal(ui.deviceText({ network: null }), null, '单机部署不显示设备行');
-  const text = ui.deviceText({ network: { homeLocal: false, homeDeviceName: 'orangepi5', remoteDevices: ['orangepi5'], available: true } });
-  assert.match(text, /主路径在 orangepi5/);
-  assert.match(text, /远端副本：orangepi5/);
-  assert.match(ui.deviceText({ network: { homeLocal: true, homeDeviceName: 'xray4668', remoteDevices: [], available: true } }), /本机为主/);
+  const text = ui.deviceText({ network: { homeLocal: false, homeDeviceName: 'node-b', remoteDevices: ['node-b'], available: true } });
+  assert.match(text, /主路径在 node-b/);
+  assert.match(text, /远端副本：node-b/);
+  assert.match(ui.deviceText({ network: { homeLocal: true, homeDeviceName: 'user-a', remoteDevices: [], available: true } }), /本机为主/);
   const offline = ui.meshLine({ mesh: { available: false, error: '没装网格插件' }, registry: { available: true, workspaces: [{ id: 'a' }] } });
   assert.match(offline, /设备：单机（设备网格不可用：没装网格插件）/);
   assert.match(offline, /本机注册表：1 个工作区/);
-  const online = ui.meshLine({ mesh: { available: true, self: { deviceId: SELF_ID, name: 'xray4668' }, peers: [{ name: 'orangepi5', liveness: 'online' }], groups: 4, remoteMembers: 4 }, registry: { available: false, error: '注册表没起来' } });
-  assert.match(online, /本机 xray4668/);
-  assert.match(online, /接入 1 台（orangepi5\/online）/);
+  const online = ui.meshLine({ mesh: { available: true, self: { deviceId: SELF_ID, name: 'user-a' }, peers: [{ name: 'node-b', liveness: 'online' }], groups: 4, remoteMembers: 4 }, registry: { available: false, error: '注册表没起来' } });
+  assert.match(online, /本机 user-a/);
+  assert.match(online, /接入 1 台（node-b\/online）/);
   assert.match(online, /工作区账目 4 组、远端副本 4 条/);
   assert.match(online, /本机注册表：不可用（注册表没起来）/);
   assert.doesNotThrow(() => ui.meshLine(undefined), '缺 state 也不能抛');
@@ -333,9 +333,9 @@ function stateFixture() {
     mesh: {
       available: true,
       error: null,
-      self: { deviceId: SELF_ID, name: 'xray4668' },
-      peers: [{ deviceId: PEER_ID, name: 'orangepi5', liveness: 'online' }],
-      devices: [{ deviceId: SELF_ID, name: 'xray4668', self: true }, { deviceId: PEER_ID, name: 'orangepi5', self: false }],
+      self: { deviceId: SELF_ID, name: 'user-a' },
+      peers: [{ deviceId: PEER_ID, name: 'node-b', liveness: 'online' }],
+      devices: [{ deviceId: SELF_ID, name: 'user-a', self: true }, { deviceId: PEER_ID, name: 'node-b', self: false }],
       groups: 4,
       remoteMembers: 4,
     },
@@ -371,20 +371,20 @@ function stateFixture() {
         source: 'file',
         sessions: 2,
         matchPaths: [
-          { path: '/root/DSHpluginWorkSpace', kind: 'primary', source: 'registry', role: null, deviceId: SELF_ID, deviceName: 'xray4668', prefer: false, exists: true },
-          { path: '/root/DSHpluginWorkSpace', kind: 'member', source: 'mesh', role: 'mirror', deviceId: SELF_ID, deviceName: 'xray4668', prefer: true, exists: true },
+          { path: '/root/DSHpluginWorkSpace', kind: 'primary', source: 'registry', role: null, deviceId: SELF_ID, deviceName: 'user-a', prefer: false, exists: true },
+          { path: '/root/DSHpluginWorkSpace', kind: 'member', source: 'mesh', role: 'mirror', deviceId: SELF_ID, deviceName: 'user-a', prefer: true, exists: true },
         ],
         network: {
           available: true,
           homeDeviceId: PEER_ID,
-          homeDeviceName: 'orangepi5',
+          homeDeviceName: 'node-b',
           homeLocal: false,
-          localMembers: [{ id: 'm-local', deviceId: SELF_ID, deviceName: 'xray4668', path: '/root/DSHpluginWorkSpace', role: 'mirror', prefer: true }],
-          remoteMembers: [{ id: 'm-peer', deviceId: PEER_ID, deviceName: 'orangepi5', path: '/root/DSHpluginWorkSpace', role: 'mirror', prefer: false }],
-          remoteDevices: ['orangepi5'],
-          hint: '「/root/DSHpluginWorkSpace」在 orangepi5 上也有一份（mirror）：想让它在那边也挂上这些插件，请在对端的 profile 里声明同一行。',
+          localMembers: [{ id: 'm-local', deviceId: SELF_ID, deviceName: 'user-a', path: '/root/DSHpluginWorkSpace', role: 'mirror', prefer: true }],
+          remoteMembers: [{ id: 'm-peer', deviceId: PEER_ID, deviceName: 'node-b', path: '/root/DSHpluginWorkSpace', role: 'mirror', prefer: false }],
+          remoteDevices: ['node-b'],
+          hint: '「/root/DSHpluginWorkSpace」在 node-b 上也有一份（mirror）：想让它在那边也挂上这些插件，请在对端的 profile 里声明同一行。',
         },
-        hints: ['该工作区的路径账目里有一份在 orangepi5 上：插件文件与本机缺失的模块不会跨设备传递，对端要各声明一行。'],
+        hints: ['该工作区的路径账目里有一份在 node-b 上：插件文件与本机缺失的模块不会跨设备传递，对端要各声明一行。'],
         plugins: [
           { id: 'probe', name: './x.js', source: 'file', disabled: false, live: { total: 2, active: 1, pending: 0, waiting: 1, failed: 0, unavailable: 0, skipped: 0, errors: [], waitingFor: ['someService'], leaked: ['some_tool'] } },
           { id: 'off-row', name: './off.js', source: 'file', disabled: true, live: { total: 0, active: 0, pending: 0, waiting: 0, failed: 0, unavailable: 0, skipped: 0, errors: [], waitingFor: [], leaked: [] } },
@@ -402,8 +402,8 @@ function stateFixture() {
         match: 'subtree',
         source: 'config',
         sessions: 0,
-        matchPaths: [{ path: '/root/nas/ArkTower', kind: 'primary', source: 'declared', role: null, deviceId: SELF_ID, deviceName: 'xray4668', prefer: false, exists: false }],
-        network: { available: true, homeDeviceId: SELF_ID, homeDeviceName: 'xray4668', homeLocal: true, localMembers: [], remoteMembers: [], remoteDevices: [], hint: null },
+        matchPaths: [{ path: '/root/nas/ArkTower', kind: 'primary', source: 'declared', role: null, deviceId: SELF_ID, deviceName: 'user-a', prefer: false, exists: false }],
+        network: { available: true, homeDeviceId: SELF_ID, homeDeviceName: 'user-a', homeLocal: true, localMembers: [], remoteMembers: [], remoteDevices: [], hint: null },
         hints: [],
         plugins: [{ id: 'deploy', name: './plugins/dsh-ark-deploy/index.js', source: 'config', disabled: false, conflict: true, live: { total: 0, active: 0, pending: 0, waiting: 0, failed: 0, unavailable: 0, skipped: 0, errors: [], waitingFor: [], leaked: [] } }],
       },
@@ -424,11 +424,11 @@ function stateFixture() {
         network: {
           available: true,
           homeDeviceId: PEER_ID,
-          homeDeviceName: 'orangepi5',
+          homeDeviceName: 'node-b',
           homeLocal: false,
           localMembers: [],
-          remoteMembers: [{ id: 'm-peer-only', deviceId: PEER_ID, deviceName: 'orangepi5', path: '/srv/peer-only', role: 'mirror', prefer: true }],
-          remoteDevices: ['orangepi5'],
+          remoteMembers: [{ id: 'm-peer-only', deviceId: PEER_ID, deviceName: 'node-b', path: '/srv/peer-only', role: 'mirror', prefer: true }],
+          remoteDevices: ['node-b'],
           hint: '这份声明在本机没有任何路径：本机不会挂上任何会话（要挂请在本机加一条 mirror 路径，或在对端声明同一行）。',
         },
         hints: ['本机没有它的任何路径——这份声明在本机永远不会命中任何会话。'],
@@ -447,7 +447,7 @@ function stateFixture() {
       matchedKind: 'primary',
       rows: [
         { id: 'probe', name: './x.js', source: 'file', state: 'active' },
-        { id: 'peer-row', name: './peer-only.js', source: 'config', state: 'unavailable', error: 'Cannot find module（本机没有这个模块；它在 orangepi5 上——请在那台设备上声明同一行）' },
+        { id: 'peer-row', name: './peer-only.js', source: 'config', state: 'unavailable', error: 'Cannot find module（本机没有这个模块；它在 node-b 上——请在那台设备上声明同一行）' },
       ],
     }],
     modules: [
@@ -482,12 +482,12 @@ await t('渲染：网络工作区（设备归属、本机匹配路径、远端�
   const state = stateFixture();
   const text = renderPage([state, ui.fileToDraft(state.fileState), [], false, '', '', false, {}, '', null, '', 'exact', false, '', true]);
   for (const needle of [
-    '设备：本机 xray4668',
-    '接入 1 台（orangepi5/online）',
+    '设备：本机 user-a',
+    '接入 1 台（node-b/online）',
     '工作区账目 4 组、远端副本 4 条',
     '本机注册表：2 个工作区（可按 id 绑定）',
     'id ' + WS_ID.slice(0, 8),
-    '网络 · orangepi5',
+    '网络 · node-b',
     '本机无路径',
     '本机匹配路径：',
     '附加路径 mirror，优先',
@@ -515,7 +515,7 @@ await t('渲染：命中测试命中时说明凭什么（身份/附加路径）'
 
 await t('渲染：未命中时把网络提示带出来（而不是只说未命中）', () => {
   const state = stateFixture();
-  const info = { hit: false, hints: ['本机的路径账目里没有它；orangepi5 上有一份：请在那台设备上声明同一行。'] };
+  const info = { hit: false, hints: ['本机的路径账目里没有它；node-b 上有一份：请在那台设备上声明同一行。'] };
   const text = renderPage([state, ui.fileToDraft(state.fileState), [], false, '', '', false, {}, '/srv/other', info, '', 'exact', false, '', true]);
   assert.ok(text.includes('未命中任何工作区'), '仍然要说未命中');
   assert.ok(text.includes('请在那台设备上声明同一行'), `未命中时的网络提示要带出来：${text.slice(0, 300)}`);
@@ -532,7 +532,7 @@ await t('渲染：路由未注册时给出红字（冷启动 404 的形状）', 
 await t('渲染：展开诊断不抛错（含模块预导入与候选模块）', () => {
   const state = stateFixture();
   const text = renderPage([state, ui.fileToDraft(state.fileState), [], false, '', '', false, {}, '', null, '', 'exact', true]);
-  for (const needle of ['模块预导入（2）', 'workspace-plugin-probe', 'Cannot find module', '诊断', '刷新次数', '候选本地模块', 'dsh-model-pool', '设置页路由：registered', '本机工作区注册表：2 个工作区', '设备网格：本机 xray4668', '远端副本 4 条']) {
+  for (const needle of ['模块预导入（2）', 'workspace-plugin-probe', 'Cannot find module', '诊断', '刷新次数', '候选本地模块', 'dsh-model-pool', '设置页路由：registered', '本机工作区注册表：2 个工作区', '设备网格：本机 user-a', '远端副本 4 条']) {
     assert.ok(text.includes(needle), `诊断区应渲染出「${needle}」：${text.slice(-400)}`);
   }
 });

@@ -96,7 +96,7 @@ try {
   check('Host 带尾巴端口 ≠ Origin 端口', (await post({ host: authority, origin: 'http://127.0.0.1:1' }, { baseRevision: 7, order: [] })).status, 403);
   // 这两条只关心「守卫有没有放行」：409 = 放行了但 revision 过期，403 = 被守卫挡住。
   const liveRev = async () => JSON.parse((await call(port, 'GET', '/dsh-settings-nav/state', { headers: { host: authority } })).text).revision;
-  check('Host=私网字面量 + Origin 配套（LAN 直连，非 403 即放行）', [403].includes((await post({ host: '192.168.1.50:3088', origin: 'http://192.168.1.50:3088' }, { baseRevision: await liveRev(), order: [] })).status), false);
+  check('Host=私网字面量 + Origin 配套（LAN 直连，非 403 即放行）', [403].includes((await post({ host: '203.0.113.50:3088', origin: 'http://203.0.113.50:3088' }, { baseRevision: await liveRev(), order: [] })).status), false);
   check('Host=dsh.local + Origin 配套（非 403 即放行）', [403].includes((await post({ host: 'dsh.local:3080', origin: 'http://dsh.local:3080' }, { baseRevision: await liveRev(), order: [] })).status), false);
   check('可信 host 但 https scheme（scheme 不含在 authority 里）', (await post({ host: authority, origin: `https://${authority}` }, { baseRevision: 10, order: [] })).status, 403);
   check('没有 Host 头（畸形请求）', (await post({ host: '', origin: `http://${authority}` }, { baseRevision: 11, order: [] })).status, 403);

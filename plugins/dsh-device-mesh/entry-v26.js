@@ -2723,7 +2723,7 @@ export function apply(ctx, rawConfig) {
    *
    * 背景（用户报的「网络会话里缺省上下文占用量UI」的真实根因）：出厂的「上下文占用」
    * 圆环按钮读的是 `contextPressure` 会话投影，而投影要从**本机这份会话日志**里折出来
-   * （`request/context` 给容量、assistant 的 usage 给用量）。真实日志在 orangepi5 上的
+   * （`request/context` 给容量、assistant 的 usage 给用量）。真实日志在 node-b 上的
    * 会话，本机只剩一个几百字节的空桩 —— 没有事件，按钮必然不渲染。所以正解不是改 UI，
    * 是**把日志拿回来**。
    *

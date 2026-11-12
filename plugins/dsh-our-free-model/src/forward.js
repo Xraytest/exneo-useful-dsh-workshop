@@ -454,7 +454,7 @@ const VIRTUAL_IFACE = /(vethernet|hyper-?v|wsl|virtualbox|vmware|docker|br-|veth
  *
  * And the physical interfaces come first. A machine commonly holds two private
  * addresses at once — the router's `192.168.x.y` and something like
- * `10.208.90.204` on a virtual switch or VPN adapter — and taking whichever the
+ * `10.13.0.42` on a virtual switch or VPN adapter — and taking whichever the
  * OS happened to list first showed the user the one that cannot answer from
  * outside. Order is otherwise the OS's own, so a machine with several real
  * interfaces keeps the order the platform reports.

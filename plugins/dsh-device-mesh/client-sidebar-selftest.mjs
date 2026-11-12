@@ -1,7 +1,7 @@
 /**
  * 侧边栏「网络会话工作区」去重自测（client 半边，无浏览器）。
  *
- * 背景：mesh 的 workspaceId 是**跨设备共享**的 —— 本机与 orangepi5 注册表里
+ * 背景：mesh 的 workspaceId 是**跨设备共享**的 —— 本机与 node-b 注册表里
  * DSHpluginWorkSpace 是同一条 id。所以「对端也报了这个工作区」绝大多数情况下
  * 不是「那台机器上另有一个工作区」，而是同一个工作区的另一份清单快照。把它
  * 平铺进侧边栏，用户看到的就是**同一行工作区出现两遍**，连它下面的会话也照抄
@@ -53,7 +53,7 @@ const TREE = {
         },
       },
       {
-        deviceId: 'dev-remote', name: 'orangepi5', self: false, liveness: 'online',
+        deviceId: 'dev-remote', name: 'node-b', self: false, liveness: 'online',
         inventory: {
           workspaces: [
             { id: 'ws-a', title: 'Alpha', path: '/root/a', sessionCount: 1189, droppedSessions: 689, liveCount: 1, sessions: Array.from({ length: 500 }, (_, i) => session('a-' + i)).concat([session('a-live-remote', true)]) },
@@ -83,14 +83,14 @@ function driversFixture() {
     schema: 1,
     generatedAt: '2026-10-13T10:46:00.000Z',
     selfDeviceId: 'dev-local',
-    selfName: 'orangepi5',
+    selfName: 'node-b',
     workspaces: [
       {
         workspaceId: OWN_WS,
         path: OWN_PATH,
         title: 'DSHpluginWorkSpace',
-        owner: { deviceId: 'dev-local', name: 'orangepi5', isSelf: true, online: true, source: 'roles' },
-        session: { deviceId: 'dev-remote', name: 'xray4668', isSelf: false, online: true, source: 'roles' },
+        owner: { deviceId: 'dev-local', name: 'node-b', isSelf: true, online: true, source: 'roles' },
+        session: { deviceId: 'dev-remote', name: 'user-a', isSelf: false, online: true, source: 'roles' },
         remote: true,
         active: true,
         evidence: {
@@ -101,9 +101,9 @@ function driversFixture() {
           inboundTotal: 3,
           inboundLastAt: '2026-10-13T10:45:11.980Z',
           inboundLastCommand: 'git status --short',
-          inboundDevices: ['xray4668'],
+          inboundDevices: ['user-a'],
         },
-        remoteDevices: [{ deviceId: 'dev-remote', deviceName: 'xray4668', online: true, sessions: 2 }],
+        remoteDevices: [{ deviceId: 'dev-remote', deviceName: 'user-a', online: true, sessions: 2 }],
       },
       {
         // 声明了会话侧但清单里没有这台设备：名字要显示，且带「（未连接）」；
@@ -111,7 +111,7 @@ function driversFixture() {
         workspaceId: UNRES_WS,
         path: UNRES_PATH,
         title: 'ArkTower',
-        owner: { deviceId: 'dev-local', name: 'orangepi5', isSelf: true, online: true, source: 'roles' },
+        owner: { deviceId: 'dev-local', name: 'node-b', isSelf: true, online: true, source: 'roles' },
         session: { deviceId: '', name: 'ghost', isSelf: false, online: false, source: 'roles', unresolved: true },
         remote: true,
         active: false,
@@ -124,13 +124,13 @@ function driversFixture() {
     ],
     sessions: [
       {
-        sessionId: OWN_S1, deviceId: 'dev-remote', deviceName: 'xray4668',
+        sessionId: OWN_S1, deviceId: 'dev-remote', deviceName: 'user-a',
         workspaceId: OWN_WS, workspacePath: OWN_PATH, title: '', live: true, lastActivityAt: 1791900000000,
         mirror: true, mirrorEvents: 1960, mirrorLastAt: '2026-10-13T04:20:41.807Z',
         inbound: 2, inboundLastAt: '2026-10-13T10:45:11.980Z', presentLocally: true, source: 'exec',
       },
       {
-        sessionId: OWN_S2, deviceId: 'dev-remote', deviceName: 'xray4668',
+        sessionId: OWN_S2, deviceId: 'dev-remote', deviceName: 'user-a',
         workspaceId: OWN_WS, workspacePath: OWN_PATH, title: '', live: false, lastActivityAt: 1791800000000,
         mirror: true, mirrorEvents: 508, mirrorLastAt: '2026-10-13T03:01:25.509Z',
         inbound: 5, inboundLastAt: '2026-10-13T10:44:00.000Z', presentLocally: false, source: 'exec',
@@ -150,10 +150,10 @@ function ownerResponse(withDrivers = true) {
   const tree = {
     schema: 1,
     selfDeviceId: 'dev-local',
-    authority: { deviceId: 'dev-local', name: 'orangepi5', isSelf: true, configured: true },
+    authority: { deviceId: 'dev-local', name: 'node-b', isSelf: true, configured: true },
     devices: [
       {
-        deviceId: 'dev-local', name: 'orangepi5', self: true, liveness: 'online',
+        deviceId: 'dev-local', name: 'node-b', self: true, liveness: 'online',
         inventory: {
           workspaces: [
             {
@@ -165,7 +165,7 @@ function ownerResponse(withDrivers = true) {
         },
       },
       {
-        deviceId: 'dev-remote', name: 'xray4668', self: false, liveness: 'online',
+        deviceId: 'dev-remote', name: 'user-a', self: false, liveness: 'online',
         inventory: {
           workspaces: [
             {
@@ -250,7 +250,7 @@ globalThis.fetch = async (url, init) => {
       // 接管成功的回执形状抄自 host 的 `/takeover`（在线路径）。
       if (target.includes('/takeover')) {
         return {
-          ok: true, mode: 'pull', sessionId: OWN_S2, deviceId: 'dev-remote', deviceName: 'orangepi5',
+          ok: true, mode: 'pull', sessionId: OWN_S2, deviceId: 'dev-remote', deviceName: 'node-b',
           version: 'v4', bytes: 3936333, path: '/root/.dsh/sessions/--root-DSHpluginWorkSpace--/' + OWN_S2 + '/session.v4.jsonl.zstd',
           backup: null, shadowed: [],
         };
@@ -270,7 +270,7 @@ function progressRow(overrides = {}) {
     sessionId: OWN_S2,
     replicaId: OWN_S2,
     deviceId: 'dev-remote',
-    sourceDeviceName: 'xray4668',
+    sourceDeviceName: 'user-a',
     title: '',
     cwd: OWN_PATH,
     workspacePath: OWN_PATH,
@@ -547,11 +547,11 @@ const ownMark = await markFor(ownerResponse(true), { workspaceId: OWN_WS });
 assert.ok(ownMark !== null && ownMark.props.className === 'dmesh-driver-mark',
   `①属主侧应画 dmesh-driver-mark（实际 ${JSON.stringify(ownMark === null ? null : ownMark.props.className)}）`);
 const ownTitle = String(ownMark.props.title);
-assert.ok(ownTitle.startsWith('远端执行会话：agent 在 xray4668 上运行，命令与文件在本机执行'), '①首行方向正确');
+assert.ok(ownTitle.startsWith('远端执行会话：agent 在 user-a 上运行，命令与文件在本机执行'), '①首行方向正确');
 assert.ok(!ownTitle.includes('转发执行'), '①不该出现「转发执行」的说法');
 assert.ok(ownTitle.includes('本机已收到 3 次执行请求'), '①入站次数');
 assert.ok(/最近 \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(ownTitle), '①最近时间用本地时间');
-assert.ok(ownTitle.includes('来自 xray4668'), '①来源设备');
+assert.ok(ownTitle.includes('来自 user-a'), '①来源设备');
 assert.ok(ownTitle.includes('最近一条命令：git status --short'), '①最近一条命令');
 assert.ok(ownTitle.includes('另有 2 条会话的历史已镜像到本机'), '①镜像行');
 
@@ -561,12 +561,12 @@ assert.equal(noDrivers, null, '②drivers 缺失时不该画任何标示');
 
 // ③ 副本侧行为不变：同一份 drivers 摆在面前，也还是「副本工作区」的地球图标
 const copyResponse = ownerResponse(true);
-copyResponse.tree.authority = { deviceId: 'dev-remote', name: 'xray4668', isSelf: false, configured: true };
-copyResponse.tree.drivers.workspaces[0].owner = { deviceId: 'dev-remote', name: 'xray4668', isSelf: false, online: true, source: 'roles' };
+copyResponse.tree.authority = { deviceId: 'dev-remote', name: 'user-a', isSelf: false, configured: true };
+copyResponse.tree.drivers.workspaces[0].owner = { deviceId: 'dev-remote', name: 'user-a', isSelf: false, online: true, source: 'roles' };
 const copyMark = await markFor(copyResponse, { workspaceId: OWN_WS });
 assert.ok(copyMark !== null && copyMark.props.className === 'dmesh-rw-net',
   `③副本侧仍是地球图标（实际 ${JSON.stringify(copyMark === null ? null : copyMark.props.className)}）`);
-assert.ok(String(copyMark.props.title).includes('副本工作区：属主/执行侧是 xray4668'), '③副本侧文案不变');
+assert.ok(String(copyMark.props.title).includes('副本工作区：属主/执行侧是 user-a'), '③副本侧文案不变');
 
 // ⑤ unresolved → 名称带「（未连接）」；没有证据就不编造
 const unresMark = await markFor(ownerResponse(true), { workspaceId: UNRES_WS });
@@ -582,24 +582,24 @@ assert.equal(clickRow(ownSection, OWN_PATH), 1, '④属主侧应先渲染出一�
 ownSection = deepRender(renderOnce());
 const ownAll = collectStrings(ownSection).join('\n');
 assert.ok(ownAll.includes('dmesh-driver-mark'), '④属主侧工作区行要画执行端标示');
-assert.ok(ownAll.includes('远端执行会话：agent 在 xray4668 上运行，命令与文件在本机执行'), '④工作区行文案方向正确');
+assert.ok(ownAll.includes('远端执行会话：agent 在 user-a 上运行，命令与文件在本机执行'), '④工作区行文案方向正确');
 assert.ok(ownAll.includes('dmesh-rw-devtagWarn'), '④会话行命中 inbound>0 → 警示样式');
 assert.ok(ownAll.includes('本机已收到它发来的 5 次执行'), '④会话行给出次数');
 assert.ok(/本机已收到它发来的 5 次执行（最近 \d{4}-\d{2}-\d{2} \d{2}:\d{2}）/.test(ownAll), '④次数带本地时间');
 assert.ok(ownAll.includes('历史已镜像到本机（508 事件）'), '④会话行给出镜像事件数');
-assert.ok(ownAll.includes('远端会话：agent 在 xray4668，命令与文件在本机执行 —— 可能将命令发到本机'), '④会话行基准文案方向正确');
+assert.ok(ownAll.includes('远端会话：agent 在 user-a，命令与文件在本机执行 —— 可能将命令发到本机'), '④会话行基准文案方向正确');
 
 // ③b 副本侧的侧边栏：没有 drivers（旧版 host）时逐字保持改动前
 const legacyResponse = ownerResponse(false);
-legacyResponse.tree.authority = { deviceId: 'dev-remote', name: 'xray4668', isSelf: false, configured: true };
+legacyResponse.tree.authority = { deviceId: 'dev-remote', name: 'user-a', isSelf: false, configured: true };
 let legacySection = await renderRemote(legacyResponse);
 assert.equal(clickRow(legacySection, OWN_PATH), 1, '③b副本侧行仍要渲染');
 legacySection = deepRender(renderOnce());
 const legacyAll = collectStrings(legacySection).join('\n');
 assert.ok(legacyAll.includes('dmesh-rw-net'), '③b副本侧仍是地球图标');
-assert.ok(legacyAll.includes('转发执行：命令与文件在 xray4668 上执行'), '③b副本侧文案不变');
+assert.ok(legacyAll.includes('转发执行：命令与文件在 user-a 上执行'), '③b副本侧文案不变');
 assert.ok(!legacyAll.includes('dmesh-driver-mark'), '③b副本侧不画执行端标示');
-assert.ok(legacyAll.includes('远端会话：日志与 agent 在 xray4668，本机只能复制它的 id'), '③b副本侧会话行文案不变');
+assert.ok(legacyAll.includes('远端会话：日志与 agent 在 user-a，本机只能复制它的 id'), '③b副本侧会话行文案不变');
 assert.ok(!legacyAll.includes('dmesh-rw-devtagWarn'), '③b副本侧会话行不带警示样式');
 
 // ── 要求 4：设备网格面板「设备 → 工作区 → 会话」里要有同一套标记 ─────────────
@@ -611,13 +611,13 @@ assert.equal(clickClass(panelCollapsed, 'dmesh-ws-head'), 1, '④面板：本机
 const panelOpen = await deepMount(() => mainComponent({}), 2);
 const panelAll = collectStrings(panelOpen).join('\n');
 assert.ok(panelAll.includes('dmesh-driver-mark'), '④面板工作区行要画执行端标示');
-assert.ok(panelAll.includes('远端执行会话：agent 在 xray4668 上运行，命令与文件在本机执行'), '④面板工作区行文案方向正确');
-assert.ok(panelAll.includes('dmesh-rw-devtag') && panelAll.includes('⇄xray4668'), '④面板会话行要有 ⇄设备名');
+assert.ok(panelAll.includes('远端执行会话：agent 在 user-a 上运行，命令与文件在本机执行'), '④面板工作区行文案方向正确');
+assert.ok(panelAll.includes('dmesh-rw-devtag') && panelAll.includes('⇄user-a'), '④面板会话行要有 ⇄设备名');
 assert.ok(panelAll.includes('dmesh-rw-devtagWarn'), '④面板会话行命中 inbound>0 → 警示样式');
 assert.ok(panelAll.includes('本机已收到它发来的 5 次执行'), '④面板会话行给出次数');
 
 // ── 要求 6：执行端要看得到「最近进度」，并且能「随时接管」────────────────────
-// 场景：本机是 orangepi5（执行端），xray4668 上有条会话（OWN_S2）本机没有 ——
+// 场景：本机是 node-b（执行端），user-a 上有条会话（OWN_S2）本机没有 ——
 // 它的历史一直在往本机镜像里推。执行端应该：① 看见它在干什么；② 一键把它变成本机会话。
 /** 点掉第一个文本等于 label 的按钮（接管按钮是「武装 → 确认」两段式）。 */
 function clickButtonByText(node, label) {
@@ -699,7 +699,7 @@ assert.equal(posted.length, 1, '⑥确认后应发一次接管请求');
 assert.equal(posted[0].url, '/dsh-device-mesh/takeover', '⑥接管请求打的是接管路由');
 assert.deepEqual(posted[0].body, { sessionId: OWN_S2, deviceId: 'dev-remote' }, '⑥带上会话 id 与设备 id');
 const doneAll = collectStrings(deepRender(renderOnce())).join('\n');
-assert.ok(doneAll.includes('已从 orangepi5 拉回'), '⑥接管成功要有就地回执');
+assert.ok(doneAll.includes('已从 node-b 拉回'), '⑥接管成功要有就地回执');
 
 // 本机已有旧历史时：文案变成「更新并接管」，并说明会覆盖
 currentProgress = { ok: true, sessions: [progressRow({ localExists: true, localHasEvents: true, localBytes: 4096 })] };
