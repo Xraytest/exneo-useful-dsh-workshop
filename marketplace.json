@@ -394,7 +394,7 @@
       "id": "@local/rea-mcp",
       "path": "plugins/rea-mcp",
       "rowId": "rea-mcp",
-      "version": "2.1.1",
+      "version": "2.2.0",
       "category": "tooling",
       "description": "REA（morluto/rea）自包含接入：MCP 桥 + 设置页工具选择器 + 工作箱直连路由。未勾选时经 tools.restrict 摘除全部工具 schema，并在装配期摘除 mcp:rea 提示段——零上下文注入。",
       "license": "MIT",
