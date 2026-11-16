@@ -50,6 +50,7 @@
  * 路由（均同源可用；写操作带同源守卫）：
  *   GET  /dsh-usage/summary?by=model|provider|group|session|day|week&range=all|1d|7d|30d
  *                           &from=YYYY-MM-DD|epochMs&to=…&tz=…&subagents=own|root
+ *   GET  /dsh-usage/hourly?windowMs=3600000&tz=…&subagents=own|root
  *   GET  /dsh-usage/status
  *   POST /dsh-usage/rescan   {full?: boolean}
  *   GET  /dsh-usage/export.csv?…（与 summary 同参）
@@ -69,6 +70,7 @@ import path from 'node:path';
 
 import {
   aggregate, addAuxFact, dayKey, foldEvents, rangeStartKey,
+  hourlyThroughput, HOURLY_WINDOW_MS,
   MODEL_KEY_SEP, RATE_MIN_GEN_MS, RATE_MIN_OUTPUT_TOKENS, RATE_MAX_PLAUSIBLE_MS,
 } from './fold.js?v=rate-model-dim-3';
 import { FactStore, msg } from './store.js?v=rate-model-dim-3';
@@ -971,6 +973,47 @@ export function createUsageStats(ctx, config = {}) {
     return result;
   }
 
+  /**
+   * 最近一段时间 · 按供应商的总吞吐（`/dsh-usage/hourly`）。
+   *
+   * 与 summary 的分工：summary 是「六维用量 + 逐项速率」，这里是「一个滑动窗口内
+   * 每家供应商总共干了多少活」，并把三种口径并排给出（单发 / 并发 / 墙钟 / tokens/h），
+   * 因为它们的分母不同、数字本来就会有出入。
+   *
+   * 窗口默认 1 小时，可用 `windowMs` 调整（10 分钟 ~ 7 天，越界折回默认值）；
+   * `subagents` 与 summary 同口径（own / root）。
+   */
+  function hourlyPayload(searchParams) {
+    const zone = searchParams.get('tz') || tz();
+    const subagentsRaw = searchParams.get('subagents');
+    const subagents = subagentsRaw === 'root' || subagentsRaw === 'own' ? subagentsRaw : opt.attributeSubagents;
+    const windowRaw = Number(searchParams.get('windowMs'));
+    const windowMs = Number.isFinite(windowRaw) && windowRaw >= 600000 && windowRaw <= 7 * 86400000
+      ? windowRaw
+      : HOURLY_WINDOW_MS;
+    const result = hourlyThroughput(buildSessions(), {
+      nowMs: Date.now(), windowMs, timeZone: zone, attributeSubagents: subagents,
+    });
+    // 供应商展示名与 by=provider 同一份索引（模型设置里的 provider displayName）
+    const names = modelNamesState.providers || {};
+    for (const row of result.rows) {
+      const name = typeof names[row.key] === 'string' ? names[row.key].trim() : '';
+      if (name !== '') row.label = name;
+    }
+    result.timeZone = zone;
+    result.subagents = subagents;
+    result.generatedAt = Date.now();
+    result.units = 'tokens';
+    result.metric = 'singleTps / concurrentTps / wallTps / tokensPerHour';
+    result.note = '单发 TPS = Σ输出/Σ生成时长（与速率区同口径）；并发 TPS = Σ输出/并流生成区间并集；'
+      + '墙钟 TPS = Σ输出/首末生成跨度；tokens/h = 窗口内总 tokens/窗口小时数。'
+      + '四个分母不同，数字会有出入；并发÷单发 ≈ 平均并行度。'
+      + '区间不含 TTFT（排队/首包延迟不是解码占用），否则单条调用的并发会低于单发。'
+      + `阈值与上界裁剪同速率区（生成 ≥ ${RATE_MIN_GEN_MS} ms 且输出 ≥ ${RATE_MIN_OUTPUT_TOKENS} tokens 才进样本；`
+      + `> ${RATE_MAX_PLAUSIBLE_MS} ms 的点剔除并计入 excluded）。无样本为 null（界面「—」），不当 0。`;
+    return result;
+  }
+
   function statusPayload() {
     const s = store.stats();
     return {
@@ -1144,6 +1187,18 @@ export function createUsageStats(ctx, config = {}) {
           await ensureModelNames();
           const url = new URL(req.url || '/', 'http://localhost');
           return json(res, 200, summaryPayload(url.searchParams));
+        } catch (error) { return json(res, 500, { error: msg(error) }); }
+      },
+    }),
+    ctx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-usage/hourly',
+      handler: async (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Method Not Allowed' });
+        try {
+          await ensureModelNames();
+          const url = new URL(req.url || '/', 'http://localhost');
+          return json(res, 200, hourlyPayload(url.searchParams));
         } catch (error) { return json(res, 500, { error: msg(error) }); }
       },
     }),

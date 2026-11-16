@@ -779,8 +779,7 @@ async function sectionD(corpus, tmpRoot) {
         'tpsAvg', 'tpsMean', 'tpsMedian', 'tpsSamples', 'tpsExcluded',
       ]);
       const CSV_COLS = 25;
-      for (const line of lines.slice(1)) assert.equal(line.split(',').length, CSV_COLS, `CSV 列数不符：${line}`);
-      const modelPayload = jparse((await callRoute(harness.routes, '/dsh-usage/summary', { query: 'by=model' })).body);
+      for (const line of lines.slice(1)) assert.equal(line.split(',').length, CSV_COLS, `CSV 列数不符：${line}`);      const modelPayload = jparse((await callRoute(harness.routes, '/dsh-usage/summary', { query: 'by=model' })).body);
       // 逐行比对两列：null 必须留空（不是 0）。--quick 抽样可能一条「无缓存数据」都没有，
       // 所以在有 null 行时额外显式断言一次留空。
       let sawNull = 0;
@@ -822,6 +821,62 @@ async function sectionD(corpus, tmpRoot) {
       if (modelPayload.rows.length >= 8) assert.ok(sawNull > 0, '全量语料应至少有一个「无缓存数据」的模型行');
       // 同理：语料里必然有带 stream 时间戳的调用，速率列不能整片空转。
       if (modelPayload.rows.length >= 8) assert.ok(sawRate > 0, '全量语料应至少有一个带 TPS 样本的模型行');
+    });
+
+    await test('路由：/dsh-usage/hourly 按供应商给总吞吐，四个口径字段齐备', async () => {
+      const r = await callRoute(harness.routes, '/dsh-usage/hourly');
+      assert.equal(r.status, 200, 'hourly 路由状态');
+      const payload = jparse(r.body);
+      assert.equal(payload.windowMs, 3600000, '默认窗口 1 小时');
+      assert.equal(payload.windowHours, 1);
+      assert.equal(payload.units, 'tokens');
+      assert.ok(payload.metric.includes('singleTps') && payload.metric.includes('tokensPerHour'),
+        'payload 应写明四个口径');
+      assert.ok(typeof payload.note === 'string' && payload.note.includes('出入'),
+        'payload 要说明三个口径分母不同、数字会有出入');
+      assert.ok(Array.isArray(payload.rows), 'rows 应为数组');
+      // 每个供应商行都要带全四个口径（缺字段 = 该版本没接入吞吐统计）
+      for (const row of payload.rows) {
+        assert.equal(typeof row.key, 'string');
+        for (const k of ['singleTps', 'concurrentTps', 'wallTps', 'tokensPerHour']) {
+          assert.ok(k in row, `hourly 行缺字段 ${k}：${row.key}`);
+        }
+        assert.ok('calls' in row && 'total' in row && 'samples' in row && 'excluded' in row,
+          `hourly 行缺口径辅助字段：${row.key}`);
+        // 有样本时三个速率必须是数且非负；无样本时必须是 null（不是 0）
+        if (row.samples > 0 && row.excluded < row.samples) {
+          for (const k of ['singleTps', 'concurrentTps']) {
+            if (row[k] !== null) assert.ok(row[k] >= 0, `${k} 不应为负：${row.key}`);
+          }
+        } else {
+          assert.equal(row.singleTps, null, `无样本必须是 null 而不是 0：${row.key}`);
+        }
+        // tokens/h 与总量同号（窗口 1h 时数值相等）
+        assert.ok(Math.abs(row.tokensPerHour - row.total) < 1e-9,
+          `1 小时窗口内 tokens/h 应等于总 tokens：${row.key}`);
+      }
+      // 行按用量降序；合计字段齐备
+      for (let i = 1; i < payload.rows.length; i++) {
+        assert.ok(payload.rows[i - 1].total >= payload.rows[i].total, 'hourly 行应按总 tokens 降序');
+      }
+      for (const k of ['singleTps', 'concurrentTps', 'wallTps', 'tokensPerHour', 'total', 'calls']) {
+        assert.ok(k in payload.totals, `hourly totals 缺字段 ${k}`);
+      }
+      // 供应商展示名：未配置 displayName 时 label 回落 key
+      for (const row of payload.rows) assert.equal(typeof row.label, 'string');
+
+      // windowMs 可调：传非法值折回默认（不抛错、不返回空）
+      const bad = jparse((await callRoute(harness.routes, '/dsh-usage/hourly', { query: 'windowMs=abc' })).body);
+      assert.equal(bad.windowMs, 3600000, '非法 windowMs 折回默认窗口');
+      const tiny = jparse((await callRoute(harness.routes, '/dsh-usage/hourly', { query: 'windowMs=1000' })).body);
+      assert.equal(tiny.windowMs, 3600000, '过小的 windowMs 折回默认（< 10 分钟不可信）');
+      const wide = jparse((await callRoute(harness.routes, '/dsh-usage/hourly', { query: 'windowMs=86400000' })).body);
+      assert.equal(wide.windowMs, 86400000, '合法 windowMs 原样生效');
+      assert.equal(wide.windowHours, 24);
+
+      // 方法 guard 与 summary 一致
+      const post = await callRoute(harness.routes, '/dsh-usage/hourly', { method: 'POST' });
+      assert.equal(post.status, 405, 'POST 应被拒');
     });
 
     await test('路由：range=1d 过滤生效；rescan 需要同源', async () => {
@@ -983,7 +1038,7 @@ async function sectionE(corpus) {
   section('E 浏览器半边（图表结构渲染 + 模型别名）');
 
   const { charts } = loadClientCharts();
-  const { TimeChart, HBars, Donut, HoverLine, Legend, CacheBars, CacheDetail, KeyCell, RatePanel, RateTableRow, niceMax, shortNum, SERIES, css } = charts;
+  const { TimeChart, HBars, Donut, HoverLine, Legend, CacheBars, CacheDetail, KeyCell, RatePanel, RateTableRow, HourlyPanel, HourlyTableRow, HOURLY_COLS, niceMax, shortNum, SERIES, css } = charts;
 
   // 真实聚合行（有语料就折前 30 个会话当样本，否则用合成会话）
   const sessions = corpus && corpus.sessions && corpus.sessions.length > 0
@@ -1167,22 +1222,22 @@ async function sectionE(corpus) {
     assert.deepEqual(readView(mk('{不是 JSON')), VIEW_DEFAULTS, '坏 JSON → 默认视图');
     assert.deepEqual(readView(mk('"model"')), VIEW_DEFAULTS, '字符串 → 默认视图');
     assert.deepEqual(readView(mk('[1,2,3]')), VIEW_DEFAULTS, '数组 → 默认视图');
-    assert.deepEqual(readView(mk('{"by":"hack","range":"9d","showCache":"yes","showTable":null,"showRate":1}')), VIEW_DEFAULTS,
+    assert.deepEqual(readView(mk('{"by":"hack","range":"9d","showCache":"yes","showTable":null,"showRate":1,"showHourly":"no"}')), VIEW_DEFAULTS,
       '非法取值必须逐项丢掉（一个坏 by 会让页面报「host 未接入该维度」）');
     assert.deepEqual(readView(mk('{"__proto__":{"polluted":1}}')), VIEW_DEFAULTS, '__proto__ 不进结果');
     assert.equal({}.polluted, undefined, '不得污染 Object 原型');
 
     // 合法值原样恢复（subagents 的合法取值包含 null，不能按 falsy 丢）
     const store = mk();
-    assert.equal(writeView({ by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true, showRate: false }, store), true);
+    assert.equal(writeView({ by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true, showRate: false, showHourly: false }, store), true);
     assert.deepEqual(readView(store), {
-      by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true, showRate: false,
+      by: 'session', range: '7d', subagents: 'root', timeMode: 'cum', shareMode: 'donut', showTable: false, showCache: true, showRate: false, showHourly: false,
     });
     assert.deepEqual(readView(mk('{"subagents":null}')).subagents, null, '显式 null 是合法取值');
     // 只写白名单键；存储抛错不炸（隐私模式 / 配额满）
     writeView({ by: 'day', evil: 123, __proto__: { x: 1 } }, store);
     assert.deepEqual(Object.keys(JSON.parse(store.raw())).sort(),
-      ['by', 'range', 'shareMode', 'showCache', 'showRate', 'showTable', 'subagents', 'timeMode'], '只写白名单键');
+      ['by', 'range', 'shareMode', 'showCache', 'showHourly', 'showRate', 'showTable', 'subagents', 'timeMode'], '只写白名单键');
     const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
     assert.deepEqual(readView(broken), VIEW_DEFAULTS, '读取抛错 → 默认视图');
     assert.equal(writeView({ by: 'day' }, broken), false, '写入抛错 → 返回 false，不抛');
@@ -1348,8 +1403,9 @@ async function sectionE(corpus) {
     assert.equal(polluted.ttftExcluded, 1, '被裁掉的条数必须如实计数');
     assert.equal(polluted.ttftAvg, 1, '均值只算界内样本（1000 ms = 1 s）');
 
-    // 版块顺序（**用量与速率完全分区**）：
-    //   用量区：图表 → 命中率总表（可选）→ 用量明细表（可选）；速率区排在整块用量之后
+    // 版块顺序（**用量 / 速率 / 吞吐三区分开**）：
+    //   用量区：图表 → 命中率总表（可选）→ 用量明细表（可选）；
+    //   速率区排整块用量之后，吞吐区再排速率区之后
     const panel = (t) => ({ type: 'div', props: { children: [t] } });
     const seq = (o) => orderedPanels(o).map((n) => n.props.children[0]).join(' → ');
     assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), cacheCard: panel('命中率'), table: panel('明细'), showRate: true, showCache: true, showTable: true }),
@@ -1365,7 +1421,15 @@ async function sectionE(corpus) {
     assert.equal(seq({ chartCard: panel('图表'), cacheCard: null, table: null, showCache: true, showTable: true }), '图表');
     assert.equal(VIEW_DEFAULTS.showCache, false, '命中率总表默认关（单项走弹窗）');
     assert.equal(VIEW_DEFAULTS.showRate, true, '速率总表默认开（TTFT/TPS 是本版主指标，需横向比较）');
+    assert.equal(VIEW_DEFAULTS.showHourly, true, '吞吐区默认开（最近一小时供应商总吞吐）');
     assert.equal(VIEW_DEFAULTS.showTable, true, '明细表默认开');
+    // **吞吐区排最后**：三区互不混列，且老调用（不传 hourlyCard）的顺序完全不变
+    assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), hourlyCard: panel('吞吐'), cacheCard: panel('命中率'), table: panel('明细'), showRate: true, showHourly: true, showCache: true, showTable: true }),
+      '图表 → 命中率 → 明细 → 速率 → 吞吐', '吞吐区排在速率区之后');
+    assert.equal(seq({ chartCard: panel('图表'), rateCard: panel('速率'), hourlyCard: panel('吞吐'), showRate: true, showHourly: false, showCache: false, showTable: false }),
+      '图表 → 速率', '吞吐区关掉时不占位');
+    assert.equal(seq({ chartCard: panel('图表'), hourlyCard: panel('吞吐'), showHourly: true, showRate: false, showCache: false, showTable: false }),
+      '图表 → 吞吐', '只有吞吐区时也照常显示');
     // 速率取值助手：null 与 0 是两件事
     assert.equal(ttftOf({ ttftAvg: null }), null, '无样本 → null');
     assert.equal(ttftOf({}), null, '字段缺失（旧 host）→ null，不抛');
@@ -1394,6 +1458,223 @@ async function sectionE(corpus) {
       '空行弹窗不得出现 undefined');
   });
 
+  await test('最近一小时 · 供应商总吞吐：三个 TPS 口径 + tokens/h，且互有出入', () => {
+    const { HourlyPanel, HourlyTableRow, HOURLY_COLS, hourText, singleTpsOf, concurrentTpsOf, wallTpsOf } = charts;
+    const T = Date.UTC(2026, 9, 31, 12, 0);
+    const mk = (p, out, ttftMs, genMs, atMs) => fold.makeFact('step', T + atMs, p, 'm',
+      { inputTokens: 10, outputTokens: out, totalTokens: 10 + out },
+      { r: { f: ttftMs, g: genMs, o: out } });
+    // 夹具刻意让**跨供应商的生成区间互相重叠**：这样「全体并集」与「各家并集之和」
+    // 不相等，合计的并发分母才真的被断言到（区间两两不相交时这两个数相同，断言会空转）。
+    //   A：两条生成窗口完全重合 → 并发 = 2×单发
+    //   B：两条串行且中间有空隙 → 墙钟 < 单发
+    //   C：一条嵌在 A 的区间里 → 对全体并集贡献 0，但计入自己的并集
+    const sessions = [{
+      id: 's', meta: {},
+      logFacts: [
+        mk('A', 400, 1000, 4000, 10000),   // 生成区间 [T+6000,  T+10000]
+        mk('A', 400, 1000, 4000, 10000),   // 生成区间 [T+6000,  T+10000]（完全重合）
+        mk('B', 500, 1000, 5000, 25000),   // 生成区间 [T+20000, T+25000]
+        mk('B', 500, 1000, 5000, 45000),   // 生成区间 [T+40000, T+45000]（与上一条隔 15s）
+        mk('C', 100, 1000, 1000, 9000),    // 生成区间 [T+8000,  T+9000]（嵌在 A 里面）
+      ],
+      auxFacts: [],
+    }];
+    const h = fold.hourlyThroughput(sessions, { nowMs: T + 60000, windowMs: 3600000, timeZone: 'UTC' });
+    assert.equal(h.rows.length, 3, '按供应商分三家');
+    const a = h.rows.find((r) => r.key === 'A');
+    const b = h.rows.find((r) => r.key === 'B');
+    const c = h.rows.find((r) => r.key === 'C');
+
+    // A：两条流并行 → 并发 = 2×单发
+    assert.equal(a.calls, 2);
+    assert.equal(a.total, 820, '总 tokens = (10+400)×2');
+    assert.equal(a.samples, 2, '两条都进速率样本');
+    assert.equal(a.singleTps, 100, '单发 TPS = Σ输出/Σ生成时长');
+    assert.equal(a.activeMs, 4000, '并流生成区间并集（重合只算一份）');
+    assert.equal(a.concurrentTps, 200, '并发 TPS = 800/4');
+    assert.ok(a.concurrentTps > a.singleTps, '并发口径必须高于单发（这家确实是两条流并行）');
+    assert.equal(a.spanMs, 4000, '首末生成跨度');
+    assert.equal(a.wallTps, 200, '两条完全重合时墙钟 = 并发');
+    assert.equal(a.tokensPerHour, 820, 'tokens/h = 窗口内总 tokens / 1h');
+
+    // B：两条串行且中间有 15s 空隙 → 墙钟明显低于单发
+    assert.equal(b.singleTps, 100, '串行那家单发 = 1000/10');
+    assert.equal(b.concurrentTps, 100, '不重叠时并发 = 单发');
+    assert.equal(b.activeMs, 10000, '两段不相交 → 并集 = 时长之和');
+    assert.equal(b.spanMs, 25000, '首末跨度含中间 15s 空隙');
+    assert.equal(b.wallTps, 40, '墙钟 TPS = 1000/25');
+    assert.ok(b.wallTps < b.singleTps, '有空隙时墙钟必须低于单发');
+
+    // C：嵌在 A 的区间里 → 对全体并集没有贡献
+    assert.equal(c.activeMs, 1000);
+    assert.equal(c.singleTps, 100);
+
+    // 合计：并集分母跨家合并，且**不等于各家并集之和**（C 那段被 A 覆盖）
+    assert.equal(h.totals.activeMs, 14000, '全体并集 = 4000 + 5000 + 5000（C 被 A 覆盖）');
+    assert.equal(h.totals.samples, 5, '合计样本 = 各行相加');
+    assert.equal(h.totals.spanMs, 39000, '合计墙钟跨度 = 首末生成时刻之差');
+    assert.equal(h.totals.singleTps, 1900 / 19, '合计单发 = Σ输出/Σ生成');
+    assert.equal(h.totals.concurrentTps, 1900 / 14, '合计并发 = Σ输出/全体并集');
+    assert.equal(h.totals.wallTps, 1900 / 39, '合计墙钟 = Σ输出/首末跨度');
+    // 三个数字互不相同 —— 这正是「有出入」
+    assert.ok(h.totals.singleTps !== h.totals.concurrentTps, '合计的单发与并发必须不同');
+    assert.ok(h.totals.concurrentTps !== h.totals.wallTps, '合计的并发与墙钟必须不同');
+    assert.ok(h.totals.wallTps !== h.totals.singleTps, '合计的墙钟与单发必须不同');
+    assert.equal(h.totals.tokensPerHour, 1950, '合计 tokens/h = 全部窗口内用量');
+    assert.equal(h.totals.sessions, 1);
+    // 单调关系：跨度 ⊇ 并集 ⊇ 各自的生成时间之和 → 单发 ≤ 并发，墙钟 ≤ 并发
+    assert.ok(h.totals.singleTps <= h.totals.concurrentTps + 1e-9, '单发不应高于并发');
+    assert.ok(h.totals.wallTps <= h.totals.concurrentTps + 1e-9, '墙钟不应高于并发');
+    // 行按用量降序
+    assert.deepEqual(h.rows.map((r) => r.key), ['B', 'A', 'C'], '行按总 tokens 降序');
+
+    // 窗口边界：只认 windowMs 内**收尾**的调用
+    const outside = fold.hourlyThroughput(sessions, { nowMs: T + 60000, windowMs: 5000, timeZone: 'UTC' });
+    assert.equal(outside.rows.length, 0, '5 秒窗口内没有调用');
+    assert.equal(outside.totals.calls, 0, '窗口外不计调用');
+    const wide = fold.hourlyThroughput(sessions, { nowMs: T + 60000, windowMs: 120000, timeZone: 'UTC' });
+    assert.equal(wide.rows.length, 3, '2 分钟窗口覆盖全部五条');
+    assert.equal(wide.rows.find((r) => r.key === 'A').tokensPerHour, 820 * 30, '窗口变长时 tokens/h 同比缩放');
+    // 左边界是开的：t 必须**大于** fromMs
+    const edge = fold.hourlyThroughput(sessions, { nowMs: T + 25000, windowMs: 10000, timeZone: 'UTC' });
+    assert.equal(edge.rows.length, 1, '只有 T+25000 那条收尾于窗口内');
+    assert.equal(edge.rows[0].key, 'B');
+
+    // **生成区间必须完整落在窗口内**：跨左边界的长调用只计 token，不进速率样本
+    const crossing = fold.hourlyThroughput(sessions, { nowMs: T + 10000, windowMs: 1500, timeZone: 'UTC' });
+    // fromMs = T+8500：A 两条（t=T+10000，生成区间 [6000,10000]）与 C（t=T+9000，
+    // 区间 [8000,9000]）都收尾于窗口内 → 计 token；但生成区间都跨左边界 → 不进速率样本。
+    assert.equal(crossing.rows.length, 2, 'A 与 C 收尾于 1.5 秒窗口内');
+    assert.equal(crossing.rows.find((r) => r.key === 'A').calls, 2, 'token 与调用数照计');
+    assert.equal(crossing.rows.find((r) => r.key === 'A').total, 820, 'token 总量不受边界影响');
+    assert.equal(crossing.rows.find((r) => r.key === 'A').samples, 0, '跨边界的调用不进速率样本');
+    assert.equal(crossing.rows.find((r) => r.key === 'A').singleTps, null, '无样本 → null 而不是 0');
+    assert.equal(crossing.totals.samples, 0, '合计也没有速率样本');
+    assert.equal(crossing.totals.tokensPerHour, 930 * 2400, 'tokens/h 仍按窗口总量算（1500ms 窗口）');
+
+    // 窗口是闭区间 [fromMs, nowMs]：右边界也要挡——时钟回跳/对端镜像时间戳可能给出
+    // 「未来」事实，不挡的话它们会连生成区间一起污染「最近一小时」的分母。
+    const future = fold.hourlyThroughput(sessions, { nowMs: T + 10000, windowMs: 3600000, timeZone: 'UTC' });
+    assert.deepEqual(future.rows.map((r) => r.key), ['A', 'C'], '晚于 now 的事实不计入窗口');
+    assert.equal(future.rows.find((r) => r.key === 'A').calls, 2);
+    assert.equal(future.totals.calls, 3, '只有 A 两条 + C 一条收尾于 now 之前');
+
+    // 无样本（老账本 / 无 stream 时间戳）：速率一律 null，token 照算
+    const legacy = fold.hourlyThroughput([{
+      id: 'old', meta: {},
+      logFacts: [{ t: T + 1000, k: 'step', p: 'p', m: 'm', it: 10, ot: 1, cr: 0, cw: 0, rt: 0, tt: 11 }],
+      auxFacts: [],
+    }], { nowMs: T + 60000, windowMs: 3600000, timeZone: 'UTC' });
+    assert.equal(legacy.rows.length, 1);
+    assert.equal(legacy.rows[0].singleTps, null, '无 r 字段 → 单发 null');
+    assert.equal(legacy.rows[0].concurrentTps, null, '无 r 字段 → 并发 null');
+    assert.equal(legacy.rows[0].wallTps, null, '无 r 字段 → 墙钟 null');
+    assert.equal(legacy.rows[0].tokensPerHour, 11, 'token 总量不受影响');
+    assert.equal(legacy.rows[0].samples, 0, '没有可测样本要如实报 0');
+
+    // 上界裁剪：**只看生成时长**。TTFT 超 5 分钟不丢 TPS 样本（与速率区一致：
+    // 那次调用的解码速度是真的），只被生成时长上界裁掉的才计入 excluded。
+    const polluted = fold.hourlyThroughput([{
+      id: 'x', meta: {},
+      logFacts: [
+        mk('p', 200, 1000, 2000, 1000),      // 正常 100 tok/s
+        mk('p', 200, 600000, 2000, 61000),   // TTFT 10 分钟，但生成 2 s / 200 tok 仍是好样本
+        mk('p', 200, 1000, 600000, 63000),   // 生成 10 分钟 → 超上界，剔除
+      ],
+      auxFacts: [],
+    }], { nowMs: T + 70000, windowMs: 3600000, timeZone: 'UTC' });
+    assert.equal(polluted.rows[0].samples, 2, 'TTFT 超限那条仍是有效 TPS 样本');
+    assert.equal(polluted.rows[0].excluded, 1, '只有生成时长超上界那条计入剔除');
+    assert.equal(polluted.rows[0].singleTps, 100, '三条里两条 100 tok/s');
+    // 与速率区对账：同一批事实的 tpsAvg 必须等于这里的 singleTps（同口径、同样本集）
+    const rateRow = fold.aggregate([{
+      id: 'x', meta: {},
+      logFacts: [
+        mk('p', 200, 1000, 2000, 1000),
+        mk('p', 200, 600000, 2000, 61000),
+        mk('p', 200, 1000, 600000, 63000),
+      ],
+      auxFacts: [],
+    }], { by: 'provider', timeZone: 'UTC' }).rows[0];
+    assert.equal(polluted.rows[0].singleTps, rateRow.tpsAvg, '单发 TPS 必须与速率区 tpsAvg 逐位一致');
+    assert.equal(polluted.rows[0].samples, rateRow.tpsSamples, '样本数也必须与速率区一致');
+
+    // 区间边界：重叠合并、空隙分开、相接算一段、坏区间忽略
+    assert.equal(fold.unionMs([]), 0);
+    assert.equal(fold.unionMs([[0, 10]]), 10);
+    assert.equal(fold.unionMs([[0, 10], [5, 15], [20, 30]]), 25, '重叠合并、空隙分开');
+    assert.equal(fold.unionMs([[0, 10], [10, 20]]), 20, '相接也算一段');
+    assert.equal(fold.unionMs([[5, 1], [0, 3]]), 3, '坏区间（end<start）被忽略');
+    assert.equal(fold.unionMs([[NaN, 1], [0, 3]]), 3, 'NaN 端点被忽略');
+
+    // **区间不含 TTFT**：排队/首包延迟不是解码占用。一条 10 s TTFT + 2 s 生成的调用，
+    // 并集就是 2 s（不是 12 s），否则单条调用的「并发」会低于「单发」。
+    const queued = fold.hourlyThroughput([{
+      id: 'q', meta: {},
+      logFacts: [mk('p', 200, 10000, 2000, 12000)],
+      auxFacts: [],
+    }], { nowMs: T + 60000, windowMs: 3600000, timeZone: 'UTC' });
+    assert.equal(queued.rows[0].activeMs, 2000, '并集只算生成区间，不含 10 s TTFT');
+    assert.equal(queued.rows[0].singleTps, 100);
+    assert.equal(queued.rows[0].concurrentTps, 100, '单条调用时并发 = 单发');
+    assert.equal(queued.rows[0].wallTps, 100, '单条调用时墙钟 = 单发');
+
+    // 脏 token 字段不得污染界面：非有限数/负数一律按 0 累加
+    const dirty = fold.hourlyThroughput([{
+      id: 'd', meta: {},
+      logFacts: [{
+        t: T + 1000, k: 'step', p: 'p', m: 'm',
+        it: NaN, ot: Infinity, cr: -5, cw: undefined, rt: 'x', tt: null,
+      }],
+      auxFacts: [],
+    }], { nowMs: T + 60000, windowMs: 3600000, timeZone: 'UTC' });
+    assert.equal(dirty.rows[0].total, 0, '脏 token 字段折成 0，不产出 NaN');
+    assert.equal(dirty.rows[0].tokensPerHour, 0, 'tokens/h 也不得是 NaN');
+
+    // 界面：合计四张卡 + 吞吐列；无数据显示「—」而不是 0 tok/s
+    const tree = HourlyPanel({ rows: h.rows, totals: h.totals, windowMs: h.windowMs, generatedAt: h.generatedAt, limit: 50 });
+    const html = toHtml(tree);
+    assert.ok(html.includes('单发 TPS（合计）'), '合计卡要有单发 TPS');
+    assert.ok(html.includes('并发 TPS（合计）'), '合计卡要有并发 TPS');
+    assert.ok(html.includes('总吞吐（tokens/h）'), '合计卡要有 tokens/h');
+    assert.ok(html.includes(hourText(h.totals.tokensPerHour)), '总吞吐卡显示 tokens/h 数值');
+    assert.equal(findAll(tree, 'div').filter((n) => n.props.className === 'ust-card').length, 4, '吞吐区四张合计卡');
+    assert.equal(findAll(tree, 'tr').length, 4, '表头一行 + 三家数据行');
+    assert.equal(findAll(tree, 'button').length, 0, '吞吐区没有可点名称（不是命中率弹窗入口）');
+    const head = findAll(tree, 'th').map((n) => [].concat(n.props.children).join(''));
+    for (const need of ['调用', '总 tokens', '单发 TPS', '并发 TPS', '墙钟 TPS', 'tokens/h', '剔除']) {
+      assert.ok(head.includes(need), `吞吐区缺列「${need}」`);
+    }
+    // 分区：吞吐区不掺 TTFT 与缓存列
+    for (const banned of ['TTFT', '缓存占比', '输入', '输出', '推理', '会话数']) {
+      assert.ok(!head.includes(banned), `吞吐区不该有「${banned}」列`);
+    }
+    assert.deepEqual(nonFiniteNumbers(tree), []);
+    // 「有出入」要写在界面上（这是本区的存在理由）
+    assert.ok(html.includes('分母不同，数字会有出入'), '要说明三个口径分母不同、数字会有出入');
+    assert.equal(typeof HourlyTableRow({ row: h.rows[0] }), 'object');
+    assert.deepEqual(HOURLY_COLS, ['调用', '总 tokens', '单发 TPS', '并发 TPS', '墙钟 TPS', 'tokens/h', '剔除']);
+    // 取值助手：null 与 0 是两件事
+    assert.equal(singleTpsOf({ singleTps: null }), null);
+    assert.equal(singleTpsOf({}), null, '字段缺失（旧 host）→ null，不抛');
+    assert.equal(concurrentTpsOf({ concurrentTps: 0 }), 0, '真实 0 不当成无数据');
+    assert.equal(wallTpsOf({}), null);
+    assert.equal(hourText(null), '—');
+    assert.equal(hourText(undefined), '—');
+    assert.equal(hourText(NaN), '—', 'NaN 不得画到屏幕上');
+    assert.equal(hourText(Infinity), '—');
+    assert.equal(hourText(-410), '—', '负速率没有意义，按无数据处理');
+    assert.equal(hourText(0), '0 tokens/h', '真实的 0 照实显示');
+    assert.equal(hourText(1500000), '1.50M tokens/h');
+    // 空态
+    assert.ok(toHtml(HourlyPanel({ rows: [], totals: {}, windowMs: 3600000 })).includes('没有用量记录'));
+    assert.ok(!/\b0\.0 tok\/s/.test(toHtml(HourlyPanel({
+      rows: [{ key: 'z', label: 'Z', calls: 1, sessions: 1, total: 5, input: 4, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, samples: 0, excluded: 0, genMs: 0, activeMs: 0, spanMs: 0, singleTps: null, concurrentTps: null, wallTps: null, tokensPerHour: 5, outputPerHour: 1, activeShare: 0 }],
+      totals: {}, windowMs: 3600000,
+    }))), '无速率数据不得渲染成 0 tok/s');
+  });
+
   await test('接线（源码级）：弹窗两处入口 / 三种关闭 / 视图偏好落盘 都在', () => {
     // UsageStats 是 hooks 组件，无头 harness 渲染不了它（没有可 require 的 React），
     // 所以这几处接线只能做**源码级**存在性断言。它抓的是「接线被误删/改错」这类回归
@@ -1410,13 +1691,19 @@ async function sectionE(corpus) {
       ['Esc 监听拆装', "window.removeEventListener('keydown', onKey)"],
       ['换页签 / 换范围关闭弹窗', "React.useEffect(() => { setDetailKey(null); }, [query]);"],
       ['弹窗行按 key 从当前数据取（不是快照）', "rowByKey(rows, detailKey)"],
-      ['视图偏好落盘', "writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache, showRate });"],
+      ['视图偏好落盘', "writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache, showRate, showHourly });"],
       ['初值从存档恢复', "React.useMemo(() => readView(), [])"],
       ['两个开关都在工具条上', "'命中率总表'"],
       ['速率区开关在工具条上', "'速率区'"],
+      ['吞吐区开关在工具条上', "'最近一小时'"],
       ['速率区接进版块顺序', 'rateCard,'],
+      ['吞吐区接进版块顺序', 'hourlyCard,'],
+      ['吞吐区独立取数（不跟着 by/range 走）', '/dsh-usage/hourly?windowMs=3600000'],
+      ['吞吐区定时自刷', "setInterval(() => { void loadHourly(); }, 30000)"],
+      ['「刷新」同时刷新吞吐区', "void load(); void loadHourly();"],
       ['用量表不含速率列（分区）', "const COLS = ['调用', '输入', '输出', '缓存读', '缓存写', '推理', '总计', '缓存占比', '会话']"],
       ['速率区表列独立定义', "const RATE_COLS = ['调用', '样本', '平均TTFT'"],
+      ['吞吐区表列独立定义', "const HOURLY_COLS = ['调用', '总 tokens', '单发 TPS'"],
     ];
     for (const [name, needle] of must) assert.ok(src.includes(needle), 'client.js 缺少接线：' + name);
     // 只扫**代码**：注释里正好会写到「不是 h(KeyCell, …)」这种解释，别把注释当代码。
@@ -1452,6 +1739,24 @@ async function sectionE(corpus) {
       RatePanel({ rows: modelRows.slice(0, 3).map((r, i) => Object.assign({}, r, i === 0
         ? { ttftAvg: 3.2, ttftMedian: 2.1, ttftMin: 0.4, ttftMax: 9, ttftSamples: 10, ttftExcluded: 1, tpsAvg: 120, tpsMean: 118, tpsMedian: 125, tpsSamples: 8, tpsExcluded: 2 }
         : { ttftAvg: null, ttftMedian: null, ttftMin: null, ttftMax: null, ttftSamples: 0, ttftExcluded: 0, tpsAvg: null, tpsMean: null, tpsMedian: null, tpsSamples: 0, tpsExcluded: 0 })), limit: 20, totals: modelRows[0] || {}, by: 'model' }),
+      // 吞吐区（最近一小时）也要纳入：它与速率区共用 ust-table / ust-card 系列 class，
+      // 但新增了「四张合计卡 + 吞吐列」的组合，漏掉就等于这些列没被 CSS 核对过。
+      HourlyPanel({
+        rows: modelRows.slice(0, 3).map((r, i) => Object.assign({}, r, {
+          input: r.input || 0, output: r.output || 0, total: r.total || 0,
+          samples: 3, excluded: i === 0 ? 1 : 0, genMs: 8000, activeMs: 5500, spanMs: 9000,
+          singleTps: i === 0 ? 120 : null, concurrentTps: i === 0 ? 174 : null,
+          wallTps: i === 0 ? 106 : null, tokensPerHour: r.total || 0, outputPerHour: r.output || 0,
+          activeShare: 0.42,
+        })),
+        totals: { total: 100, calls: 3, singleTps: 120, concurrentTps: 174, wallTps: 106, tokensPerHour: 100 },
+        windowMs: 3600000, generatedAt: 1, limit: 20,
+      }),
+      HourlyPanel({ rows: [], totals: {}, windowMs: 3600000 }),
+      HourlyPanel({
+        rows: [{ key: 'z', label: 'Z', calls: 3, sessions: 1, total: 99, input: 50, output: 49, cacheRead: 0, cacheWrite: 0, reasoning: 0, samples: 0, excluded: 0, genMs: 0, activeMs: 0, spanMs: 0, singleTps: null, concurrentTps: null, wallTps: null, tokensPerHour: 99, outputPerHour: 49, activeShare: 0 }],
+        totals: {}, windowMs: 3600000,
+      }),
       HoverLine({ row: Object.assign({}, dayRows[0], { cacheKnown: false, cacheShare: null, cacheCoverage: 0 }), cumulative: 1 }),
       HBars({ rows: modelRows.slice(0, 3).map((r) => Object.assign({}, r, { provider: 'p', providerLabel: 'P', sharedLabel: true, ttftAvg: 2, tpsAvg: 80 })), limit: 20 }),
     ];

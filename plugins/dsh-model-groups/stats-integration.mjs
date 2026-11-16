@@ -45,11 +45,15 @@ const PROFILE = resolvePath(HERE, '..', '..');
 const DEFAULT_STATS = join(PROFILE, 'plugins', 'dsh-usage-stats');
 const PATCH_FILE = join(PROFILE, 'cordis.patch.yml');
 // TAG = **当前图代号**，由「换实现的人」bump（谁改 index.js/fold.js 谁换一个，
-// 保证 loader 拿到新实例）。2026-10-09 缓存占比 v7 把它从 group-dim-4 换成
-// cache-share-4；分组维接入本身没变，但本工具的 TAG/ENTRY 必须跟着走，
-// 否则锚点对不上会直接拒绝写入（--check 报 INTEGRATION FAIL）。
-const TAG = 'cache-share-4';
-const ENTRY = 'entry-v9.js';   // 与 TAG 配套：--live 生成/指向的就是当前这一版图
+// 保证 loader 拿到新实例）。历史：group-dim-4 → cache-share-4（缓存占比 v7）→
+// mirror-origin-1（v10 网格镜像）→ rate-model-dim-1/2/3（模型维按供应商分桶 + 速率）。
+// 分组维接入本身没变，但本工具的 TAG/ENTRY 必须跟着走，否则锚点对不上会直接拒绝写入
+// （--check 报 INTEGRATION FAIL）。
+// 注意：磁盘上的 index.js/store.js **已经**带着 `?v=<TAG>` 的导入，所以下面那几条
+// 「打标记」补丁现在会报锚点不匹配并跳过——这是预期的幂等表现（标记已在，只是值不同）。
+// 真要换 TAG，用编辑工具直接改 index.js / store.js / entry-*.js 里的导入值。
+const TAG = 'rate-model-dim-3';
+const ENTRY = 'entry-v13.js';   // 与 TAG 配套：--live 生成/指向的就是当前这一版图
 
 /* ------------------------------------------------------------- 工具 ---- */
 

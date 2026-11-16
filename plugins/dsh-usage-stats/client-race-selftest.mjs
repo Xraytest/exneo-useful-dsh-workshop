@@ -14,6 +14,7 @@
  *   R4 失败/错误也只认最新一次请求：旧请求的失败不得覆盖新请求的成功
  *   R5 宿主**真的**不支持该维度时，红字仍要在响应到达后照常出现（别把提示一起修没了）
  *   R6 连续快速切 3 个页签 → 最终状态一定是最后一个页签，且期间无红字
+ *   R10 吞吐区（最近一小时）自刷：独立取数、过期响应被丢、卸载时清理定时器
  *
  * 做法：`new Function` 以脚本语义跑 client.js，捕获 __ModuleLoader__.load，
  * 用一个只实现 useState/useRef/useCallback/useEffect/useMemo 的 react 桩渲染
@@ -188,30 +189,51 @@ const clickTab = (node, label) => {
 
 /* ------------------------------------------------------------- 驱动件 -- */
 
-/** 挂载并跑首屏 effect（此刻只有一个 summary 请求在飞——load() 是串行的）。 */
+/**
+ * effect 清理函数收集器。
+ *
+ * 最初这里断言「首屏 effect 不得返回清理函数」，本意是抓 effect 泄漏。但
+ * **最近一小时吞吐区**的定时自刷 effect（setInterval）按 React 契约本来就该返回
+ * 清理函数——没有它，卸载后定时器还会继续打接口。所以改成「收集起来、由 unmount()
+ * 统一执行」。本文件里 setInterval 已被桩成「只登记、不真定时」，clearInterval 也是
+ * 空实现，所以收集不到真定时器也不会拖住 node 进程。
+ */
+const cleanups = [];
+function runEffects(list) {
+  for (const fn of list) {
+    const cleanup = fn();
+    if (typeof cleanup === 'function') cleanups.push(cleanup);
+  }
+}
+function unmount() {
+  for (const fn of cleanups.splice(0)) fn();
+}
+
+/** 挂载并跑首屏 effect（此刻只有一个 summary 请求在飞——load() 是串行的）。
+ *  同时清空上一轮遗留的待决请求：吞吐区的 hourly 取数很多用例不回包，
+ *  不清理的话下一轮的 take() 会先摸到上一轮的那条（URL 还是旧归属）。 */
 function mount() {
   state = [];
   refSlots = [];
+  pending.length = 0;
   render();
-  for (const fn of effects.slice()) {
-    const cleanup = fn();
-    assert.equal(cleanup, undefined, '首屏 effect 不应返回清理函数');
-  }
+  runEffects(effects.slice());
   return take((url) => url.includes('/dsh-usage/summary'));
 }
 /** 切页签：点击 → 重渲染 → 跑新登记的 effect，返回这次新起的 summary 请求。 */
 function switchTab(tree, label) {
   clickTab(tree, label);
   tree = render();
-  for (const fn of effects.slice()) fn();
+  runEffects(effects.slice());
   return take((url) => url.includes('/dsh-usage/summary'));
 }
 /**
- * 只跑「第 index 个及之后」的 effect。回填轮询是组件里最后一个 effect，这样启动它时不会
- * 顺带再触发一次 load（否则 /status 请求混在一起，测不出轮询自身的竞态）。
+ * 只跑「第 index 个及之后」的 effect。回填轮询与吞吐区自刷在组件里排在后面，
+ * 这样启动它们时不会顺带再触发一次 load（否则 /status 请求混在一起，
+ * 测不出轮询自身的竞态）。
  */
 function runEffectsFrom(index) {
-  for (const fn of effects.slice(index)) fn();
+  runEffects(effects.slice(index));
 }
 const clickButton = (node, label) => {
   const found = [];
@@ -438,6 +460,47 @@ await test('R9 点当前项（无效点击）不得清空表格、也不得多�
   const afterRange = fetchLog.length;
   assert.ok(rowLabels(tree).length === 1, '无效的范围点击后表格必须还在：' + JSON.stringify(rowLabels(tree)));
   assert.equal(afterRange, before, '无效的范围点击不该再发请求');
+});
+
+await test('R10 吞吐区自刷：独立取数、过期响应被丢、卸载时清理定时器', async () => {
+  // 吞吐区（最近一小时）不跟着 by/range 走，所以它自己取数、自己做过期守卫。
+  // 这里钉三件事：① 挂载时就发一次 hourly 请求；② 乱序回包只认最新一次；
+  // ③ effect 返回清理函数（卸载后不再打接口）。
+  const first = mount();
+  const hourlyA = take((url) => url.includes('/dsh-usage/hourly'));
+  assert.ok(hourlyA.url.includes('windowMs=3600000'), '默认窗口 1 小时：' + hourlyA.url);
+  await settle(first, summaryPayload('model', MODEL_ROWS));
+
+  // 切子代理归属会触发新的 hourly 取数（旧的必须被丢）
+  clickTab(paint(), '归到根会话');
+  render();
+  runEffects(effects.slice());
+  const hourlyB = take((url) => url.includes('/dsh-usage/hourly'));
+  assert.ok(hourlyB.url.includes('subagents=root'), '切归属后重取吞吐：' + hourlyB.url);
+
+  const payload = (n) => ({ rows: [{ key: 'p', label: 'P', calls: n, sessions: 1, total: n, input: 0, output: n, cacheRead: 0, cacheWrite: 0, reasoning: 0, samples: 1, excluded: 0, genMs: 1000, activeMs: 1000, spanMs: 1000, singleTps: n, concurrentTps: n, wallTps: n, tokensPerHour: n, outputPerHour: n, activeShare: 0 }], totals: { total: n, calls: n, singleTps: n, concurrentTps: n, wallTps: n, tokensPerHour: n }, windowMs: 3600000 });
+
+  answer(hourlyB, payload(2));   // 新的先回
+  await tick();
+  answer(hourlyA, payload(1));   // 旧的后回（修复前：把新数字顶掉）
+  await tick(); await tick();
+  const tree = paint();
+  // 注意：本桩的 createElement **不展开函数组件**（与 charts-harness 的约定相反），
+  // 所以这里断言到 HourlyPanel 这个元素节点本身，读它的 props 而不是渲染结果。
+  const HourlyPanel = exports.__charts.HourlyPanel;
+  const panels = [];
+  walk(tree, (el) => { if (el.type === HourlyPanel) panels.push(el); });
+  assert.equal(panels.length, 1, '吞吐区应且只应挂一个面板');
+  assert.equal(panels[0].props.rows.length, 1, '吞吐区只认最新一次响应');
+  assert.equal(panels[0].props.rows[0].calls, 2, '过期响应（1 次）不得覆盖新响应（2 次）');
+  assert.equal(panels[0].props.windowMs, 3600000, '默认窗口 1 小时');
+
+  // 卸载：清理函数必须真的被调用（否则 30s 定时器会一直打接口）
+  assert.ok(cleanups.length > 0, '吞吐区自刷 effect 应返回清理函数');
+  const before = cleanups.length;
+  unmount();
+  assert.equal(cleanups.length, 0, 'unmount 后清理函数队列应清空');
+  assert.ok(before > 0);
 });
 
 /* ------------------------------------------------------------- 收尾 ---- */

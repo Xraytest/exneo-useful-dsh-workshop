@@ -1,16 +1,17 @@
 {
   "name": "dsh-session-title-context",
   "type": "module",
-  "main": "session-title.js",
-  "description": "Cordis plugin: full-context session-title provider that gets the title back through a tool call (reasoning-model safe), strips images, and can be re-run with a one-off model.",
+  "main": "session-title.v3.js",
+  "description": "Cordis plugin: session-title provider (v3) with settings-page control surface. v1.2: settings auto-save (debounced 600ms, serialized, no save button), redesigned settings UI, per-rule instant save with undo, invalid numeric input never persisted. Persisted in <DSH_HOME>/session-title.json.",
   "dsh": {
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
       ]
     },
-    "description": "会话标题生成：完整上下文（去图片）、工具调用取标题（兼容推理模型）、默认当前会话模型并支持 /title 一次性指定模型；会话标题栏右侧带「标题」控件（client 半边）",
+    "description": "会话标题总结 v4.2：设置页改动即自动保存（防抖 600ms，串行落盘，无保存按钮）；标题栏保留「标题」纯重算按钮（点击即用当前会话模型重生成，行内提示结果，无展开设置）；v1.2.1 修复窄面板文本溢出重叠与 HMR 样式竞态。",
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
@@ -19,10 +20,10 @@
     }
   },
   "exports": {
-    ".": "./session-title.js",
+    ".": "./session-title.v3.js",
     "./client": "./client.js"
   },
-  "version": "1.0.0",
+  "version": "1.2.2",
   "license": "MIT",
   "keywords": [
     "dsh",

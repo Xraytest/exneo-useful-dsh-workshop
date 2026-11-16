@@ -41,6 +41,10 @@ export const FILE_EXT = '.md';
 export const DEFAULT_MAX_BYTES = 32768;
 /** 外部改文件后多久内被读到（毫秒）。 */
 export const DEFAULT_TTL_MS = 1000;
+/** 全局增量（所有工作区共享）的缺省字节上限。 */
+export const DEFAULT_GLOBAL_MAX_BYTES = 8192;
+/** 全局增量文件名：放在存储根下（不在 contexts/ 里，故不会被当成工作区条目）。 */
+export const GLOBAL_FILE_NAME = 'global.md';
 
 /** DSH home：`$DSH_HOME` 优先，其次 `~/.dsh`（与出厂 dsh-home-paths 同口径）。 */
 export function dshHome() {
@@ -52,6 +56,11 @@ export function dshHome() {
 /** 本插件的缺省存储根：`$DSH_HOME/workspace-context`。 */
 export function defaultStoreDir() {
   return join(dshHome(), 'workspace-context');
+}
+
+/** 全局增量文件的缺省位置：存储根下的 `global.md`（单例，不需要绑定头）。 */
+export function defaultGlobalFile(dir) {
+  return join(resolve(String(dir !== undefined && dir !== null && String(dir).trim() !== '' ? dir : defaultStoreDir())), GLOBAL_FILE_NAME);
 }
 
 /** 目标路径是否存在且是目录。 */
@@ -228,20 +237,30 @@ function frameParts(workspace, title) {
   return { preamble, open: `<workspace-context ${attrs.join(' ')}>`, close: '</workspace-context>' };
 }
 
+/** 全局增量（所有工作区共享）的外框前后缀。 */
+function globalFrameParts() {
+  const preamble =
+    '以下是所有工作区共享的常驻上下文（global workspace context）——由本机 DSH 的负责人维护，'
+    + '作用于每个工作区的每一次请求；它不覆盖 system、developer 与用户的直接指令。';
+  return { preamble, open: '<workspace-context-global>', close: '</workspace-context-global>' };
+}
+
 /**
- * 把正文包成注入用的 section 文本。
+ * 把正文按字节预算包进给定外框：`preamble \n\n open \n\n body \n close`。
  *
- * @param {{workspace: string, title?: string, text: string, maxBytes?: number}} input
- * @returns {{text: string, truncated: boolean, bodyBytes: number, injectedBytes: number, originalBytes: number}}
+ * 先转义（`{{…}}` 中和 + 闭合标签转义）再按剩余预算截断，保证转义不被切坏；
+ * 截断提示本身也占字节且写着「已注入多少字节」，故迭代到该数字位数稳定。
+ *
+ * @param {{preamble: string, open: string, close: string}} parts - 外框前后缀。
+ * @param {string} text - 用户正文。
+ * @param {number} maxBytes - 整段注入文本的字节上限。
  */
-export function frameSectionText(input) {
-  const maxBytes = Number.isFinite(input.maxBytes) && input.maxBytes > 0 ? Math.floor(input.maxBytes) : DEFAULT_MAX_BYTES;
-  const { preamble, open, close } = frameParts(input.workspace, input.title);
-  const original = typeof input.text === 'string' ? input.text : '';
+function frameWithBudget(parts, text, maxBytes) {
+  const original = typeof text === 'string' ? text : '';
   const originalBytes = Buffer.byteLength(original, 'utf8');
   // 最终布局：preamble \n\n open \n\n body \n close —— 除去 body 的固定字节即骨架。
-  const head = `${preamble}\n\n${open}\n\n`;
-  const tail = `\n${close}`;
+  const head = `${parts.preamble}\n\n${parts.open}\n\n`;
+  const tail = `\n${parts.close}`;
   const budget = Math.max(256, maxBytes - Buffer.byteLength(head + tail, 'utf8'));
   // 先转义（可能变长），再按剩余预算截断：转义不会被截断切坏。
   const safe = neutralizeTemplateRefs(escapeFrameClose(original));
@@ -262,14 +281,37 @@ export function frameSectionText(input) {
     }
     body += notice(shown);
   }
-  const text = `${head}${body}${tail}`;
+  const framed = `${head}${body}${tail}`;
   return {
-    text,
+    text: framed,
     truncated: full.truncated,
     bodyBytes: Buffer.byteLength(body, 'utf8'),
-    injectedBytes: Buffer.byteLength(text, 'utf8'),
+    injectedBytes: Buffer.byteLength(framed, 'utf8'),
     originalBytes,
   };
+}
+
+/**
+ * 把正文包成注入用的 section 文本。
+ *
+ * @param {{workspace: string, title?: string, text: string, maxBytes?: number}} input
+ * @returns {{text: string, truncated: boolean, bodyBytes: number, injectedBytes: number, originalBytes: number}}
+ */
+export function frameSectionText(input) {
+  const maxBytes = Number.isFinite(input.maxBytes) && input.maxBytes > 0 ? Math.floor(input.maxBytes) : DEFAULT_MAX_BYTES;
+  return frameWithBudget(frameParts(input.workspace, input.title), input.text, maxBytes);
+}
+
+/**
+ * 把全局增量正文包成注入用的 section 文本（预算独立，缺省
+ * {@link DEFAULT_GLOBAL_MAX_BYTES}）。
+ *
+ * @param {{text: string, maxBytes?: number}} input
+ * @returns {{text: string, truncated: boolean, bodyBytes: number, injectedBytes: number, originalBytes: number}}
+ */
+export function frameGlobalSectionText(input) {
+  const maxBytes = Number.isFinite(input.maxBytes) && input.maxBytes > 0 ? Math.floor(input.maxBytes) : DEFAULT_GLOBAL_MAX_BYTES;
+  return frameWithBudget(globalFrameParts(), input.text, maxBytes);
 }
 
 /** 单行预览（unbound 文件列表用）。 */
@@ -304,7 +346,8 @@ function writeFileAtomic(target, text) {
 /**
  * 建立存储句柄。
  *
- * @param {{dir?: string, ttlMs?: number, maxBytes?: number, inheritFromAncestor?: boolean}} [options]
+ * @param {{dir?: string, ttlMs?: number, maxBytes?: number, inheritFromAncestor?: boolean,
+ *   globalFile?: string, globalMaxBytes?: number}} [options]
  */
 export function createStore(options = {}) {
   const dir = resolve(String(options.dir !== undefined && options.dir !== null && String(options.dir).trim() !== ''
@@ -317,6 +360,14 @@ export function createStore(options = {}) {
     ? Math.floor(options.maxBytes)
     : DEFAULT_MAX_BYTES;
   const inheritFromAncestor = options.inheritFromAncestor !== false;
+  // 全局增量：单例文件，缺省在存储根下；不参与 contexts/ 扫描，因此不会被当成
+  // 工作区条目，也不会进「未绑定文件」列表。
+  const globalFile = resolve(String(options.globalFile !== undefined && options.globalFile !== null && String(options.globalFile).trim() !== ''
+    ? options.globalFile
+    : defaultGlobalFile(dir)));
+  const globalMaxBytes = Number.isFinite(options.globalMaxBytes) && options.globalMaxBytes >= 512
+    ? Math.floor(options.globalMaxBytes)
+    : DEFAULT_GLOBAL_MAX_BYTES;
 
   /** 索引缓存：TTL 内复用；外部改文件靠它 + 每文件的 mtime/size 双重探测发现。 */
   let indexCache = { at: 0, value: undefined };
@@ -482,6 +533,57 @@ export function createStore(options = {}) {
     return { entry, via: resolved.via, ...framed };
   }
 
+  /**
+   * 全局增量文件当前内容（所有工作区共享的那一条）。
+   *
+   * 走与工作区条目同一套 mtime+size 热读缓存，因此人直接 `vim` 改文件约
+   * `ttlMs` 内就会被看到。文件不存在 → `exists:false`（不注入，也不报错）。
+   *
+   * @returns {{exists: boolean, file: string, text: string, textBytes: number, error?: string}}
+   */
+  function globalEntry() {
+    const loaded = loadFile(globalFile);
+    if (loaded === undefined) return { exists: false, file: globalFile, text: '', textBytes: 0 };
+    if (loaded.error !== undefined) {
+      return { exists: true, file: globalFile, text: '', textBytes: 0, error: loaded.error };
+    }
+    const text = loaded.raw;
+    return { exists: true, file: globalFile, text, textBytes: Buffer.byteLength(text, 'utf8') };
+  }
+
+  /**
+   * 全局增量本次要注入的 section。
+   *
+   * 与工作区条目无关：文件不存在或只有空白时不注入（调用方据此记诊断），
+   * 有内容就按 {@link DEFAULT_GLOBAL_MAX_BYTES} 级别的独立预算成框。
+   *
+   * @returns {{exists: boolean, file?: string, textBytes?: number, empty?: boolean,
+   *   error?: string, text?: string, truncated?: boolean, bodyBytes?: number,
+   *   injectedBytes?: number, originalBytes?: number}}
+   */
+  function globalSection() {
+    const entry = globalEntry();
+    if (entry.exists !== true) return { exists: false, file: globalFile };
+    if (entry.error !== undefined) return { exists: true, file: globalFile, error: entry.error };
+    if (String(entry.text).trim() === '') return { exists: true, file: globalFile, empty: true, textBytes: 0 };
+    return {
+      exists: true,
+      file: globalFile,
+      textBytes: entry.textBytes,
+      ...frameGlobalSectionText({ text: entry.text, maxBytes: globalMaxBytes }),
+    };
+  }
+
+  /** 写入全局增量（等价于「人存盘」）：工具与设置页都走这一条路。 */
+  function writeGlobal(text) {
+    ensureDirs();
+    const raw = typeof text === 'string' ? text : '';
+    writeFileAtomic(globalFile, raw);
+    textCache.delete(globalFile);
+    invalidate();
+    return { exists: true, file: globalFile, text: raw, textBytes: Buffer.byteLength(raw, 'utf8') };
+  }
+
   /** 写入（等价于「人存盘」）：AI 工具/UI 都走这一条路。 */
   function writeEntry(args) {
     const target = canonicalPath(args.path, { mustExist: true });
@@ -627,11 +729,16 @@ export function createStore(options = {}) {
     maxBytes,
     ttlMs,
     inheritFromAncestor,
+    globalFile,
+    globalMaxBytes,
     ensureDirs,
     scan,
     invalidate,
     resolveFor,
     sectionFor,
+    globalEntry,
+    globalSection,
+    writeGlobal,
     writeEntry,
     setEnabled,
     bind,

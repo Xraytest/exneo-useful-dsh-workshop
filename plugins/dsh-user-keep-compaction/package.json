@@ -14,7 +14,7 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     },
-    "description": "会话创建时可选的压缩规则：完全保留用户消息（user 角色可见节点一律逐字留在可见面上），只把用户消息之间的助手/工具内容摘要成检查点；其余策略与出厂 compaction-basic 一致。开关在输入框工具行 ultracode 右侧，仅新会话未发消息时可见，选择按 sessionId 落盘。",
+    "description": "会话默认启用的压缩规则：完全保留用户消息（user 角色可见节点一律逐字留在可见面上），只把用户消息之间的助手/工具内容摘要成检查点；其余策略与出厂 compaction-basic 一致。开关在输入框工具行 ultracode 右侧，仅新会话未发消息时可见，用户可在首条消息发出前关闭；选择按 sessionId 落盘，显式关闭的会话重启后仍保持关闭。",
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
@@ -22,7 +22,7 @@
       "dsh": ">=0.2.0-rc.1"
     }
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
   "keywords": [
     "dsh",

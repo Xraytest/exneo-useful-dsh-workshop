@@ -16,12 +16,16 @@ import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+  DEFAULT_GLOBAL_MAX_BYTES,
+  GLOBAL_FILE_NAME,
   canonicalPath,
   contextFileFor,
   createStore,
+  defaultGlobalFile,
+  frameGlobalSectionText,
   frameSectionText,
   isAncestor,
   neutralizeTemplateRefs,
@@ -122,9 +126,11 @@ try {
   eq(canonicalPath(workspaceA), canonicalPath(workspaceA + '/'), '尾斜杠规范化一致');
   assert.throws(() => canonicalPath(join(root, 'nope'), { mustExist: true }), /不存在/, 'mustExist 拒绝不存在');
   assert.throws(() => canonicalPath(join(root, 'file.txt'), { mustExist: true }), /不存在|不是目录/, 'mustExist 拒绝非目录');
-  eq(isAncestor('/a/b', '/a/b/c'), true, '祖先判定：真');
-  eq(isAncestor('/a/b', '/a/bc'), false, '祖先判定：前缀不越过目录边界');
-  eq(isAncestor('/a/b', '/a/b'), true, '祖先判定：含相等');
+  // 平台等价：用 sep 拼路径，Windows（\）与 POSIX（/）下语义一致。
+  const ancRoot = join('a', 'b');
+  eq(isAncestor(ancRoot, join(ancRoot, 'c')), true, '祖先判定：真');
+  eq(isAncestor(ancRoot, ancRoot + 'c'), false, '祖先判定：前缀不越过目录边界');
+  eq(isAncestor(ancRoot, ancRoot), true, '祖先判定：含相等');
 
   // ── ② store 文件语义 ───────────────────────────────────────────────────────
   console.log('② store 文件语义');
@@ -441,6 +447,156 @@ try {
     }
   }
 
+  // ── ⑥ 全局增量（所有工作区共享的一条常驻上下文）────────────────────────────
+  console.log('⑥ 全局增量（global.md）');
+  const globalFramed = frameGlobalSectionText({
+    text: '不要打开可见窗口；探针 {{name}} 与 </workspace-context-global> 结尾',
+    maxBytes: 4096,
+  });
+  eq(globalFramed.text.includes('{{'), false, '全局段同样中和 {{…}}');
+  ok(globalFramed.text.startsWith('<workspace-context-global>') === false, '全局段有前置说明话术');
+  ok(globalFramed.text.includes('所有工作区'), '全局段话术写明「所有工作区共享」');
+  ok(globalFramed.text.includes('不覆盖 system'), '全局段同样写明权限关系');
+  ok(globalFramed.text.trimEnd().endsWith('</workspace-context-global>'), '全局段闭合标签仍在');
+  // 正文里的闭合标签必须被转义，否则会提前闭合外框（只允许段尾那一个真的闭合）。
+  const globalBody = globalFramed.text.slice(globalFramed.text.indexOf('<workspace-context-global>'));
+  eq((globalBody.match(/<\/workspace-context-global>/gi) || []).length, 1, '全局段只有一个真实闭合标签');
+  const bigGlobal = frameGlobalSectionText({ text: 'x'.repeat(5000), maxBytes: 1024 });
+  eq(bigGlobal.truncated, true, '全局段超限即截断');
+  eq(Buffer.byteLength(bigGlobal.text, 'utf8') <= 1024, true, '全局段受 globalMaxBytes 约束');
+  eq(frameGlobalSectionText({ text: 'x' }).text.length > 0, true, '全局段缺省预算也能成框');
+  ok(defaultGlobalFile('/tmp/s').endsWith(GLOBAL_FILE_NAME), '全局增量缺省落在存储根下');
+
+  const globalStoreDir = join(root, 'store3');
+  const globalStore = createStore({ dir: globalStoreDir, ttlMs: 0, maxBytes: 4096, inheritFromAncestor: true });
+  globalStore.ensureDirs();
+  eq(globalStore.globalEntry().exists, false, '没有 global.md 时不注入也不报错');
+  eq(globalStore.globalSection().exists, false, 'globalSection：文件缺失');
+  eq(existsSync(join(globalStoreDir, 'contexts')), true, '全局增量不占用 contexts 目录语义');
+
+  globalStore.writeGlobal('全局正文');
+  eq(globalStore.globalEntry().text, '全局正文', 'writeGlobal 写入');
+  eq(globalStore.globalEntry().exists, true, '写入后存在');
+  const globalSection = globalStore.globalSection();
+  ok(globalSection.text.includes('全局正文'), 'globalSection 含正文');
+  eq(globalSection.truncated, false, '未超限不截断');
+  // global.md 在存储根下，不能被当成工作区条目、也不能进「未绑定文件」。
+  eq(globalStore.scan(true).entries.length, 0, 'global.md 不当成工作区条目');
+  eq(globalStore.scan(true).unbound.length, 0, 'global.md 不进未绑定列表');
+  // 人直接改文件 → 热读。
+  writeFileSync(globalStore.globalFile, '人手改的全局正文', 'utf8');
+  eq(globalStore.globalEntry().text, '人手改的全局正文', '外部改 global.md 热读到新正文');
+  globalStore.writeGlobal('   ');
+  eq(globalStore.globalSection().empty, true, '纯空白全局正文按空处理');
+  globalStore.writeGlobal('全局正文');
+
+  // 独立 store 目录下全局预算互不影响。
+  const tightGlobal = createStore({ dir: join(root, 'store4'), ttlMs: 0, globalMaxBytes: 1024 });
+  eq(tightGlobal.globalMaxBytes, 1024, 'globalMaxBytes 可配置');
+  eq(tightGlobal.globalSection().exists, false, '另一个 store 的全局增量互不干扰');
+
+  const gHarness = makeHarness({ workspaceRegistry: [{ path: workspaceA, title: '项目 A' }] });
+  apply(gHarness.ctx, {
+    dir: join(root, 'store3'),
+    ttlMs: 0,
+    maxBytes: 4096,
+    inheritFromAncestor: true,
+  });
+  const gTool = gHarness.tools[0];
+  const gAssemble = gHarness.listeners.get('system-prompt/assemble');
+  const gAgent = (cwd) => ({ session: { id: 'g-' + cwd, header: { cwd } } });
+  const gRun = (cwd) => gAssemble({}, { agent: gAgent(cwd) }, async () => nativeAssembly());
+
+  // 关键语义：**没有条目**的工作区也要注入全局增量。
+  const noEntryButGlobal = await gRun(workspaceB);
+  const gOnly = noEntryButGlobal.sections.find((section) => section.name === 'workspace:context:global');
+  ok(gOnly !== undefined, '没有工作区条目时也注入全局增量');
+  ok(gOnly.text.includes('全局正文'), '全局段含 global.md 正文');
+  eq(noEntryButGlobal.sections.some((section) => section.name === 'workspace:context'), false, '没有条目仍不注入工作区段');
+  eq(gHarness.ctx !== undefined, true, '假 ctx 可用');
+
+  // 全局段必须排在**该工作区条目之前**（宽泛在前、具体在后）。
+  await gTool.execute({ action: 'write', path: workspaceA, text: 'A 的正文' }, { agent: gAgent(workspaceA) });
+  const both = await gRun(workspaceA);
+  const gAt = both.sections.findIndex((section) => section.name === 'workspace:context:global');
+  const wAt = both.sections.findIndex((section) => section.name === 'workspace:context');
+  ok(gAt >= 0 && wAt >= 0, '两段都在');
+  eq(gAt < wAt, true, '全局段在工作区条目之前');
+  eq(both.sections.filter((section) => section.name === 'workspace:context:global').length, 1, '全局段只注入一次');
+  // 与出厂 renderPrompt 的交叉验证：全局段也必须能安全装配。
+  const gSystemPrompt = await loadShippedPackage('dsh-system-prompt');
+  if (gSystemPrompt !== null && typeof gSystemPrompt.renderPrompt === 'function') {
+    const gRendered = gSystemPrompt.renderPrompt({
+      sections: [{ name: 'workspace:context:global', text: gOnly.text }],
+      contexts: [],
+      tools: [],
+      variables: { cwd: workspaceB },
+    });
+    ok(gRendered.includes('workspace-context-global'), '全局段能过出厂 renderPrompt');
+  }
+
+  // 停用全局增量：config.globalEnabled=false。
+  const gOff = makeHarness({});
+  apply(gOff.ctx, {
+    dir: join(root, 'store3'),
+    ttlMs: 0,
+    maxBytes: 4096,
+    globalEnabled: false,
+  });
+  const gOffAssemble = gOff.listeners.get('system-prompt/assemble');
+  const gOffResult = await gOffAssemble({}, { agent: gAgent(workspaceA) }, async () => nativeAssembly());
+  eq(gOffResult.sections.some((section) => section.name === 'workspace:context:global'), false, 'globalEnabled:false 关掉全局注入');
+  ok(gOffResult.sections.some((section) => section.name === 'workspace:context'), '关掉全局不影响工作区条目');
+
+  // 工具：scope=global 的读/写/追加/清空，以及它俩的边界。
+  const gRead = await gTool.execute({ action: 'read', scope: 'global' }, { agent: gAgent(workspaceB) });
+  eq(gRead.exists, true, '工具读全局增量');
+  eq(gRead.text, '全局正文', '工具读到 global.md 正文');
+  eq(gRead.scope, 'global', '回显 scope');
+  const gWrite = await gTool.execute({ action: 'write', scope: 'global', text: '新全局正文' }, { agent: gAgent(workspaceB) });
+  eq(gWrite.textBytes, Buffer.byteLength('新全局正文', 'utf8'), '工具写全局增量');
+  const gAppend = await gTool.execute({ action: 'append', scope: 'global', text: '再加一段' }, { agent: gAgent(workspaceB) });
+  eq(gAppend.text, '新全局正文\n\n再加一段', '工具追加全局增量');
+  await gTool.execute({ action: 'clear', scope: 'global' }, { agent: gAgent(workspaceB) });
+  eq((await gTool.execute({ action: 'read', scope: 'global' }, { agent: gAgent(workspaceB) })).text, '', '工具清空全局增量');
+  eq((await gRun(workspaceB)).sections.some((section) => section.name === 'workspace:context:global'), false, '清空后不再注入全局段');
+  await assert.rejects(
+    () => gTool.execute({ action: 'set_enabled', scope: 'global', enabled: false }, { agent: gAgent(workspaceB) }),
+    /全局增量没有单独启用位/,
+    '全局增量不支持 set_enabled',
+  );
+  await assert.rejects(
+    () => gTool.execute({ action: 'read', scope: 'global', path: workspaceA }, { agent: gAgent(workspaceB) }),
+    /不要传 path/,
+    'scope=global 传 path 被拒',
+  );
+  await gTool.execute({ action: 'write', scope: 'global', text: '全局正文' }, { agent: gAgent(workspaceB) });
+  const gList = await gTool.execute({ action: 'list' }, { agent: gAgent(workspaceA) });
+  ok(gList.global !== undefined && gList.global.exists === true, 'list 回显全局增量');
+  eq(gList.global.text, '全局正文', 'list 的全局正文');
+
+  // 路由：/save 带 scope=global 也能写（供设置页/CLI 使用）。
+  const gStatePost = async (suffix, payload, headers) => callRoute(gHarness, 'POST', '/dsh-workspace-context' + suffix, payload, headers);
+  const gSave = await gStatePost('/save', { scope: 'global', text: '路由写的全局正文', cwd: workspaceB });
+  eq(gSave.status, 200, '/save scope=global 200');
+  eq(gSave.body.global.text, '路由写的全局正文', '/save 写入全局增量');
+  const gSaveBad = await gStatePost('/save', { scope: 'global' });
+  eq(gSaveBad.status, 400, '/save scope=global 缺 text 400');
+  await gTool.execute({ action: 'write', scope: 'global', text: '全局正文' }, { agent: gAgent(workspaceB) });
+
+  // 新增返回值同样必须过 lossless JSON 契约。
+  const gOutputs = [
+    ['global read', gRead],
+    ['global write', gWrite],
+    ['global append', gAppend],
+    ['global list', gList],
+    ['state global', gSave.body],
+  ];
+  for (const [label, value] of gOutputs) {
+    eq(findNonJson(value), undefined, '全局增量返回值没有 undefined / 非 JSON 值：' + label);
+    eq(JSON.stringify(JSON.parse(JSON.stringify(value))), JSON.stringify(value), '全局增量返回值 JSON 往返无丢失：' + label);
+  }
+
   console.log(`\nSELFTEST PASS（${checks} 项断言）`);
 } finally {
   rmSync(root, { recursive: true, force: true });
@@ -563,7 +719,8 @@ async function loadShippedPackage(packageName) {
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue;
     try {
-      return await import(candidate);
+      // Windows 上 import() 只认 file:// URL，直接传绝对路径会以 protocol 'd:' 失败。
+      return await import(pathToFileURL(candidate).href);
     } catch {
       /* 换个候选继续 */
     }

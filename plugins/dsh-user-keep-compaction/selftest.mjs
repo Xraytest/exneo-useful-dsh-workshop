@@ -301,12 +301,12 @@ const measurementOf = (session, prices, heuristic) => ({
   const dir = mkdtempSync(join(tmpdir(), 'ukc-'));
   const file = join(dir, 'state.json');
   const store = createStore(file);
-  eq('未知会话默认关', store.enabled('s1'), false);
+  eq('未知会话默认开（v4 缺省启用）', store.enabled('s1'), true);
   store.set('s1', true);
   store.set('s2', false);
   const reloaded = createStore(file);
   eq('重启后仍在', reloaded.enabled('s1'), true);
-  eq('未启用的会话保持关', reloaded.enabled('s2'), false);
+  eq('显式关闭的会话保持关', reloaded.enabled('s2'), false);
   eq('记录写入了 decidedAt', typeof reloaded.get('s1').decidedAt, 'number');
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   eq('落盘结构', raw.version, 1);

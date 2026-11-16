@@ -791,3 +791,239 @@ function rootOf(session, sessions) {
   }
   return cur.id;
 }
+
+/* ------------------------------------- 最近一小时 · 供应商总吞吐 ---- */
+
+/** 默认统计窗口：最近一小时。 */
+export const HOURLY_WINDOW_MS = 3600000;
+
+/**
+ * 区间并集长度（ms）。重叠 / 相接的区间合并成一段，只算一次。
+ * 用于「并发吞吐」的分母：同一时刻多条并发流只算一份墙钟时间。
+ */
+export function unionMs(intervals) {
+  if (!Array.isArray(intervals) || intervals.length === 0) return 0;
+  const list = [];
+  for (const iv of intervals) {
+    if (!Array.isArray(iv)) continue;
+    const s = iv[0];
+    const e = iv[1];
+    if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) continue;
+    list.push([s, e]);
+  }
+  if (list.length === 0) return 0;
+  list.sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let curS = list[0][0];
+  let curE = list[0][1];
+  for (let i = 1; i < list.length; i++) {
+    const [s, e] = list[i];
+    if (s <= curE) { if (e > curE) curE = e; }
+    else { total += curE - curS; curS = s; curE = e; }
+  }
+  return total + (curE - curS);
+}
+
+/**
+ * 一条调用的**生成区间** `[起始, 结束]`（起始 = 事件时刻 − 生成时长）。
+ *
+ * 刻意**不含 TTFT**：TTFT 是排队/首包延迟，不是解码占用。含进来的话，单条调用的
+ * 「并发 TPS」反而会低于「单发 TPS」（分母里混进了等待时间），而并发的本意是
+ * 「多条流同时在解码时的有效吞吐」——只有生成区间重叠才叫并行。
+ */
+function callInterval(fact) {
+  const r = fact && fact.r;
+  if (!r || !Number.isFinite(r.f) || r.f < 0) return null;
+  const gen = Number.isFinite(r.g) && r.g > 0 ? r.g : 0;
+  const start = fact.t - gen;
+  const end = fact.t;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return [start, end];
+}
+
+/**
+ * 该条调用是否进 TPS 样本。
+ *
+ * **与 addToRow / rateMetrics 逐条对齐**（这是「单发 TPS 与速率区 tpsAvg 同口径」
+ * 的兑现之处）：下界看生成时长与输出 token 两项，上界**只看生成时长**。
+ * TTFT 的上界**不**参与——速率区里 TTFT 超限只把该值从 TTFT 均值里剔除
+ * （计入 ttftExcluded），生成区间本身仍是有效样本：一次排队 3 小时、随后 4 秒吐出
+ * 400 token 的调用，解码速度确实是 100 tok/s，没理由把它从 TPS 里扔掉。
+ */
+function tpsMeasurable(fact) {
+  const r = fact && fact.r;
+  if (!r || !Number.isFinite(r.f) || r.f < 0) return false;
+  const gen = Number.isFinite(r.g) && r.g > 0 ? r.g : 0;
+  const out = Number.isFinite(r.o) && r.o > 0 ? r.o : 0;
+  if (gen <= 0 || gen > RATE_MAX_PLAUSIBLE_MS) return false;
+  return gen >= RATE_MIN_GEN_MS && out >= RATE_MIN_OUTPUT_TOKENS;
+}
+
+/** token 字段的安全累加值：非有限数/非正数一律按 0（fold.js::num 同口径）。 */
+const hourlyNum = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+
+function emptyHourlyRow(key) {
+  return {
+    key,
+    label: null,
+    calls: 0,
+    sessions: null,
+    input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 0,
+    samples: 0, excluded: 0,
+    genMs: 0, tpsOutput: 0,
+    intervals: [],
+    firstAt: null, lastAt: null,
+  };
+}
+
+/**
+ * 往一行里累加一条落在窗口内的事实。
+ *
+ * token 与调用数按**结束时刻**计入窗口（一笔调用只要在窗口内收尾，就算这次窗口的用量）；
+ * 速率样本额外要求**生成区间完整落在窗口内**（`iv[0] >= fromMs`）：跨左边界的长调用若把
+ * 窗外那段解码时间也算进分母，「并发 / 墙钟」会被虚高（1 小时窗口 + 5 分钟生成上限
+ * 最多 8.3% 偏差，10 分钟窗口则是 50%）。代价是边界上少数几条不进速率——由 `samples`
+ * 如实透出，token 数字不受影响。
+ */
+function addHourlyFact(row, fact, sid, fromMs) {
+  row.calls++;
+  row.input += hourlyNum(fact.it);
+  row.output += hourlyNum(fact.ot);
+  row.cacheRead += hourlyNum(fact.cr);
+  row.cacheWrite += hourlyNum(fact.cw);
+  row.reasoning += hourlyNum(fact.rt);
+  row.total += hourlyNum(fact.tt);
+  if (row.sessions === null) row.sessions = new Set();
+  row.sessions.add(sid);
+
+  const iv = callInterval(fact);
+  if (iv === null) return;
+  // 上界裁剪：只按**生成时长**判（与 rateMetrics 的 tpsExcluded 同口径）。
+  // TTFT 超限不在这里丢样本——那只影响 TTFT 均值，不影响解码速度。
+  if (iv[1] - iv[0] > RATE_MAX_PLAUSIBLE_MS) {
+    row.excluded++;
+    return;
+  }
+  if (!tpsMeasurable(fact)) return;
+  if (iv[0] < fromMs) return;          // 生成区间跨过窗口左边界 → 不进速率样本
+  row.samples++;
+  row.intervals.push(iv);
+  row.genMs += fact.r.g;
+  row.tpsOutput += fact.r.o;
+  if (row.firstAt === null || iv[0] < row.firstAt) row.firstAt = iv[0];
+  if (row.lastAt === null || iv[1] > row.lastAt) row.lastAt = iv[1];
+}
+
+/** 收尾一行：把累加值折算成各口径速率（无样本一律 null，不当 0）。 */
+function finishHourlyRow(row, windowMs, activeMsOverride) {
+  const hours = windowMs / 3600000;
+  const activeMs = activeMsOverride === undefined ? unionMs(row.intervals) : activeMsOverride;
+  const spanMs = row.firstAt === null || row.lastAt === null ? 0 : row.lastAt - row.firstAt;
+  const out = {
+    key: row.key,
+    label: row.label === null ? row.key : row.label,
+    calls: row.calls,
+    sessions: row.sessions === null ? 0 : row.sessions.size,
+    input: row.input, output: row.output,
+    cacheRead: row.cacheRead, cacheWrite: row.cacheWrite,
+    reasoning: row.reasoning, total: row.total,
+    samples: row.samples,
+    excluded: row.excluded,
+    genMs: row.genMs,
+    activeMs,
+    spanMs,
+    // 单发：一次请求里的解码速度（与速率区 tpsAvg 同口径，样本集也相同）
+    singleTps: row.genMs > 0 ? row.tpsOutput / (row.genMs / 1000) : null,
+    // 并发：并流区间并集当分母 → 多条流同时跑时吞吐高于单发
+    concurrentTps: activeMs > 0 ? row.tpsOutput / (activeMs / 1000) : null,
+    // 墙钟：首末调用跨度当分母 → 含队列等待与空闲间隙，通常最低
+    wallTps: spanMs > 0 ? row.tpsOutput / (spanMs / 1000) : null,
+    // 总吞吐：窗口内全部 token 折成每小时
+    tokensPerHour: hours > 0 ? row.total / hours : null,
+    outputPerHour: hours > 0 ? row.output / hours : null,
+    activeShare: windowMs > 0 ? Math.min(1, activeMs / windowMs) : null,
+  };
+  return out;
+}
+
+/**
+ * 最近一段时间 · 按供应商的总吞吐（纯函数，无 I/O）。
+ *
+ * 与六维聚合的 `tpsAvg` 不是同一件事：那里回答「一次流解码得多快」（单发），
+ * 这里回答「这家供应商在一个窗口里总共干了多少活」。三个口径**必然有出入**：
+ *
+ * | 量 | 口径 | 含义 |
+ * | --- | --- | --- |
+ * | `singleTps` | Σ输出 / Σ生成时长 | 单发：一次请求里的解码速度（与速率区同口径） |
+ * | `concurrentTps` | Σ输出 / 并流生成区间并集 | 并发：并行多条流时的有效吞吐 |
+ * | `wallTps` | Σ输出 / 首末生成跨度 | 墙钟：含队列等待与空闲间隙 |
+ * | `tokensPerHour` | 总 tokens / 窗口小时数 | 总吞吐：窗口内全部用量折成每小时 |
+ *
+ * 分母各不同（各自的生成时间 / 并流占用 / 首末跨度 / 固定窗口），所以数字本来就会
+ * 不一样——`concurrentTps ÷ singleTps` 大致就是这段时间的平均并行度。
+ * 单调关系：单条调用时三者相等；并发越高 `concurrentTps` 越高于 `singleTps`；
+ * 请求一阵一阵来时 `wallTps` 低于 `concurrentTps`（中间有 idle）。
+ *
+ * 口径边界（与 rateMetrics 一致：不当 0、不静默丢数据）：
+ *   - 阈值与上界裁剪**逐条对齐速率区**：生成 ≥ 500 ms 且输出 ≥ 32 tokens 才进样本；
+ *     生成 > 5 分钟的条计入 `excluded`。**TTFT 超限不丢样本**（那只影响 TTFT 均值，
+ *     不影响解码速度）——否则同一批数据在速率区和吞吐区会给出两套样本集。
+ *   - 速率样本额外要求**生成区间完整落在窗口内**（跨左边界的长调用会把窗外那段解码
+ *     时间算进分母，虚高并发/墙钟）。token 与调用数仍按结束时刻计入窗口。
+ *   - 没有样本时速率字段是 `null`（界面显示「—」），token 总量照常累加。
+ *   - `aux`（实时补记）事实没有 `r`，只进 token 与调用数，不进速率。
+ *   - 合计的 `concurrentTps` 分母取**全体**区间并集：多家供应商是同时在跑的，
+ *     把各家的占用时间相加会重复计算同一段墙钟。
+ *
+ * opts: { nowMs, windowMs, timeZone, attributeSubagents }
+ */
+export function hourlyThroughput(sessions, opts = {}) {
+  const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+  const windowMs = Number.isFinite(opts.windowMs) && opts.windowMs > 0 ? opts.windowMs : HOURLY_WINDOW_MS;
+  const root = opts.attributeSubagents === 'root';
+  const fromMs = nowMs - windowMs;
+
+  const map = new Map();
+  const totals = emptyHourlyRow('__all__');
+  const allIntervals = [];
+  let factsSeen = 0;
+
+  for (const s of sessions) {
+    const sid = root ? rootOf(s, sessions) : s.id;
+    const all = s.logFacts.concat(s.auxFacts);
+    for (const f of all) {
+      // 窗口是**闭区间** [fromMs, nowMs]：只认这一小时内收尾的调用。
+      // 右边界同样要紧——时钟回跳/对端镜像时间戳可能给出「未来」事实，
+      // 不挡的话它们会连生成区间一起污染「最近一小时」的分母。
+      if (!(typeof f.t === 'number' && f.t > fromMs && f.t <= nowMs)) continue;
+      factsSeen++;
+      const key = f.p || 'unknown';
+      let row = map.get(key);
+      if (row === undefined) { row = emptyHourlyRow(key); map.set(key, row); }
+      addHourlyFact(row, f, sid, fromMs);
+      addHourlyFact(totals, f, sid, fromMs);
+      // 合计的并集分母单独收集（跨供应商不能把各家占用相加）。判据与 addHourlyFact
+      // 完全一致，否则合计与逐行会悄悄用上两套样本集。
+      const iv = callInterval(f);
+      if (iv !== null && iv[1] - iv[0] <= RATE_MAX_PLAUSIBLE_MS
+        && tpsMeasurable(f) && iv[0] >= fromMs) {
+        allIntervals.push(iv);
+      }
+    }
+  }
+
+  const rows = [...map.values()]
+    .map((row) => finishHourlyRow(row, windowMs))
+    .sort((a, b) => (b.total - a.total) || String(a.key).localeCompare(String(b.key)));
+  const total = finishHourlyRow(totals, windowMs, unionMs(allIntervals));
+
+  return {
+    now: nowMs,
+    from: fromMs,
+    windowMs,
+    windowHours: windowMs / 3600000,
+    facts: factsSeen,
+    rows,
+    totals: total,
+  };
+}

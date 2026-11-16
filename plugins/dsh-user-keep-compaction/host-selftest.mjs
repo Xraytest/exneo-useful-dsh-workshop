@@ -277,7 +277,7 @@ const callRoute = async (path, { method = 'GET', url, body, origin } = {}) => {
   sessionStore.set('s-new', blank);
   const status0 = await callRoute('/dsh-ukc/status', { url: '/dsh-ukc/status?sessionId=s-new' });
   assert.equal(status0.json.canSet, true, '全新会话应可设置');
-  assert.equal(status0.json.enabled, false, '缺省关闭');
+  assert.equal(status0.json.enabled, true, '缺省启用（v4）');
   assert.equal(status0.json.manualCompactBypasses, true, '状态路由应如实标注 /compact 不受本规则约束');
 
   const set = await callRoute('/dsh-ukc/set', { method: 'POST', body: JSON.stringify({ sessionId: 's-new', enabled: true }) });

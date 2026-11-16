@@ -6,6 +6,45 @@
  * 出厂 `@deepseek-ai/dsh-session-title-first-prompt-llm` 行必须停用
  * （本插件与它争同一个注册位，服务只接受一个提供者）。
  *
+ * ── v2 修订（2026-11-02，针对"标题插件有时检测不到上下文"）────────────────
+ * 先把 412 个真实会话日志重放一遍，结论是**上下文构造本身没问题**：所有失败会话
+ * 的 `buildTitleContext()` 都返回了完整可用的上下文。真正的断点在下游，共修了 4 处：
+ *
+ *   ① readConfig 把组合行里的 `cadence: all-prompts` 静默吞成了 `first-prompt`
+ *      （三元判断写反，两边都落到 DEFAULT_CONFIG.cadence）。后果在日志里能量化：
+ *      插件上线当天之前，291 个子代理会话里有 4 个拿到过自动标题；之后 287 个全是 0，
+ *      因为 first-prompt 明确要求 `session.header.parentSession === undefined`。
+ *      顶级会话也只剩"第一条消息"一次机会，那次请求一失败就永远停在确定性 fallback。
+ *   ② `finish.kind === 'max-tokens'` 原来直接抛错。推理模型会把 maxOutputTokens
+ *      全烧在思考上（日志里见过 ot 正好等于 2048 的标题请求），工具调用还没发出就被
+ *      截断。现在先从已落地的文本里抢救标题，抢救不到再抛错并把原因写清楚。
+ *   ③ 路由解析补一级回退：`/title` 或标题栏按钮可能在第一条 `request/header` 落库
+ *      之前触发，那时 `request.route` 是 undefined，原本直接报"没有模型路由"。
+ *      现在回落到 `session.requestContext()`（最近一条 request/context 的路由）。
+ *   ④ 标题请求默认按路由声明的**最低**思考强度发（出厂 first-prompt-llm 的同款做法），
+ *      避免 reasoning 吃光输出预算；配置里显式写了 reasoningEffort 仍以配置为准。
+ *
+ * ── v3 修订（2026-11-14，「标题总结缺乏最新对话内容」根治 + 设置体系重构）────
+ *   ① 上下文上界由「最后一条 human 消息」改为「会话日志当前末端」：本轮
+ *      助手回答与工具结果（只要已提交）全部进标题上下文——这是「总结不到
+ *      最新内容」的第一处根因。
+ *   ② 新增 turn/end 自动重算（防抖 1.5 s，可关）：回答完整落库后再总结一次，
+ *      标题一定反映最新进展——这是第二处根因（标题请求排在回答生成之前）。
+ *   ③ 设置整体迁移到设置页（client 半边 settings.section「标题总结」），
+ *      持久化在 <DSH_HOME>/session-title.json；文件 > 组合行 > 默认值；
+ *      保存即校验、即落盘、即热应用（cadence 变化自动重挂提供者），无需重启。
+ *   ④ 全局标题模型：globalModel.mode = inherit（跟随当前会话模型）或
+ *      custom（指定 provider/model），对全部未命中规则的会话生效。
+ *   ⑤ 会话级规则：rules[] 按 sessionId / 标题包含 / 标题前缀 / 正则匹配，
+ *      为特定会话单独指定标题模型。解析优先级：一次性指定 > 规则 > 全局 >
+ *      组合行固定 > 会话当前路由。
+ *   ⑥ 上下文量可控：scope = full | recentTurns | recentMessages（保留任务
+ *      起点 + 最近 N 轮/条），maxInputBytes / toolResultMaxBytes /
+ *      includeToolResults 同页可调。
+ *
+ * 组合行需把 name 指向本文件（session-title.v3.js）：本 profile 未开 HMR 模块热载，
+ * live patch 重载只重放配置、不重新 import 模块，换 name 才会发生一次真实重载。
+ *
  * 设计要点（对着用户提出的六条要求逐条落地）：
  *
  * 1. 对当前会话生成标题：走 `ctx.sessionTitle.register()`，标题作为
@@ -37,7 +76,9 @@
  *    human 消息的 seq 为止（正在流式生成的 assistant 回复、正在跑的
  *    工具结果天然不在范围内），并额外丢弃 `interrupted: true` 的
  *    assistant 消息，以及配对不上的 tool-call / tool-result。
- * 7. 标题栏 UI（client 半边 `client.js`）：会话标题栏右侧（槽位
+ * 7. （v3 起标题栏控件已移除）设置 UI（client 半边 `client.js`）：设置页新增
+ *    「标题总结」一节（槽位 settings.section，id=session-title-context），
+ *    老式标题栏控件（槽位
  *    `conversation.session.header.utilities`，order 24，落在 model-pool 与
  *    subagent-models 之间）一个「标题」控件——点一下＝用当前会话模型重生成，
  *    展开面板可看当前标题、上次路由/via/耗时、上次失败原因与后台是否在跑，
@@ -66,6 +107,9 @@
 
 import { BlockAssembler, createToolResultMessage } from '@deepseek-ai/dsh-llm';
 import { MAX_TIMER_DELAY_MS, deadline } from '@deepseek-ai/dsh-timeout';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 export const name = 'session-title-context';
 /**
@@ -83,6 +127,16 @@ const ROUTE_PREFIX = '/dsh-session-title';
 const UI_GENERATE_GRACE_MS = 30000;
 const INSTRUCTION_ID = 'session-title-context-request';
 const OMIT_ID = 'session-title-context-omitted';
+const OMIT_ID_SCOPED = 'session-title-context-omitted-scoped';
+/** v3：turn/end 自动重算的防抖窗口。 */
+const TURN_END_DEBOUNCE_MS = 1500;
+/** v3：设置持久化文件（DSH_HOME/session-title.json，设置页写的那份）。 */
+function settingsFilePath() {
+  const home = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME !== ''
+    ? process.env.DSH_HOME
+    : path.join(os.homedir(), '.dsh');
+  return path.join(home, 'session-title.json');
+}
 
 /** 标题请求唯一的工具：模型必须把标题放进它的 `title` 参数。 */
 const TITLE_TOOL = {
@@ -118,6 +172,14 @@ const DEFAULT_CONFIG = {
   includeInjectedContext: false,
   logRequests: false,
   textFallback: true,
+  // v3 新增：工具块开关 / 回合结束自动重算 / 全局标题模型 / 会话规则 / 上下文量口径。
+  includeToolResults: true,
+  autoRefreshOnTurnEnd: true,
+  globalModel: { mode: 'inherit', provider: '', model: '' },
+  rules: [],
+  scope: 'full',
+  recentTurns: 3,
+  recentMessages: 6,
 };
 
 /** 注册重试：live patch 重载时旧提供者的异步卸载可能还没跑完。 */
@@ -152,12 +214,69 @@ function positiveInt(raw, fallback, field) {
 }
 
 /**
- * 校验并合并插件配置（不导出 Config schema，保持零依赖与直白的报错）。
+ * v3：读取磁盘设置文件；坏文件（不存在/坏 JSON/非对象）＝静默回退。
+ */
+function readSettingsFile() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsFilePath(), 'utf-8'));
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** v3：把设置写回磁盘（临时文件 + rename，避免写一半被读到）。 */
+export function saveSettingsFile(settings) {
+  const file = settingsFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
+/** v3：归一化一条会话标题模型规则；无效（缺匹配值或模型）直接丢弃。 */
+function normalizeRule(raw, index) {
+  const rule = isRecord(raw) ? raw : {};
+  const matchType = rule.matchType === 'contains' || rule.matchType === 'prefix' || rule.matchType === 'regex'
+    ? rule.matchType
+    : 'sessionId';
+  const matchValue = typeof rule.matchValue === 'string' ? rule.matchValue.trim() : '';
+  const provider = typeof rule.provider === 'string' ? rule.provider.trim() : '';
+  const model = typeof rule.model === 'string' ? rule.model.trim() : '';
+  if (matchValue === '' || provider === '' || model === '') return undefined;
+  if (matchType === 'regex') {
+    try {
+      new RegExp(matchValue);
+    } catch {
+      return undefined;
+    }
+  }
+  return Object.freeze({
+    id: typeof rule.id === 'string' && rule.id.length > 0 ? rule.id : `rule-${index + 1}`,
+    name: typeof rule.name === 'string' && rule.name.trim().length > 0 ? rule.name.trim() : `规则 ${index + 1}`,
+    matchType,
+    matchValue,
+    provider,
+    model,
+    enabled: rule.enabled !== false,
+  });
+}
+
+/**
+ * 校验并合并配置（v3：设置页接管后，磁盘文件优先于组合行）。
+ *
+ * 优先级：fileOverride（设置页提交的那份）> ~/.dsh/session-title.json
+ * > 组合行 rawConfig > DEFAULT_CONFIG。
+ * 组合行里成对的 provider/model 仍作为「固定路由」兼容保留。
+ *
  * @param raw - 组合行里的 config。
+ * @param fileOverride - 可选：以这份对象替代磁盘文件内容（用于保存前校验）。
  * @returns 冻结的完整配置。
  */
-export function readConfig(raw) {
-  const value = isRecord(raw) ? raw : {};
+export function readConfig(raw, fileOverride) {
+  const profile = isRecord(raw) ? raw : {};
+  const file = fileOverride !== undefined && isRecord(fileOverride) ? fileOverride : readSettingsFile();
+  const value = { ...profile, ...file };
   const hasProvider = typeof value.provider === 'string' && value.provider.length > 0;
   const hasModel = typeof value.model === 'string' && value.model.length > 0;
   if (hasProvider !== hasModel) throw new Error('session-title-context: provider 与 model 必须成对配置');
@@ -166,8 +285,20 @@ export function readConfig(raw) {
   }
   const timeoutMs = positiveInt(value.timeoutMs, DEFAULT_CONFIG.timeoutMs, 'timeoutMs');
   if (timeoutMs > MAX_TIMER_DELAY_MS) throw new Error(`session-title-context: timeoutMs 不能超过 ${MAX_TIMER_DELAY_MS}`);
+  const scope = value.scope === 'recentTurns' || value.scope === 'recentMessages' ? value.scope : 'full';
+  const global = isRecord(value.globalModel) ? value.globalModel : {};
+  const globalMode = global.mode === 'custom' ? 'custom' : 'inherit';
+  const globalProvider = typeof global.provider === 'string' ? global.provider.trim() : '';
+  const globalName = typeof global.model === 'string' ? global.model.trim() : '';
+  if (globalMode === 'custom' && (globalProvider === '' || globalName === '')) {
+    throw new Error('session-title-context: globalModel.mode=custom 时 provider/model 必须成对填写');
+  }
+  const rules = Array.isArray(value.rules)
+    ? Object.freeze(value.rules.map(normalizeRule).filter((rule) => rule !== undefined))
+    : Object.freeze([]);
+  // v2 修复①保留：cadence 直接透传，缺省才用默认值。
   return Object.freeze({
-    cadence: value.cadence === 'first-prompt' ? 'first-prompt' : DEFAULT_CONFIG.cadence,
+    cadence: value.cadence === undefined ? DEFAULT_CONFIG.cadence : value.cadence,
     targetWords: positiveInt(value.targetWords, DEFAULT_CONFIG.targetWords, 'targetWords'),
     targetCjkCharacters: positiveInt(value.targetCjkCharacters, DEFAULT_CONFIG.targetCjkCharacters, 'targetCjkCharacters'),
     maxInputBytes: positiveInt(value.maxInputBytes, DEFAULT_CONFIG.maxInputBytes, 'maxInputBytes'),
@@ -176,12 +307,19 @@ export function readConfig(raw) {
     toolResultMaxBytes: positiveInt(value.toolResultMaxBytes, DEFAULT_CONFIG.toolResultMaxBytes, 'toolResultMaxBytes'),
     includeSystemPrompt: value.includeSystemPrompt === true,
     includeInjectedContext: value.includeInjectedContext === true,
+    includeToolResults: value.includeToolResults !== false,
     logRequests: value.logRequests === true,
     textFallback: value.textFallback !== false,
+    autoRefreshOnTurnEnd: value.autoRefreshOnTurnEnd !== false,
     instructions: typeof value.instructions === 'string' ? value.instructions.trim() : '',
     reasoningEffort: typeof value.reasoningEffort === 'string' && value.reasoningEffort.length > 0 ? value.reasoningEffort : undefined,
     provider: hasProvider ? value.provider : undefined,
     model: hasModel ? value.model : undefined,
+    globalModel: Object.freeze({ mode: globalMode, provider: globalProvider, model: globalName }),
+    rules,
+    scope,
+    recentTurns: positiveInt(value.recentTurns, DEFAULT_CONFIG.recentTurns, 'recentTurns'),
+    recentMessages: positiveInt(value.recentMessages, DEFAULT_CONFIG.recentMessages, 'recentMessages'),
   });
 }
 
@@ -274,6 +412,7 @@ function truncateText(text, maxBytes, stats) {
 function sanitizeBlocks(blocks, config, stats) {
   const out = [];
   if (!Array.isArray(blocks)) return out;
+  const includeTools = config.includeToolResults !== false;
   for (const block of blocks) {
     if (!isRecord(block)) continue;
     switch (block.type) {
@@ -295,6 +434,7 @@ function sanitizeBlocks(blocks, config, stats) {
         out.push({ type: 'text', text: filePlaceholder(block.attachment) });
         break;
       case 'tool-call':
+        if (!includeTools) break;
         out.push({
           type: 'tool-call',
           id: typeof block.id === 'string' ? block.id : '',
@@ -303,6 +443,7 @@ function sanitizeBlocks(blocks, config, stats) {
         });
         break;
       case 'tool-result': {
+        if (!includeTools) break;
         stats.toolResults += 1;
         const content = sanitizeBlocks(block.content, config, stats).map((inner) => (
           inner.type === 'text' ? { type: 'text', text: truncateText(inner.text, config.toolResultMaxBytes, stats) } : inner
@@ -393,6 +534,51 @@ function fitBudget(entries, budgetBytes, stats) {
     throw new Error(`session-title-context: 无法把标题上下文压进 maxInputBytes=${budgetBytes} 字节`);
   }
   return { entries: result, dropped };
+}
+
+/** v3：带稳定 id 的“中间省略”提示行（不是会话事件，seq=-1 不进 messageSeqs）。 */
+function scopedOmissionMessage(count) {
+  return {
+    seq: -1,
+    message: {
+      id: OMIT_ID_SCOPED,
+      role: 'user',
+      source: { kind: 'plugin', plugin: PROVIDER_ID },
+      content: [{ type: 'text', text: `[为聚焦最新进展，前面 ${count} 段对话已省略]` }],
+    },
+  };
+}
+
+/** v3：一条 user 文本消息开一轮；保留首组首条（任务起点）+ 最近 N 组（最新回答绝不丢）。 */
+function sliceByTurns(paired, turns) {
+  if (!Number.isInteger(turns) || turns <= 0 || paired.length <= 2) return paired;
+  const groups = [];
+  for (const entry of paired) {
+    const isTurnStart = entry.message.role === 'user'
+      && entry.message.source !== undefined
+      && entry.message.source.kind === 'user';
+    if (isTurnStart || groups.length === 0) groups.push([entry]);
+    else groups[groups.length - 1].push(entry);
+  }
+  if (groups.length <= turns + 1) return paired;
+  const head = [groups[0][0]];
+  const tail = groups.slice(groups.length - turns).flat();
+  return [...head, scopedOmissionMessage(groups.length - 1 - turns), ...tail];
+}
+
+/** v3：保留第一条起点 + 尾部最近 N 条消息。 */
+function sliceByMessages(paired, max) {
+  if (!Number.isInteger(max) || max <= 0 || paired.length <= max + 1) return paired;
+  const head = [paired[0]];
+  const tail = paired.slice(paired.length - max);
+  return [...head, scopedOmissionMessage(paired.length - 1 - max), ...tail];
+}
+
+/** v3：按设置里的上下文量口径裁剪。 */
+function sliceByScope(paired, config) {
+  if (config.scope === 'recentTurns') return sliceByTurns(paired, config.recentTurns);
+  if (config.scope === 'recentMessages') return sliceByMessages(paired, config.recentMessages);
+  return paired;
 }
 
 /**
@@ -504,6 +690,9 @@ export function buildTitleContext(session, options) {
       attempt = whole;
     }
   }
+
+  // v3：先按上下文量口径裁剪（full 时原样），再进字节预算收缩。
+  attempt = { paired: sliceByScope(attempt.paired, config), stats: attempt.stats };
 
   const budgetBytes = Math.max(1024, config.maxInputBytes - reservedBytes);
   const fitted = fitBudget(attempt.paired, budgetBytes, attempt.stats);
@@ -624,25 +813,102 @@ function envelopeBytes(system) {
   return byteLength(system) + byteLength(JSON.stringify([TITLE_TOOL])) + byteLength(INSTRUCTION_TEXT) + 512;
 }
 
-/** 决定这次生成用哪条路由：一次性指定 > 配置固定 > 当前会话路由。 */
-function resolveRoute(config, requestRoute, override) {
+/**
+ * v3：按当前标题/会话 ID 匹配启用中的规则，返回第一条命中。
+ * @param rules - 规范化后的规则表。
+ * @param session - 活会话（用 id 匹配）。
+ * @param currentTitle - 服务传入的最新已接纳标题（可为 undefined）。
+ */
+export function matchSessionRule(rules, session, currentTitle) {
+  if (!Array.isArray(rules)) return undefined;
+  const sessionId = session === undefined || session === null ? '' : String(session.id ?? '');
+  const title = typeof currentTitle === 'string' ? currentTitle : '';
+  for (const rule of rules) {
+    if (!isRecord(rule) || rule.enabled === false) continue;
+    const value = rule.matchValue;
+    if (typeof value !== 'string' || value.length === 0) continue;
+    let hit = false;
+    if (rule.matchType === 'contains') hit = title.includes(value) || sessionId.includes(value);
+    else if (rule.matchType === 'prefix') hit = title.startsWith(value) || sessionId.startsWith(value);
+    else if (rule.matchType === 'regex') {
+      try {
+        const re = new RegExp(value);
+        hit = re.test(title) || re.test(sessionId);
+      } catch {
+        hit = false;
+      }
+    } else {
+      hit = sessionId === value;
+    }
+    if (hit) return rule;
+  }
+  return undefined;
+}
+
+/**
+ * 决定这次生成用哪条路由（v3）：
+ *   一次性指定（/title 或面板）> 会话规则 > 全局标题模型 > 组合行固定路由 >
+ *   当前会话路由 > 最近一次 request/context 记录的路由。
+ *
+ * v2 修复③保留：最后一级回退防「还没有 request/header」时直接报错。
+ */
+function resolveRoute(config, requestRoute, override, contextRoute, session, currentTitle) {
   if (override !== undefined) {
     const provider = override.provider;
     const model = override.model;
     if (typeof provider === 'string' && provider.length > 0 && typeof model === 'string' && model.length > 0) return { provider, model };
     throw new Error('session-title-context: 一次性模型指定非法');
   }
+  const rule = matchSessionRule(config.rules, session, currentTitle);
+  if (rule !== undefined) return { provider: rule.provider, model: rule.model };
+  if (config.globalModel.mode === 'custom') {
+    return { provider: config.globalModel.provider, model: config.globalModel.model };
+  }
   if (config.provider !== undefined && config.model !== undefined) return { provider: config.provider, model: config.model };
   if (isRecord(requestRoute) && typeof requestRoute.provider === 'string' && typeof requestRoute.model === 'string') {
     return { provider: requestRoute.provider, model: requestRoute.model };
   }
-  throw new Error('session-title-context: 当前会话还没有模型路由（也没有配置 provider/model）');
+  if (isRecord(contextRoute) && typeof contextRoute.provider === 'string' && typeof contextRoute.model === 'string') {
+    return { provider: contextRoute.provider, model: contextRoute.model };
+  }
+  throw new Error('session-title-context: 当前会话还没有模型路由（也没有配置全局/固定标题模型）');
 }
 
 /** 取消时抛出取消原因。 */
 function abortError(signal) {
   const reason = signal === undefined ? undefined : signal.reason;
   return reason instanceof Error ? reason : new Error('session-title-context: 标题生成已取消');
+}
+
+/**
+ * v2 修复④：标题任务不需要深度思考。推理模型（step-5-preview 等）若沿用路由默认的
+ * 思考强度，会把 maxOutputTokens 全烧在 reasoning 上，工具调用还没发出就被截断——
+ * 真实日志里见过 ot 正好等于 maxOutputTokens 的标题请求，两次尝试（工具 / 文本兜底）
+ * 都是这么死的。出厂 `session-title-first-prompt-llm` 的做法就是取该路由声明的最低档，
+ * 这里对齐它。配置里显式写了 reasoningEffort 时以配置为准。
+ * 目录列不出来就保持沉默，用路由自己的默认强度，绝不让它成为新的失败点。
+ *
+ * 缓存按 provider 实例给（不放在模块级）：profile 重载会重新 import 模块，
+ * 但同一进程里改过渠道配置后，模块级缓存会一直留着旧档位。
+ */
+async function lowestReasoningEffort(ctx, route, cache) {
+  const key = `${route.provider}/${route.model}`;
+  if (cache.has(key)) return cache.get(key);
+  let effort;
+  try {
+    const models = await ctx.llm.listModels(route.provider);
+    const match = Array.isArray(models) ? models.find((item) => isRecord(item) && item.id === route.model) : undefined;
+    const efforts = match === undefined ? undefined : match.reasoning?.efforts;
+    if (Array.isArray(efforts) && efforts.length > 0) {
+      const first = efforts[0];
+      if (typeof first === 'string') effort = first;
+      else if (isRecord(first) && typeof first.id === 'string') effort = first.id;
+    }
+  } catch {
+    // 列不出模型目录：保持 undefined，让适配器用自己的默认强度。
+  }
+  cache.set(key, effort);
+  return effort;
 }
 
 /** 发一次标题请求并组装回复块。 */
@@ -659,7 +925,7 @@ async function dispatch(ctx, config, params) {
     purpose: 'session-title',
     signal: params.signal,
     ...(params.useTools ? { tools: [TITLE_TOOL] } : {}),
-    ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }),
+    ...(params.reasoningEffort === undefined ? {} : { reasoningEffort: params.reasoningEffort }),
   };
   const assembler = new BlockAssembler();
   for await (const chunk of ctx.llm.stream(options)) {
@@ -675,7 +941,14 @@ async function dispatch(ctx, config, params) {
     throw error;
   }
   if (finish.kind === 'max-tokens') {
-    throw new Error(`session-title-context: 标题请求在 ${config.maxOutputTokens} 个输出 token 内没有给出标题`);
+    // v2 修复②：推理模型（step-5-preview 等）会把 maxOutputTokens 的预算全烧在思考上，
+    // 于是工具调用还没发出就被截断。真实日志里见过 ot 正好等于 2048 的标题请求：
+    // 直接抛错会让这一次修订彻底没有标题。
+    // 注意 BlockAssembler 在 max-tokens 时会主动丢掉 tool-call 块，所以这里只能从
+    // 已经落地的文本里抢救；抢救不到再抛错，并把原因写清楚（便于调高 maxOutputTokens）。
+    const salvaged = titleFromBlocks(assembler.blocks());
+    if (salvaged !== undefined) return assembler.blocks();
+    throw new Error(`session-title-context: 标题请求在 ${config.maxOutputTokens} 个输出 token 内没有给出标题（推理模型可能把预算全用在思考上：可调大 maxOutputTokens，或给该路由配置更低的 reasoningEffort）`);
   }
   return assembler.blocks();
 }
@@ -729,13 +1002,17 @@ function createTitleTelemetry() {
  */
 export function createTitleProvider(options) {
   const ctx = options.ctx;
-  const config = options.config;
+  const getConfig = options.getConfig;
   const overrides = options.overrides;
   const telemetry = options.telemetry;
+  // 每个提供者实例一份最低思考强度缓存：同一进程里改过渠道配置后重新 apply 会拿到新表，
+  // 而模块级缓存会一直留着旧档位（见 lowestReasoningEffort 的注释）。
+  const effortCache = new Map();
   return {
     id: PROVIDER_ID,
-    automatic: config.cadence,
+    automatic: getConfig().cadence,
     async generate(request) {
+      const config = getConfig();
       request.signal.throwIfAborted();
       const session = request.session;
       const startedAt = Date.now();
@@ -754,10 +1031,21 @@ export function createTitleProvider(options) {
       /** 真正的生成流程（拆成内部函数，只为让上面的 telemetry 包住全部抛错路径）。 */
       async function run() {
         const humanSeqs = Array.isArray(request.messages) ? request.messages.map((message) => message.seq) : [];
-        // 修订上界 = 本次修订最后一条 human 消息：之后生成的消息（正在流式输出的
-        // assistant 回复、正在执行的工具结果）一律不进上下文。
-        const boundary = humanSeqs.length > 0 ? humanSeqs[humanSeqs.length - 1] : Math.max(0, session.seq - 1);
-        const route = resolveRoute(config, request.route, consumeOverride(overrides, session.id));
+        // v3 核心修复（「总结时缺乏最新对话内容」的根因）：上界不再钉死在
+        // 最后一条 human 消息。原先标题请求排在用户消息之后、助手回答之前，
+        // 上界又把之后落库的一切截掉，模型永远看不到本轮回答。
+        // 现在上界＝会话日志当前末端：已提交的最新消息（含助手回答、工具结果）
+        // 全部进上下文；正在流式的回复还没 append，不会被拿到半截。
+        // 配合 turn/end 自动重算，回答完成后标题会带最新内容再总结一次。
+        const boundary = session.seq;
+        const route = resolveRoute(
+          config,
+          request.route,
+          consumeOverride(overrides, session.id),
+          session.requestContext(),
+          session,
+          request.currentTitle,
+        );
         const system = buildSystemPrompt(config);
         const context = buildTitleContext(session, {
           throughSeq: boundary,
@@ -790,14 +1078,18 @@ export function createTitleProvider(options) {
           });
         }
         const callDeadline = deadline(request.signal, config.timeoutMs, TIMEOUT_CODE);
+        // 配置显式指定优先；否则按路由声明的最低思考强度发，别让 reasoning 吃掉整个预算。
+        const reasoningEffort = config.reasoningEffort !== undefined
+          ? config.reasoningEffort
+          : await lowestReasoningEffort(ctx, route, effortCache);
         let blocks;
         try {
           try {
-            blocks = await dispatch(ctx, config, { session, route, messages, system, signal: callDeadline.signal, useTools: true });
+            blocks = await dispatch(ctx, config, { session, route, messages, system, signal: callDeadline.signal, useTools: true, reasoningEffort });
           } catch (error) {
             if (config.textFallback !== true || callDeadline.signal.aborted) throw error;
             ctx.logger.warn(`session-title-context: 工具调用方式失败，改用文本兜底：${messageOf(error)}`);
-            blocks = await dispatch(ctx, config, { session, route, messages, system, signal: callDeadline.signal, useTools: false });
+            blocks = await dispatch(ctx, config, { session, route, messages, system, signal: callDeadline.signal, useTools: false, reasoningEffort });
           }
         } finally {
           callDeadline[Symbol.dispose]();
@@ -816,28 +1108,21 @@ export function createTitleProvider(options) {
 
 /**
  * 注册提供者；live patch 重载时旧注册的异步卸载可能还未结束，按固定间隔重试。
+ * v3：改为吃 getConfig getter，返回 `{ provider, applySettings }` 句柄——
+ * 设置页保存后无需重启：普通字段 generate 每次现读天然热生效；
+ * cadence 变了则调 applySettings() 先卸载旧注册、再带重试重挂新提供者。
  */
-function registerProvider(ctx, config, overrides, telemetry) {
-  const provider = createTitleProvider({ ctx, config, overrides, telemetry });
+function registerProvider(ctx, getSettings, overrides, telemetry) {
+  let provider;
   let disposeRegistration;
   let attempts = 0;
   let timer;
   let cancelled = false;
-  ctx.effect(() => () => {
-    cancelled = true;
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
-    const dispose = disposeRegistration;
-    disposeRegistration = undefined;
-    // 返回服务的卸载 promise，让组合行重载能等到位（重试只是兜底）。
-    return dispose === undefined ? undefined : dispose();
-  }, 'session-title-context registration');
   const attempt = () => {
     if (cancelled) return;
     try {
       disposeRegistration = ctx.sessionTitle.register(provider);
+      attempts = 0;
       ctx.logger.info(`session-title-context: 标题提供者已注册（cadence=${provider.automatic}）`);
     } catch (error) {
       attempts += 1;
@@ -849,7 +1134,39 @@ function registerProvider(ctx, config, overrides, telemetry) {
       if (typeof timer.unref === 'function') timer.unref();
     }
   };
-  attempt();
+  const startRegister = () => {
+    provider = createTitleProvider({ ctx, getConfig: getSettings, overrides, telemetry });
+    attempt();
+  };
+  ctx.effect(() => () => {
+    cancelled = true;
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    const dispose = disposeRegistration;
+    disposeRegistration = undefined;
+    // 返回服务的卸载 promise，让组合行重载能等到位（重试只是兜底）。
+    return dispose === undefined ? undefined : dispose();
+  }, 'session-title-context registration');
+  startRegister();
+  return {
+    get provider() {
+      return provider;
+    },
+    async applySettings() {
+      const previousDispose = disposeRegistration;
+      disposeRegistration = undefined;
+      if (previousDispose !== undefined) {
+        try {
+          await previousDispose();
+        } catch {
+          // 旧卸载失败不挡新注册：注册重试循环会兜住「上一个还没排空」的窗口。
+        }
+      }
+      if (!cancelled) startRegister();
+    },
+  };
 }
 
 /** 把一段字符串按 provider 优先解析成路由；空串＝沿用当前会话模型。 */
@@ -951,7 +1268,7 @@ async function runTitleCommand(ctx, config, overrides, invocation) {
  * @param overrides - 与 `/title` 命令共用的「一次性模型」表。
  * @param telemetry - 生成状态表。
  */
-function registerUiRoutes(scope, ctx, config, overrides, telemetry) {
+function registerUiRoutes(scope, ctx, getSettings, overrides, telemetry, onApplied, rawProfileRef) {
   const json = (res, status, value) => {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(value));
@@ -985,17 +1302,18 @@ function registerUiRoutes(scope, ctx, config, overrides, telemetry) {
     if (session === undefined) throw new Error(`会话 ${sessionId} 不在运行中`);
     return session;
   };
-  const pinned = config.provider === undefined || config.model === undefined
+  const pinnedOf = (config) => config.provider === undefined || config.model === undefined
     ? null
     : { provider: config.provider, model: config.model };
   const stateOf = (sessionId) => {
+    const config = getSettings();
     const session = sessionOf(sessionId);
     const current = ctx.sessionTitle.get(session);
     const view = telemetry.view(sessionId);
     return {
       sessionId,
       cadence: config.cadence,
-      pinned,
+      pinned: pinnedOf(config),
       tool: TITLE_TOOL_NAME,
       textFallback: config.textFallback !== false,
       timeoutMs: config.timeoutMs,
@@ -1073,7 +1391,7 @@ function registerUiRoutes(scope, ctx, config, overrides, telemetry) {
           const oneOff = provider === '' || model === '' ? undefined : { provider, model, at: Date.now() };
           if (oneOff !== undefined) overrides.set(session.id, oneOff);
           // 手动触发也要有硬上限：配置超时 + 一点余量，避免请求悬着。
-          const signal = AbortSignal.timeout(config.timeoutMs + UI_GENERATE_GRACE_MS);
+          const signal = AbortSignal.timeout(getSettings().timeoutMs + UI_GENERATE_GRACE_MS);
           try {
             const snapshot = await ctx.sessionTitle.refresh(session, signal);
             if (snapshot === undefined) return bad(res, 409, '会话里还没有可参与标题生成的文本内容');
@@ -1087,24 +1405,110 @@ function registerUiRoutes(scope, ctx, config, overrides, telemetry) {
       }).catch(() => bad(res, 400, 'body 读取失败'));
     },
   }), 'session-title-context: generate route');
+
+  // ── v3：设置页读写 ──
+  //   GET  ${ROUTE_PREFIX}/settings → 当前生效设置（profile+文件合并后的全量）。
+  //   POST ${ROUTE_PREFIX}/settings → 校验（不落坏值）→ 写盘 → 热应用。
+  scope.effect(() => scope.webServer.register({
+    kind: 'exact',
+    path: `${ROUTE_PREFIX}/settings`,
+    handler: (req, res) => {
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        if (!sameOrigin(req)) return bad(res, 403, 'cross-origin request rejected');
+        return ok(res, { settings: getSettings() });
+      }
+      if (req.method !== 'POST') return bad(res, 405, 'Method Not Allowed');
+      if (!sameOrigin(req)) return bad(res, 403, 'cross-origin request rejected');
+      readBody(req).then(async (bodyText) => {
+        let payload = {};
+        if (bodyText !== '') {
+          try {
+            payload = JSON.parse(bodyText);
+          } catch {
+            return bad(res, 400, 'body 不是合法 JSON');
+          }
+        }
+        const incoming = isRecord(payload) && isRecord(payload.settings) ? payload.settings : payload;
+        let next;
+        try {
+          // 用提交的那份替代磁盘文件内容重新走一遍校验；坏值直接 400，不落盘。
+          next = readConfig(rawProfileRef.value, incoming);
+        } catch (error) {
+          return bad(res, 400, error);
+        }
+        try {
+          saveSettingsFile(next);
+        } catch (error) {
+          return bad(res, 500, `设置写入失败：${messageOf(error)}`);
+        }
+        try {
+          onApplied(next);
+        } catch (error) {
+          ctx.logger.warn(`session-title-context: 设置热应用异常：${messageOf(error)}`);
+        }
+        return ok(res, { settings: getSettings() });
+      }).catch(() => bad(res, 400, 'body 读取失败'));
+    },
+  }), 'session-title-context: settings route');
 }
 
 /**
- * 插件入口。
+ * 插件入口（v3）。
  * @param ctx - 组合行上下文。
- * @param rawConfig - 组合行配置。
+ * @param rawConfig - 组合行配置（作为兜底；设置页文件优先）。
  */
 export function apply(ctx, rawConfig) {
-  const config = readConfig(rawConfig);
+  const rawProfile = { value: rawConfig };
+  let settings = readConfig(rawConfig);
+  const getSettings = () => settings;
   const overrides = new Map();
   const telemetry = createTitleTelemetry();
-  registerProvider(ctx, config, overrides, telemetry);
+  const handle = registerProvider(ctx, getSettings, overrides, telemetry);
+
+  // ── v3 核心修复之二：turn/end 自动重算 ──
+  // 标题请求原先只在用户消息后排队——那时本轮助手回答还没生成，
+  // 「缺乏最新对话内容」是结构性的。现在回合结束（最终回复完整落库）后
+  // 防抖重算一次，标题一定带得上最新进展；失败只记日志（下一条消息还会自愈）。
+  const turnEndTimers = new Map();
+  ctx.effect(() => {
+    const off = ctx.on('session/event', (session, event) => {
+      if (!isRecord(event) || event.type !== 'turn/end') return;
+      const current = getSettings();
+      if (current.autoRefreshOnTurnEnd !== true) return;
+      if (current.cadence !== 'all-prompts') return;
+      const existing = turnEndTimers.get(session.id);
+      if (existing !== undefined) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        turnEndTimers.delete(session.id);
+        if (ctx.sessions.get(session.id) !== session) return;
+        ctx.sessionTitle.refresh(session).catch((error) => {
+          ctx.logger.warn(`session "${session.id}": turn/end 自动重算标题失败：${messageOf(error)}`);
+        });
+      }, TURN_END_DEBOUNCE_MS);
+      if (typeof timer.unref === 'function') timer.unref();
+      turnEndTimers.set(session.id, timer);
+    });
+    return () => {
+      for (const timer of turnEndTimers.values()) clearTimeout(timer);
+      turnEndTimers.clear();
+      if (typeof off === 'function') off();
+    };
+  }, 'session-title-context turn/end refresh');
+
   ctx.inject(['commands'], (scope) => scope.commands.register({
     name: 'title',
-    description: '重新生成当前会话标题（默认用当前会话模型，可一次性指定 provider/model）',
-    input: { hint: '[<模型> | <provider>/<model> | list]　留空＝当前会话模型' },
-    handler: (invocation) => runTitleCommand(ctx, config, overrides, invocation),
+    description: '重新生成当前会话标题（默认按规则/全局/当前会话模型解析，可一次性指定 provider/model）',
+    input: { hint: '[<模型> | <provider>/<model> | list]　留空＝按设置解析' },
+    handler: (invocation) => runTitleCommand(ctx, getSettings(), overrides, invocation),
   }));
-  // 标题栏 UI 的接口；跑在没有 webServer 的 profile 里时只保留上面的命令入口。
-  ctx.inject(['webServer'], (scope) => registerUiRoutes(scope, ctx, config, overrides, telemetry));
+  // 设置页与旧接口共用同源 HTTP；跑在没有 webServer 的 profile 里时只保留命令入口。
+  ctx.inject(['webServer'], (scope) => registerUiRoutes(scope, ctx, getSettings, overrides, telemetry, (next) => {
+    const cadenceChanged = settings.cadence !== next.cadence;
+    settings = next;
+    if (cadenceChanged) {
+      handle.applySettings().catch((error) => {
+        ctx.logger.warn(`session-title-context: 提供者重挂失败：${messageOf(error)}`);
+      });
+    }
+  }, rawProfile));
 }

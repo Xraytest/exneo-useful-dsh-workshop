@@ -176,6 +176,7 @@ window.__ModuleLoader__.load({
       showTable: [true, false],
       showCache: [true, false],
       showRate: [true, false],
+      showHourly: [true, false],
     };
     const VIEW_DEFAULTS = {
       by: 'model', range: 'all', subagents: null,
@@ -186,6 +187,8 @@ window.__ModuleLoader__.load({
       showCache: false,
       // 速率区默认**开**：平均 TTFT / TPS 是本版新增主指标，独立成区便于横向比较。
       showRate: true,
+      // 吞吐区默认**开**：最近一小时的供应商总吞吐（单发/并发/墙钟/tokens-h 四个口径）。
+      showHourly: true,
     };
     const VIEW_KEYS = Object.keys(VIEW_SPEC);
 
@@ -241,7 +244,7 @@ window.__ModuleLoader__.load({
     const fmt = (n) => (typeof n === 'number' && n > 0 ? n.toLocaleString('en-US') : '0');
 
     function shortNum(n) {
-      if (typeof n !== 'number' || n <= 0) return '0';
+      if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return '0';
       if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
       if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
       if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
@@ -332,6 +335,22 @@ window.__ModuleLoader__.load({
     const tpsOf = (r) => num(r && r.tpsAvg);
     const secText = (v) => (v === null ? '—' : v.toFixed(v >= 10 ? 1 : 2) + ' s');
     const tpsText = (v) => (v === null ? '—' : (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + ' tok/s');
+    /** 每小时 token 数（总吞吐）；无样本/非有限数/负值一律「—」，真实 0 照实显示。 */
+    const hourText = (v) => {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return '—';
+      if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B tokens/h';
+      if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M tokens/h';
+      if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k tokens/h';
+      return v.toFixed(0) + ' tokens/h';
+    };
+    /** 单发 TPS：Σ输出 / Σ生成时长（与速率区 tpsAvg 同口径）。 */
+    const singleTpsOf = (r) => num(r && r.singleTps);
+    /** 并发 TPS：Σ输出 / 并流区间并集。 */
+    const concurrentTpsOf = (r) => num(r && r.concurrentTps);
+    /** 墙钟 TPS：Σ输出 / 首末调用跨度。 */
+    const wallTpsOf = (r) => num(r && r.wallTps);
+    /** 最近一小时区的列（与用量表、速率表都不同——这里是吞吐口径）。 */
+    const HOURLY_COLS = ['调用', '总 tokens', '单发 TPS', '并发 TPS', '墙钟 TPS', 'tokens/h', '剔除'];
     /**
      * 速率副标注：样本条数（分母不同才敢直接比）。
      */
@@ -543,12 +562,11 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ust-card' },
             h('div', { className: 'ust-card-k' }, '平均 TTFT（合计）'),
             h('div', { className: 'ust-card-v',
-              title: '首个内容时刻 − 请求起始时刻（step/start；重试取最后一条 retry-started）的算术均值'
+              title: '首个内容时刻 − 请求起始时刻的算术均值'
                 + (totals.ttftMedian === null || totals.ttftMedian === undefined
                   ? '' : '；中位 ' + secText(totals.ttftMedian))
                 + (totals.ttftSamples ? '；样本 ' + fmt(totals.ttftSamples) + ' / ' + fmt(totals.calls) + ' 次调用' : '')
-                + (totals.ttftExcluded ? '；剔除 ' + fmt(totals.ttftExcluded) + ' 条超 5 分钟的污染点' : '')
-                + '。逐项速率看下面的表。' },
+                + (totals.ttftExcluded ? '；剔除 ' + fmt(totals.ttftExcluded) + ' 条超 5 分钟的污染点' : '') },
               t === null ? '无数据' : secText(t))),
           h('div', { className: 'ust-card' },
             h('div', { className: 'ust-card-k' }, '平均 TPS（合计）'),
@@ -558,9 +576,7 @@ window.__ModuleLoader__.load({
                   ? '' : '；逐条算术均值 ' + tpsText(totals.tpsMean))
                 + (totals.tpsMedian === null || totals.tpsMedian === undefined
                   ? '' : '；逐条中位 ' + tpsText(totals.tpsMedian))
-                + (totals.tpsSamples ? '；样本 ' + fmt(totals.tpsSamples) + ' 次调用' : '')
-                + (totals.tpsExcluded ? '；剔除 ' + fmt(totals.tpsExcluded) + ' 条超长生成' : '')
-                + '。生成 < 500 ms 或输出 < 32 tokens 的调用不进 TPS 样本。' },
+                + (totals.tpsSamples ? '；样本 ' + fmt(totals.tpsSamples) + ' 次调用' : '') },
               p === null ? '无数据' : tpsText(p))),
         ),
         rows.length === 0
@@ -574,13 +590,115 @@ window.__ModuleLoader__.load({
                 h('tbody', null, shown.map((row) => RateTableRow({ row, onPick: props.onPick })))),
             ),
         h('div', { className: 'ust-sub' },
-          '口径：TTFT = 首个内容时刻 − 请求起始时刻（step/start；重试取最后一条 retry-started）。'
-          + 'TPS = Σ输出tokens / Σ生成时长（聚合式，按耗时加权；逐条算术均值与中位数并列给出，'
-          + '差距大说明调用时长不均）。'
-          + '样本阈值：生成 ≥ 500 ms 且输出 ≥ 32 tokens 才进 TPS；'
-          + 'TTFT / 生成时长 > 5 分钟的点不进均值（实测本机最长一条 3 小时，是会话挂起/接手留下的污染），'
-          + '被剔除的条数在「剔除」列如实标出。「—」= 无数据，不是 0。'
-          + '本区与上面的用量区**互不混列**：token 数看用量表，速率看这里。'),
+          'TTFT = 首个内容时刻 − 请求起始时刻；TPS = Σ输出tokens / Σ生成时长（聚合式，按耗时加权）。'
+          + '样本阈值：生成 ≥ 500 ms 且输出 ≥ 32 tokens；超 5 分钟的点不进均值，条数见「剔除」列。'
+          + '「—」= 无数据，不是 0。'),
+      );
+    }
+
+    /**
+     * 最近一小时 · 供应商总吞吐（独立成区，与用量区/速率区都不混列）。
+     *
+     * 一行一个供应商，四个口径并排：**单发 TPS**（一次流解码多快，与速率区同口径）、
+     * **并发 TPS**（并流区间并集当分母，并行度高时明显高于单发）、**墙钟 TPS**
+     * （首末调用跨度当分母，含等待与空闲）、**tokens/h**（窗口内总 tokens / 1h）。
+     * 四者分母不同，数字**必然有出入**——这正是把它单列一张表的原因：
+     * 只看单发 TPS 会低估「这段时间一共出了多少活」，只看 tokens/h 又看不出渠道快慢。
+     *
+     * 无样本一律「—」，不当 0（0 tok/s 是「慢到不动」，与「没有可测数据」是两件事）。
+     */
+    function HourlyPanel(props) {
+      const rows = props.rows || [];
+      const shown = rows.slice(0, props.limit || 50);
+      const totals = props.totals || {};
+      const windowMs = Number.isFinite(props.windowMs) ? props.windowMs : 3600000;
+      const hours = windowMs / 3600000;
+      const spanLabel = hours >= 1 && Number.isInteger(hours)
+        ? hours + ' 小时'
+        : (hours * 60).toFixed(0) + ' 分钟';
+      const hourLabel = '最近 ' + spanLabel;
+      const measurable = rows.filter((r) => singleTpsOf(r) !== null).length;
+      const p = singleTpsOf(totals);
+      const c = concurrentTpsOf(totals);
+      const keyHead = '供应商';
+      return h('div', { className: 'ust-chart-card' },
+        h('div', { className: 'ust-chart-head' },
+          h('div', { className: 'ust-chart-title' }, props.title || (hourLabel + ' · 供应商总吞吐')),
+          h('div', { className: 'ust-legend' },
+            h('span', { className: 'ust-legend-i' }, '可测 ' + fmt(measurable) + ' / ' + fmt(rows.length) + ' 家'),
+            h('span', { className: 'ust-legend-i' }, '窗口 ' + spanLabel),
+            props.generatedAt
+              ? h('span', { className: 'ust-legend-i' }, '截止 ' + fmtTime(props.generatedAt))
+              : null,
+          ),
+        ),
+        // 合计卡：三个速率口径 + 总吞吐。四张卡并排，出入一眼可见。
+        h('div', { className: 'ust-cards' },
+          h('div', { className: 'ust-card' },
+            h('div', { className: 'ust-card-k' }, '总 token（' + spanLabel + '）'),
+            h('div', { className: 'ust-card-v', title: '窗口内全部用量（输入+输出+缓存读+缓存写）' }, shortNum(totals.total))),
+          h('div', { className: 'ust-card' },
+            h('div', { className: 'ust-card-k' }, '单发 TPS（合计）'),
+            h('div', { className: 'ust-card-v',
+              title: 'Σ输出tokens / Σ生成时长——一次请求里的解码速度，与速率区同口径' },
+              p === null ? '无数据' : tpsText(p))),
+          h('div', { className: 'ust-card' },
+            h('div', { className: 'ust-card-k' }, '并发 TPS（合计）'),
+            h('div', { className: 'ust-card-v',
+              title: 'Σ输出tokens / 并流区间并集——并行多条流时的有效吞吐；分母取全体并集（多家同时在跑）' },
+              c === null ? '无数据' : tpsText(c))),
+          h('div', { className: 'ust-card' },
+            h('div', { className: 'ust-card-k' }, '总吞吐（tokens/h）'),
+            h('div', { className: 'ust-card-v',
+              title: '窗口内总 tokens / 窗口小时数——与 TPS 口径不同，数字会有出入' },
+              totals.tokensPerHour === null || totals.tokensPerHour === undefined
+                ? '无数据' : hourText(totals.tokensPerHour))),
+        ),
+        rows.length === 0
+          ? h('div', { className: 'ust-empty' }, hourLabel + '没有用量记录。')
+          : h('div', { className: 'ust-table-wrap' },
+              h('table', { className: 'ust-table' },
+                h('thead', null, h('tr', null,
+                  h('th', { className: 'l' }, keyHead),
+                  HOURLY_COLS.map((c) => h('th', { key: c }, c)),
+                )),
+                h('tbody', null, shown.map((row) => HourlyTableRow({ row })))),
+            ),
+        h('div', { className: 'ust-sub' },
+          '单发 = Σ输出/Σ生成时长；并发 = Σ输出/并流生成区间并集；墙钟 = Σ输出/首末生成跨度；'
+          + 'tokens/h = 总 tokens ÷ ' + spanLabel + '。区间不含 TTFT（排队延迟不是解码占用）；'
+          + '分母不同，数字会有出入，并发÷单发 ≈ 平均并行度。'),
+      );
+    }
+
+    /** 最近一小时 · 明细表一行（只有吞吐列，不掺用量明细）。 */
+    function HourlyTableRow(props) {
+      const r = props.row;
+      const single = singleTpsOf(r);
+      const concurrent = concurrentTpsOf(r);
+      const wall = wallTpsOf(r);
+      const excluded = r.excluded || 0;
+      const share = r.activeShare;
+      return h('tr', { key: r.key },
+        h('td', { className: 'l' },
+          h('div', { className: 'ust-key' }, displayName(r)),
+          h('div', { className: 'ust-meta' },
+            fmt(r.calls) + ' 次 · ' + fmt(r.sessions) + ' 会话'
+            + (r.samples ? ' · 速率样本 ' + fmt(r.samples) : '')
+            + (share === null || share === undefined ? '' : ' · 占用 ' + (share * 100).toFixed(1) + '%')),
+        ),
+        h('td', null, fmt(r.calls)),
+        h('td', null, fmt(r.total)),
+        h('td', { title: single === null ? '无满足阈值的可测样本' : 'Σ输出 / Σ生成时长' },
+          single === null ? '—' : tpsText(single)),
+        h('td', { title: concurrent === null ? '无满足阈值的可测样本' : 'Σ输出 / 并流区间并集（并行流只算一份墙钟）' },
+          concurrent === null ? '—' : tpsText(concurrent)),
+        h('td', { title: wall === null ? '无满足阈值的可测样本' : 'Σ输出 / 首末生成跨度（含等待与空闲）' },
+          wall === null ? '—' : tpsText(wall)),
+        h('td', { title: '窗口内总 tokens / 窗口小时数' },
+          r.tokensPerHour === null || r.tokensPerHour === undefined ? '—' : hourText(r.tokensPerHour)),
+        h('td', { title: excluded > 0 ? '被上界（5 分钟）裁掉的样本条数' : undefined },
+          excluded > 0 ? fmt(excluded) : '0'),
       );
     }
 
@@ -681,8 +799,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ust-modal-kv' }, stats),
           extras.length === 0 ? null : h('div', { className: 'ust-modal-kv' }, extras),
           h('div', { className: 'ust-modal-note' },
-            '口径：DSH 的 usage 里 input 与 cacheRead 互斥，计费输入 = 输入 + 缓存读 + 缓存写；'
-            + '命中率只按**可测**（带缓存字段）的流量算，逐项各自计算，不是总量口径。'),
+            '计费输入 = 输入 + 缓存读 + 缓存写；命中率只按**可测**（带缓存字段）的流量算，逐项各自计算。'),
         ));
     }
 
@@ -699,11 +816,13 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 页面版块顺序（纯函数，便于无头断言）——**用量与速率完全分区**：
+     * 页面版块顺序（纯函数，便于无头断言）——**用量 / 速率 / 吞吐三区分开**：
      *   用量区：数值表/图表 → 命中率总表（可选）→ 用量明细表（可选）
      *   速率区：速率面板（合计卡 + 速率明细表，默认开，可关）
+     *   吞吐区：最近一小时供应商总吞吐（默认开，可关）
      *   收尾：截断提示
-     * 两块各自成表、互不混列：token 数只出现在用量区，TTFT/TPS 只出现在速率区。
+     * 三块各自成表、互不混列：token 数只在用量区，TTFT/TPS 只在速率区，
+     * 单发/并发/墙钟/tokens-h 只在吞吐区。
      */
     function orderedPanels(props) {
       const out = [];
@@ -711,6 +830,7 @@ window.__ModuleLoader__.load({
       if (props.showCache === true && props.cacheCard) out.push(props.cacheCard);
       if (props.showTable === true && props.table) out.push(props.table);
       if (props.showRate === true && props.rateCard) out.push(props.rateCard);
+      if (props.showHourly === true && props.hourlyCard) out.push(props.hourlyCard);
       if (props.tail) out.push(props.tail);
       return out;
     }
@@ -994,12 +1114,16 @@ window.__ModuleLoader__.load({
       const [showTable, setShowTable] = React.useState(saved.showTable);
       const [showCache, setShowCache] = React.useState(saved.showCache);
       const [showRate, setShowRate] = React.useState(saved.showRate);
+      const [showHourly, setShowHourly] = React.useState(saved.showHourly);
       // 弹窗存的是**行的键**而不是行对象快照：刷新 / 回填完成 / 自动刷新后
       // 行对象会被整个替换，存快照会让弹窗一直显示刷新前的旧数字。
       const [detailKey, setDetailKey] = React.useState(null);
       const [hoverIndex, setHoverIndex] = React.useState(null);
       const [data, setData] = React.useState(null);
       const [status, setStatus] = React.useState(null);
+      // 最近一小时吞吐是**独立的一次取数**（不跟着 by/range 变）：它只跟 subagents 与
+      // 时间有关，所以用自己的 seq 守卫 + 自己的定时刷新，切页签不会把它拖慢或冲掉。
+      const [hourly, setHourly] = React.useState(null);
       const [loading, setLoading] = React.useState(true);
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState(null);
@@ -1053,11 +1177,34 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { void load(); }, [load]);
       React.useEffect(() => { setHoverIndex(null); }, [by]);
 
+      /* ---------------------------------------- 最近一小时吞吐（独立取数） ---- */
+
+      // 过期响应守卫与 load() 同一套：只让最新一次写状态。定时刷新（30s）与手动
+      // 「刷新」都会调它，乱序回包时旧的那份直接丢。
+      const hourlySeq = React.useRef(0);
+      const loadHourly = React.useCallback(async () => {
+        const seq = ++hourlySeq.current;
+        try {
+          const payload = await fetchJson('/dsh-usage/hourly?windowMs=3600000'
+            + (subagents === null ? '' : '&subagents=' + encodeURIComponent(subagents)));
+          if (seq !== hourlySeq.current) return;
+          setHourly(payload);
+        } catch { /* 吞吐区取数失败不牵连主表格：保留上一次的数据，下一轮再试 */ }
+      }, [subagents]);
+
+      // 挂载时取一次 + 每 30s 自刷（这是「最近一小时」的语义：数字要跟着时间走）。
+      // 与回填轮询 effect 分开：那个只在 busy 时跑，这个常驻。
+      React.useEffect(() => {
+        void loadHourly();
+        const timer = setInterval(() => { void loadHourly(); }, 30000);
+        return () => clearInterval(timer);
+      }, [loadHourly]);
+
       // 「查看的页面与选项」落盘：任何一项变化都写回（失败静默——存储不可用时
       // 页面照常工作，只是下次打开回到默认视图）。
       React.useEffect(() => {
-        writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache, showRate });
-      }, [by, range, subagents, timeMode, shareMode, showTable, showCache, showRate]);
+        writeView({ by, range, subagents, timeMode, shareMode, showTable, showCache, showRate, showHourly });
+      }, [by, range, subagents, timeMode, shareMode, showTable, showCache, showRate, showHourly]);
 
       // 详情弹窗开着时按 Esc 关闭（window 上没有 addEventListener 的环境直接跳过）。
       React.useEffect(() => {
@@ -1129,13 +1276,11 @@ window.__ModuleLoader__.load({
         h('div', null,
           h('div', { className: 'ust-title' }, '用量统计'),
           h('div', { className: 'ust-sub' },
-            '按 模型（区分供应商）/ 供应商 / 分组 / 会话 / 每日 / 每周 统计 token 与平均速率（TTFT / TPS）。'
-            + '模型维按「供应商 + 模型」成行——同一个模型挂在多家供应商下时各算各的，不合并。'
-            + '事实来自会话日志折叠：'
-            + '插件上线前的历史对话与导出归档（zip）都能回填，与实时记账同一口径，可加可对账。'),
+            '按 模型（区分供应商）/ 供应商 / 分组 / 会话 / 每日 / 每周 统计 token 与速率；'
+            + '历史会话与导出归档可回填，与实时记账同一口径。'),
         ),
         h('div', { className: 'ust-bar' },
-          h('button', { className: 'ust-btn', onClick: () => void load(), disabled: loading }, '刷新'),
+          h('button', { className: 'ust-btn', onClick: () => { void load(); void loadHourly(); }, disabled: loading }, '刷新'),
           h('button', { className: 'ust-btn', onClick: () => void rescan(false), disabled: busy }, busy ? '回填中…' : '增量回填'),
           h('button', { className: 'ust-btn', onClick: () => void rescan(true), disabled: busy }, '重建全部'),
           h('a', {
@@ -1156,8 +1301,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ust-card-v',
             title: '当前范围所有项合计的实测缓存占比 = 缓存读+写 / 可测计费输入'
               + (totals.cacheCoverage === null || totals.cacheCoverage === undefined
-                ? '' : '；覆盖 ' + (totals.cacheCoverage * 100).toFixed(1) + '% 的计费输入')
-              + '。逐项占比：**点名称弹窗**查看，或打开「命中率总表」铺开看。' },
+                ? '' : '；覆盖 ' + (totals.cacheCoverage * 100).toFixed(1) + '% 的计费输入') },
             cacheShareOf(totals) === null ? '无' : pctText(cacheShareOf(totals)))),
         h('div', { className: 'ust-card' },
           h('div', { className: 'ust-card-k' }, '调用次数'),
@@ -1215,9 +1359,14 @@ window.__ModuleLoader__.load({
         }),
         h('div', { className: 'ust-sep' }),
         h('button', {
+          className: 'ust-tab' + (showHourly ? ' is-on' : ''),
+          onClick: () => setShowHourly(!showHourly),
+          title: '最近一小时 · 供应商总吞吐：单发 / 并发 / 墙钟 TPS 与 tokens/h，每 30s 自刷。默认开，选择会被记住。',
+        }, '最近一小时'),
+        h('button', {
           className: 'ust-tab' + (showRate ? ' is-on' : ''),
           onClick: () => setShowRate(!showRate),
-          title: '速率区：平均 TTFT / TPS 的合计卡与逐项速率表（**与用量表分开成区，互不混列**，排在整个用量区之后）。默认开，选择会被记住。',
+          title: '速率区：平均 TTFT / TPS 的合计卡与逐项速率表（与用量表分开成区）。默认开，选择会被记住。',
         }, '速率区'),
         h('button', {
           className: 'ust-tab' + (showCache ? ' is-on' : ''),
@@ -1227,7 +1376,7 @@ window.__ModuleLoader__.load({
         h('button', {
           className: 'ust-tab' + (showTable ? ' is-on' : ''),
           onClick: () => setShowTable(!showTable),
-          title: '用量明细表：每行的 token 数值与缓存占比（不含速率——速率看「速率区」）。选择会被记住。',
+          title: '用量明细表：每行的 token 数值与缓存占比（速率看「速率区」，吞吐看「最近一小时」）。选择会被记住。',
         }, '明细表'),
       );
 
@@ -1274,6 +1423,19 @@ window.__ModuleLoader__.load({
             rows: rows.slice(), limit: 20,
             title: '命中率总表（' + dimName + ' 逐项）',
             onPick: (row) => setDetailKey(row.key),
+          });
+
+      // **吞吐区**（独立取数、独立成区，默认显示）：最近一小时按供应商的总吞吐。
+      // 它不跟着 by/range 走（窗口是时间而不是维度），所以用的是 hourly 而不是 rows。
+      const hourlyCard = hourly === null
+        ? null
+        : h(HourlyPanel, {
+            rows: hourly.rows || [],
+            totals: hourly.totals || {},
+            windowMs: hourly.windowMs,
+            generatedAt: hourly.generatedAt,
+            limit: 50,
+            title: '最近一小时 · 供应商总吞吐',
           });
 
       // **用量明细表**（只列 token 与缓存占比；速率一律在下面独立的「速率」区看，两区互不混列）
@@ -1344,16 +1506,15 @@ window.__ModuleLoader__.load({
               ? (status.rateCoverage.share < 0.9995
                 ? ' · 速率样本覆盖 ' + (status.rateCoverage.share * 100).toFixed(1) + '%（'
                   + fmt(status.rateCoverage.factsWithSamples) + '/' + fmt(status.rateCoverage.factsTotal)
-                  + ' 条事实带 stream 时间戳；其余是老账本或日志未记录流内时刻的渠道，'
-                  + '点「重建全部」可补齐老账，不可测的项显示「—」而不是 0）'
+                  + ' 条；点「重建全部」补齐老账）'
                 : ' · 速率样本覆盖全部事实')
               : '')
             + (status.gaps && status.gaps.searchRequests > 0
-              ? ' · 联网搜索调用 ' + fmt(status.gaps.searchRequests) + ' 次（无用量可恢复）'
+              ? ' · 联网搜索 ' + fmt(status.gaps.searchRequests) + ' 次（无用量）'
               : '')
             + (status.mirrored && status.mirrored.enabled === true && status.mirrored.excludedSessions > 0
               ? ' · 网格镜像排除 ' + fmt(status.mirrored.excludedSessions) + ' 会话'
-                + '（' + fmt(status.mirrored.excludedFacts) + ' 次调用 / ' + fmt(status.mirrored.excludedTokens)
+                + '（' + fmt(status.mirrored.excludedFacts) + ' 次 / ' + fmt(status.mirrored.excludedTokens)
                 + ' tokens，由对端设备发出）'
               : ''),
           )
@@ -1366,17 +1527,20 @@ window.__ModuleLoader__.load({
         chartControls,
         error !== null ? h('div', { className: 'ust-error' }, error) : null,
         (data !== null && typeof data.by === 'string' && data.by !== by)
-          ? h('div', { className: 'ust-error' }, '统计插件返回的维度是「' + data.by + '」而不是「' + by + '」——说明运行中的 host 半边还没接入该维度（改源码后需重启 dsh，或用 stats-integration.mjs --live 重新热挂）。')
+          ? h('div', { className: 'ust-error' }, '统计插件返回的维度是「' + data.by + '」而不是「' + by + '」——运行中的 host 半边还没接入该维度（改源码后需重启 dsh）。')
           : null,
         notice !== null ? h('div', { className: 'ust-notice' }, notice) : null,
         cards,   // 数值卡片
         loading && rows.length === 0 ? h('div', { className: 'ust-empty' }, '加载中…') : null,
         !loading && rows.length === 0 ? h('div', { className: 'ust-empty' }, '该范围内没有用量记录。') : null,
-        // 用量区：数值表/图表 → 命中率总表（可选）→ 用量明细表（可选）；然后**速率区**（独立成区）；截断提示收尾
+        // 用量区：数值表/图表 → 命中率总表（可选）→ 用量明细表（可选）；
+        // 然后**速率区** → **吞吐区**（各自独立成区）；截断提示收尾
         ...orderedPanels({
           chartCard,
           rateCard,
           showRate,
+          hourlyCard,
+          showHourly,
           cacheCard,
           showCache,
           showTable: showTable && rows.length > 0,
@@ -1408,6 +1572,8 @@ window.__ModuleLoader__.load({
       css: PAGE_CSS, SERIES, INPUT_SERIES, Legend, TimeChart, HBars, Donut, HoverLine,
       CacheRow, CacheBars, CacheDetail, KeyCell, inputBar, orderedPanels, rowByKey, displayName,
       RatePanel, RateTableRow, COLS, RATE_COLS,
+      HourlyPanel, HourlyTableRow, HOURLY_COLS,
+      hourText, singleTpsOf, concurrentTpsOf, wallTpsOf,
       ttftOf, tpsOf, secText, tpsText, rateTitle, rateSamples, subLine,
       rawName, hoverTitle,
       cacheShareOf, cacheCoverageOf, coverageHint, pctText,

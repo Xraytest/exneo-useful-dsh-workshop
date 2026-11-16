@@ -11,9 +11,12 @@
  *    写法）。装配期按 `context.agent.session.header.cwd` 取工作区，命中条目就把
  *    一个 section 插进装配结果——**每个请求都在场**、改文件下一次请求即生效、
  *    不会被压实摘要盖掉，且不往会话日志里写任何可见消息。
+ *    此外还有一条**全局增量**（`global.md`，所有工作区共享、与该工作区有没有
+ *    条目无关），它作为独立 section 插在工作区条目**之前**。
  * ② 模型工具：`workspace_context`（list/read/write/append/clear/set_enabled）。
  *    注册在 host `tools` 注册表上，故**与本会话跑哪个 agent 预设无关**，每个会话
- *    都看得到（除非某个 scope 用 tools.restrict 把它挡掉）。
+ *    都看得到（除非某个 scope 用 tools.restrict 把它挡掉）。`scope: 'global'`
+ *    操作那条全局增量。
  * ③ 浏览器半边：设置页「工作区常驻上下文」一节（见 ./client.js），全部走本文件
  *    注册的同源路由 `/dsh-workspace-context/*`——静态插件没有动态包的 host.call。
  *
@@ -34,19 +37,23 @@
  */
 
 import {
+  DEFAULT_GLOBAL_MAX_BYTES,
   SCHEMA,
   canonicalPath,
   createStore,
+  defaultGlobalFile,
   defaultStoreDir,
   dshHome,
 } from './store.js';
 
 /** 插件版本（诊断回显用；改行为就 +1）。 */
-const VERSION = 1;
+const VERSION = 2;
 /** 浏览器 API 前缀。 */
 const ROUTE_PREFIX = '/dsh-workspace-context';
 /** section 名（装配结果里可见，便于排查；也用于去重）。 */
 const DEFAULT_SECTION_NAME = 'workspace:context';
+/** 全局增量段名：所有工作区共享，注入在每个工作区条目之前。 */
+const DEFAULT_GLOBAL_SECTION_NAME = 'workspace:context:global';
 /** 注入位置锚点：紧跟部署人设前缀。 */
 const PERSONA_SECTION = 'deployment:persona-prefix';
 /** 模型工具名。 */
@@ -61,6 +68,7 @@ const TOOL_DESCRIPTION = [
   'Actions: "list" shows every workspace that has a context plus known workspaces that do not; "read" returns the text that would be injected (defaults to this session\'s workspace); "write" replaces that text; "append" adds a paragraph; "clear" empties the text but keeps the entry; "set_enabled" silences or re-enables an entry without touching its text.',
   'Only "list" and "read" are safe by default: call "read" before "write" so you replace rather than destroy existing guidance, keep the text tight and durable (it costs tokens on EVERY request of that workspace), and never put secrets in it. Writes take effect from the next model request; the same text stays editable by the human at its file under $DSH_HOME/workspace-context/contexts/.',
   'Without an explicit "path" argument the target is this session\'s own workspace; pass an absolute existing directory to read or maintain another workspace.',
+  'scope: "global" targets the shared increment that is injected for EVERY workspace (stored in one file outside contexts/, no per-workspace path needed); it has its own byte budget, and "set_enabled" does not apply to it. Writes there affect every workspace on this machine.',
 ].join(' ');
 
 /** 把返回值清成 lossless JSON：出厂按 JSON 往返校验工具的规范值，含 undefined 键的
@@ -100,43 +108,66 @@ function normalizeConfig(config) {
     sectionName: typeof input.sectionName === 'string' && input.sectionName.trim() !== ''
       ? input.sectionName.trim()
       : DEFAULT_SECTION_NAME,
+    // 全局增量：所有工作区共享的一条常驻上下文。缺省读 `<dir>/global.md`，
+    // 人可以直接改（热生效）；`globalEnabled: false` 可整体关掉注入。
+    globalEnabled: input.globalEnabled !== false,
+    globalFile: typeof input.globalFile === 'string' && input.globalFile.trim() !== ''
+      ? input.globalFile.trim()
+      : defaultGlobalFile(input.dir),
+    globalMaxBytes: Number.isFinite(input.globalMaxBytes) && input.globalMaxBytes >= 512
+      ? Math.floor(input.globalMaxBytes)
+      : DEFAULT_GLOBAL_MAX_BYTES,
+    globalSectionName: typeof input.globalSectionName === 'string' && input.globalSectionName.trim() !== ''
+      ? input.globalSectionName.trim()
+      : DEFAULT_GLOBAL_SECTION_NAME,
   };
 }
 
 /**
- * 把 section 插进装配结果。`AssembledSection` 只有 `{name,text}` 不带 order，
+ * 把一个或多个 section 插进装配结果。`AssembledSection` 只有 `{name,text}` 不带 order，
  * 位置由下标决定：紧跟 `deployment:persona-prefix`；没有该段就插在第一个 `tool:`
- * 段之前；再没有就追加。
+ * 段之前；再没有就追加。传入数组时按给定顺序整组插入（全局段在前、工作区段在后）。
  */
-function insertSection(assembly, section) {
-  const sections = Array.isArray(assembly.sections) ? assembly.sections.slice() : [];
+function insertSections(assembly, sections) {
+  const wanted = (Array.isArray(sections) ? sections : [sections])
+    .filter((section) => section !== null && section !== undefined && typeof section === 'object');
+  if (wanted.length === 0) return assembly;
+  const list = Array.isArray(assembly.sections) ? assembly.sections.slice() : [];
   let at = -1;
-  for (let index = 0; index < sections.length; index += 1) {
-    if (sections[index] !== null && sections[index] !== undefined && sections[index].name === PERSONA_SECTION) at = index + 1;
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] !== null && list[index] !== undefined && list[index].name === PERSONA_SECTION) at = index + 1;
   }
   if (at < 0) {
-    for (let index = 0; index < sections.length; index += 1) {
-      const name = sections[index] === null || sections[index] === undefined ? undefined : sections[index].name;
+    for (let index = 0; index < list.length; index += 1) {
+      const name = list[index] === null || list[index] === undefined ? undefined : list[index].name;
       if (typeof name === 'string' && name.startsWith('tool:')) {
         at = index;
         break;
       }
     }
   }
-  if (at < 0) at = sections.length;
-  sections.splice(at, 0, section);
-  return { ...assembly, sections };
+  if (at < 0) at = list.length;
+  list.splice(at, 0, ...wanted);
+  return { ...assembly, sections: list };
 }
 
 /** 模型可读的报告文本（`output.render`）。 */
 function renderToolReport(value) {
   const lines = [];
+  const isGlobal = value.scope === 'global';
+  const scopeLabel = isGlobal ? '全局增量（所有工作区共享）' : '工作区常驻上下文';
   if (value.action === 'list') {
-    lines.push(`工作区常驻上下文：${value.entries.length} 条已配置（存储 ${value.dir}）`);
+    lines.push(`${scopeLabel}：${value.entries.length} 条已配置（存储 ${value.dir}）`);
     for (const entry of value.entries) {
       lines.push(`- ${entry.path}｜${entry.enabled ? '启用' : '已停用'}｜${entry.textBytes} 字节｜${entry.title}`);
     }
     if (value.entries.length === 0) lines.push('- （还没有任何工作区配置）');
+    if (value.global !== undefined) {
+      const global = value.global;
+      if (global.exists !== true) lines.push(`- 全局增量：未配置（文件 ${global.file} 不存在，所有工作区都不会注入）`);
+      else if (global.error !== undefined) lines.push(`- 全局增量：读取失败（${global.error}）`);
+      else lines.push(`- 全局增量：${global.textBytes} 字节｜${global.file}`);
+    }
     if (value.unbound.length > 0) {
       lines.push(`未绑定文件 ${value.unbound.length} 个（头部缺失或写坏，正文不会注入；用 bind 收编）：`);
       for (const item of value.unbound) lines.push(`- ${item.name}（${item.reason}）`);
@@ -144,19 +175,21 @@ function renderToolReport(value) {
     for (const item of value.errors) lines.push(`⚠ ${item}`);
     return lines.join('\n');
   }
-  const head = `${value.path}`;
+  const head = isGlobal ? `全局增量：${value.file}` : `${value.path}`;
   if (value.action === 'read') {
     if (value.exists !== true) {
-      return `${head} 还没有常驻上下文（${value.via === undefined ? '未命中任何条目' : value.via}）。`
+      const missing = isGlobal ? '还没有全局增量内容' : '还没有常驻上下文';
+      return `${head} ${missing}（${value.via === undefined ? '未命中任何条目' : value.via}）。`
         + (value.inheritedFrom === undefined ? '' : `\n当前生效的是祖先工作区的条目：${value.inheritedFrom}`);
     }
     const meta = `[${value.title}｜${value.enabled ? '启用' : '已停用'}｜${value.textBytes} 字节`
       + `${value.via === 'ancestor' ? `｜来自祖先工作区 ${value.inheritedFrom}` : ''}]`;
     return `${head}\n${meta}\n\n${value.text === '' ? '（正文为空）' : value.text}`;
   }
-  lines.push(`${value.path} 常驻上下文已更新（${value.action}）：${value.textBytes} 字节，${value.enabled ? '启用' : '已停用'}。`);
-  lines.push(`下一次模型请求起生效；文件：${value.file}`);
-  lines.push('人可以直接编辑该文件（改完约 1 秒内热生效），也可以在 DSH 设置页「工作区常驻上下文」里改。');
+  lines.push(`${head} 已更新（${value.action}）：${value.textBytes} 字节，${value.enabled ? '启用' : '已停用'}。`);
+  lines.push('下一次模型请求起生效；文件：' + value.file);
+  if (isGlobal) lines.push('这条是全局增量：作用于本机每个工作区的每一次请求，改它会影响所有工作区。');
+  else lines.push('人可以直接编辑该文件（改完约 1 秒内热生效），也可以在 DSH 设置页「工作区常驻上下文」里改。');
   return lines.join('\n');
 }
 
@@ -171,7 +204,12 @@ const TOOL_PARAMETERS = {
     },
     path: {
       type: 'string',
-      description: '目标工作区绝对路径（必须是已存在的目录）。省略 = 本会话自己的工作目录。',
+      description: '目标工作区绝对路径（必须是已存在的目录）。省略 = 本会话自己的工作目录；scope=global 时不需要。',
+    },
+    scope: {
+      type: 'string',
+      enum: ['workspace', 'global'],
+      description: '作用对象：workspace=某个工作区的条目（缺省）；global=所有工作区共享的全局增量（此时不需要 path，写它会影响每个工作区）。',
     },
     text: {
       type: 'string',
@@ -199,6 +237,8 @@ export function apply(ctx, config = {}) {
     ttlMs: options.ttlMs,
     maxBytes: options.maxBytes,
     inheritFromAncestor: options.inheritFromAncestor,
+    globalFile: options.globalFile,
+    globalMaxBytes: options.globalMaxBytes,
   });
 
   /** 诊断：一切「为什么没注入」都能在这里看到，是排查的第一现场。 */
@@ -209,8 +249,10 @@ export function apply(ctx, config = {}) {
     startedAt: new Date().toISOString(),
     assemblies: 0,
     injected: 0,
-    skipped: { noSession: 0, noEntry: 0, disabled: 0, empty: 0 },
+    globalInjected: 0,
+    skipped: { noSession: 0, noEntry: 0, disabled: 0, empty: 0, globalMissing: 0, globalEmpty: 0 },
     lastInjection: undefined,
+    lastGlobalInjection: undefined,
     lastSkip: undefined,
     toolCalls: 0,
     routeErrors: 0,
@@ -252,42 +294,82 @@ export function apply(ctx, config = {}) {
       return assembly;
     }
     rememberCwd(cwd);
+    /** 本次要注入的段，按「先全局、后工作区」排列（宽泛在前、具体在后）。 */
+    const sections = [];
+
+    // ①a 全局增量：所有工作区共享，**与该工作区有没有条目无关**——没有条目也要注入。
+    if (options.globalEnabled === true) {
+      let global;
+      try {
+        global = store.globalSection();
+      } catch (error) {
+        diag.loadError = error && error.message ? error.message : String(error);
+        recordSkip('global-load-error', cwd, undefined);
+        global = undefined;
+      }
+      if (global !== undefined) {
+        if (global.exists !== true) {
+          diag.skipped.globalMissing += 1;
+          recordSkip('global-missing', cwd, undefined);
+        } else if (global.error !== undefined) {
+          diag.loadError = global.error;
+          recordSkip('global-error', cwd, undefined);
+        } else if (global.empty === true) {
+          diag.skipped.globalEmpty += 1;
+          recordSkip('global-empty', cwd, undefined);
+        } else {
+          sections.push({ name: options.globalSectionName, text: global.text });
+          diag.globalInjected += 1;
+          diag.lastGlobalInjection = {
+            at: new Date().toISOString(),
+            cwd,
+            file: global.file,
+            textBytes: global.textBytes,
+            injectedBytes: global.injectedBytes,
+            truncated: global.truncated === true,
+            sectionName: options.globalSectionName,
+          };
+        }
+      }
+    }
+
+    // ①b 该工作区条目：精确命中优先，未命中且开着继承时取最近祖先条目。
     let section;
     try {
       section = store.sectionFor(cwd);
     } catch (error) {
       diag.loadError = error && error.message ? error.message : String(error);
       recordSkip('load-error', cwd, undefined);
-      return assembly;
+      return sections.length === 0 ? assembly : insertSections(assembly, sections);
     }
-    if (section === undefined) {
+    if (section !== undefined) {
+      if (section.skipped === 'disabled') {
+        diag.skipped.disabled += 1;
+        recordSkip('disabled', cwd, section.entry);
+      } else if (section.skipped === 'empty') {
+        diag.skipped.empty += 1;
+        recordSkip('empty', cwd, section.entry);
+      } else {
+        sections.push({ name: options.sectionName, text: section.text });
+        diag.injected += 1;
+        diag.lastInjection = {
+          at: new Date().toISOString(),
+          cwd,
+          path: section.entry.path,
+          via: section.via,
+          title: section.entry.title,
+          textBytes: section.entry.textBytes,
+          injectedBytes: section.injectedBytes,
+          truncated: section.truncated === true,
+          sectionName: options.sectionName,
+        };
+      }
+    } else {
       diag.skipped.noEntry += 1;
       recordSkip('no-entry', cwd, undefined);
-      return assembly;
     }
-    if (section.skipped === 'disabled') {
-      diag.skipped.disabled += 1;
-      recordSkip('disabled', cwd, section.entry);
-      return assembly;
-    }
-    if (section.skipped === 'empty') {
-      diag.skipped.empty += 1;
-      recordSkip('empty', cwd, section.entry);
-      return assembly;
-    }
-    diag.injected += 1;
-    diag.lastInjection = {
-      at: new Date().toISOString(),
-      cwd,
-      path: section.entry.path,
-      via: section.via,
-      title: section.entry.title,
-      textBytes: section.entry.textBytes,
-      injectedBytes: section.injectedBytes,
-      truncated: section.truncated === true,
-      sectionName: options.sectionName,
-    };
-    return insertSection(assembly, { name: options.sectionName, text: section.text });
+    if (sections.length === 0) return assembly;
+    return insertSections(assembly, sections);
   }, { prepend: true });
 
   // ── ② 模型工具 ────────────────────────────────────────────────────────────
@@ -306,8 +388,12 @@ export function apply(ctx, config = {}) {
       diag.toolCalls += 1;
       const input = args !== null && typeof args === 'object' ? args : {};
       const action = typeof input.action === 'string' && input.action !== '' ? input.action : 'read';
+      const scope = input.scope === 'global' ? 'global' : 'workspace';
       const cwd = sessionCwd(exec === undefined ? undefined : exec.agent);
       const explicit = typeof input.path === 'string' && input.path.trim() !== '' ? input.path.trim() : undefined;
+      if (scope === 'global' && explicit !== undefined) {
+        throw new Error('scope=global 时不要传 path：全局增量只有一份，作用于所有工作区');
+      }
       const targetOf = () => {
         if (explicit !== undefined) return canonicalPath(explicit);
         if (cwd === undefined) {
@@ -325,12 +411,20 @@ export function apply(ctx, config = {}) {
         updatedBy: entry.updatedBy,
         text: entry.text,
       });
+      const globalView = (global) => ({
+        exists: global.exists === true,
+        file: global.file,
+        text: typeof global.text === 'string' ? global.text : '',
+        textBytes: typeof global.textBytes === 'number' ? global.textBytes : 0,
+        ...global.error === undefined ? {} : { error: global.error },
+      });
 
       if (action === 'list') {
         const index = store.scan(true);
         return lossless({
           ok: true,
           action,
+          scope,
           dir: store.dir,
           entries: index.entries.map((entry) => ({
             path: entry.path,
@@ -341,21 +435,27 @@ export function apply(ctx, config = {}) {
             updatedAt: entry.updatedAt,
             updatedBy: entry.updatedBy,
           })),
+          global: globalView(store.globalEntry()),
           unbound: index.unbound.map((item) => ({ name: item.name, reason: item.reason, bytes: item.bytes })),
           errors: index.errors,
         });
       }
 
       if (action === 'read') {
+        if (scope === 'global') {
+          const global = store.globalEntry();
+          return lossless({ ok: true, action, scope, ...globalView(global) });
+        }
         const target = targetOf();
         const resolved = store.resolveFor(target);
         if (resolved === undefined) {
-          return lossless({ ok: true, action, path: target, exists: false, text: '', via: undefined });
+          return lossless({ ok: true, action, scope, path: target, exists: false, text: '', via: undefined });
         }
         const entry = resolved.entry;
         return lossless({
           ok: true,
           action,
+          scope,
           path: target,
           exists: true,
           title: entry.title,
@@ -371,13 +471,28 @@ export function apply(ctx, config = {}) {
       }
 
       if (action === 'write' || action === 'append' || action === 'clear') {
-        const target = targetOf();
         if (action === 'write' && typeof input.text !== 'string') {
           throw new Error('write 需要 text（字符串；传空串即清空正文）');
         }
         if (action === 'append' && (typeof input.text !== 'string' || input.text.trim() === '')) {
           throw new Error('append 需要非空 text');
         }
+        if (scope === 'global') {
+          let text;
+          if (action === 'clear') text = '';
+          else if (action === 'write') text = input.text;
+          else {
+            const existing = store.globalEntry();
+            const current = existing.exists === true ? existing.text : '';
+            text = current.trim() === '' ? input.text : `${current.replace(/\s+$/, '')}\n\n${input.text}`;
+          }
+          const global = store.writeGlobal(text);
+          return lossless({
+            ok: true, action, scope, exists: true, file: global.file,
+            text: global.text, textBytes: global.textBytes, note: '下一次模型请求起生效',
+          });
+        }
+        const target = targetOf();
         let text;
         if (action === 'clear') {
           text = '';
@@ -394,22 +509,26 @@ export function apply(ctx, config = {}) {
           title: typeof input.title === 'string' ? input.title : undefined,
           updatedBy: 'tool',
         });
-        return lossless({ ok: true, action, ...entryView(entry), note: '下一次模型请求起生效' });
+        return lossless({ ok: true, action, scope, ...entryView(entry), note: '下一次模型请求起生效' });
       }
 
       if (action === 'set_enabled') {
+        if (scope === 'global') {
+          throw new Error('全局增量没有单独启用位：要停用就清空它的正文（clear），或在插件 config 里设 globalEnabled: false');
+        }
         if (typeof input.enabled !== 'boolean') throw new Error('set_enabled 需要布尔 enabled');
         const target = targetOf();
         const entry = store.setEnabled(target, input.enabled);
-        return lossless({ ok: true, action, ...entryView(entry), note: '下一次模型请求起生效' });
+        return lossless({ ok: true, action, scope, ...entryView(entry), note: '下一次模型请求起生效' });
       }
 
       throw new Error(`未知 action：${action}（合法值 list/read/write/append/clear/set_enabled）`);
     },
     presentCall(args) {
       const action = args !== null && typeof args === 'object' && typeof args.action === 'string' ? args.action : 'read';
+      const scope = args !== null && typeof args === 'object' && args.scope === 'global' ? 'global ' : '';
       const path = args !== null && typeof args === 'object' && typeof args.path === 'string' ? ` ${args.path}` : '';
-      return { card: 'generic', kind: 'execute', title: `工作区常驻上下文：${action}${path}` };
+      return { card: 'generic', kind: 'execute', title: `工作区常驻上下文：${scope}${action}${path}` };
     },
   }));
 
@@ -491,6 +610,12 @@ export function apply(ctx, config = {}) {
         current = { cwd, hit: false, error: error && error.message ? error.message : String(error) };
       }
     }
+    let global;
+    try {
+      global = store.globalEntry();
+    } catch (error) {
+      global = { exists: false, file: store.globalFile, text: '', textBytes: 0, error: error && error.message ? error.message : String(error) };
+    }
     return {
       ok: true,
       version: VERSION,
@@ -505,6 +630,10 @@ export function apply(ctx, config = {}) {
         maxBytes: store.maxBytes,
         inheritFromAncestor: store.inheritFromAncestor,
         sectionName: options.sectionName,
+        globalEnabled: options.globalEnabled,
+        globalFile: store.globalFile,
+        globalMaxBytes: store.globalMaxBytes,
+        globalSectionName: options.globalSectionName,
         dshHome: dshHome(),
       },
       entries: index.entries.map((entry) => ({
@@ -525,6 +654,12 @@ export function apply(ctx, config = {}) {
       errors: index.errors,
       workspaces: store.workspaceList(knownWorkspaces()),
       current,
+      global: {
+        ...global,
+        sectionName: options.globalSectionName,
+        maxBytes: store.globalMaxBytes,
+        enabled: options.globalEnabled,
+      },
       diag: {
         ...diag,
         seenCwds: [...seenCwds.keys()],
@@ -588,6 +723,11 @@ export function apply(ctx, config = {}) {
     }), 'dsh-workspace-context state route');
 
     postRoute(ROUTE_PREFIX + '/save', (args) => {
+      if (args.scope === 'global') {
+        if (typeof args.text !== 'string') throw new Error('text 必须是字符串（空串=清空正文）');
+        store.writeGlobal(args.text);
+        return stateView(typeof args.cwd === 'string' ? args.cwd : undefined);
+      }
       if (typeof args.path !== 'string' || args.path.trim() === '') throw new Error('path 必填');
       if (typeof args.text !== 'string') throw new Error('text 必须是字符串（空串=清空正文）');
       store.writeEntry({

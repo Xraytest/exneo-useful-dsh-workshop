@@ -25,6 +25,7 @@ $DSH_HOME/workspace-context/
   contexts/
     root-nas-ArkTower--563967fe.md      ← 可读 slug + 路径 sha1 前 8 位
     stronghold--a1b2c3d4.md
+  global.md                             ← 全局增量：所有工作区共享的一条
   trash/                                 ← 「回收站」动作移进来的文件（从不硬删）
 ```
 
@@ -41,6 +42,9 @@ by: tool
 
 正文从这里开始——原样注入。
 ```
+
+`global.md` 是**单例、无绑定头**的纯 markdown：它不属于任何工作区，因此不参与
+`contexts/` 扫描，也不会进「未绑定文件」列表。
 
 - **单一事实源**：绑定与正文在同一个文件里，没有 index.json 与正文互相背离的可能。
 - **人是第一公民**：`vim` 改正文（甚至手写整个文件）都会被热读；改头部即改绑定。
@@ -71,14 +75,22 @@ by: tool
   子代理会话继承父会话 cwd，因此同样命中。
 - **定位**：外框前的固定话术写明这是工作区负责人维护的长期准则、**不覆盖 system /
   developer / 用户的直接指令**。
+- **全局增量（v3 起）**：`global.md` 是**所有工作区共享**的一条常驻上下文，作为独立
+  section `workspace:context:global` 插在各工作区条目**之前**（宽泛在前、具体在后）。
+  它与条目是**相加**关系而非二选一——**某个工作区没有条目时，全局增量照样注入**。
+  全局段有独立字节预算（`globalMaxBytes`，缺省 8192），不占用各工作区自己的 `maxBytes`。
+  它没有单独启用位：清空正文即停用，或在插件 config 里 `globalEnabled: false`
+  整体关掉注入（只关全局段，不影响各工作区条目）。
 - **两个必须保留的防护**（改代码时别拆）：
   1. 正文里的 `{{…}}` 会被出厂 `renderPrompt` 的**严格**插值处理——未知或畸形引用
      直接 throw，等于让用户正文里一句 `{{name}}` 打挂该工作区的每个请求。
      `store.js` 的 `neutralizeTemplateRefs` 在注入前把 `{{` 拆开（中间插 U+200B，
      模型侧不可见）；`selftest.mjs` 用真实 `renderPrompt` 交叉验证这一点。
-  2. 正文里的 `</workspace-context>` 会被转义，免得正文提前闭合本插件的外框。
+     **全局段走同一套中和**（`frameGlobalSectionText` 复用同一实现）。
+  2. 正文里的 `</workspace-context` 会被转义，免得正文提前闭合本插件的外框。
+     （全局段的闭合标签写作 `</workspace-context-global>`，同一条转义规则覆盖它。）
 - **字节上限**：`maxBytes`（缺省 32768）约束**整段注入文本**；超限按 UTF-8 字符边界
-  截断并附可见提示（提示本身也计入预算）。
+  截断并附可见提示（提示本身也计入预算）。全局段用独立的 `globalMaxBytes`。
 
 ## 配置
 
@@ -88,8 +100,12 @@ by: tool
       name: ./plugins/dsh-workspace-context/index.js
       config:
         ttlMs: 1000               # 外部改文件后多久内被读到
-        maxBytes: 32768           # 单条注入字节上限
+        maxBytes: 32768           # 单条工作区注入字节上限
         inheritFromAncestor: true # cwd 未精确命中时继承最近祖先条目
+        globalEnabled: true       # 全局增量开关（false 只关全局段）
+        globalFile: null          # 缺省 <dir>/global.md
+        globalMaxBytes: 8192      # 全局增量独立字节上限
+        globalSectionName: workspace:context:global
         # dir: /path/to/other     # 可选：换存储根（缺省 $DSH_HOME/workspace-context）
         # enabled: false          # 可选：整体停用注入（工具与设置页仍在）
         # sectionName: workspace:context
@@ -100,7 +116,7 @@ by: tool
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/dsh-workspace-context/state[?cwd=…]` | 全量状态（条目含正文）+ 命中回显 + 诊断 + 工作区清单 |
-| POST | `/dsh-workspace-context/save` | `{path, text, title?, enabled?, cwd?}` 写入（`updatedBy: human`） |
+| POST | `/dsh-workspace-context/save` | `{path, text, title?, enabled?, cwd?}` 写入（`updatedBy: human`）；带 `{scope:"global", text}` 时写全局增量 |
 | POST | `/dsh-workspace-context/enabled` | `{path, enabled}` 只改启用位 |
 | POST | `/dsh-workspace-context/bind` | `{file, path, title?, overwrite?}` 收编未绑定文件 |
 | POST | `/dsh-workspace-context/trash` | `{path}` 移入回收站（回显 `trashed` 路径） |
@@ -117,14 +133,25 @@ by: tool
 ## 自测
 
 ```bash
-node plugins/dsh-workspace-context/selftest.mjs          # host：146 项
+node plugins/dsh-workspace-context/selftest.mjs          # host：250 项
 node plugins/dsh-workspace-context/client-selftest.mjs   # 浏览器半边：69 项
 ```
 
 host 自测含与出厂 `@deepseek-ai/dsh-system-prompt` 的**交叉验证**：先证明未中和的
 `{{name}}` 确实会让 `renderPrompt` 抛错，再证明中和后的注入文本能安全装配。
+全局增量段（`workspace:context:global`）也过同一条交叉验证。
 浏览器自测自带极小 hooks 运行时（带依赖比较），因此真的会重渲染并驱动
 保存/停用/收编/错误路径，而不是只断言树的形状。
+
+**Windows 上要让出厂交叉验证真的跑起来**，需把 asar 里的 `@deepseek-ai/*` 解到一处
+并指过去（否则 ⑤ 会打印「跳过」）：
+
+```bash
+DSH_INSTALL_ROOT=<解包出的 dsh 目录> node plugins/dsh-workspace-context/selftest.mjs
+```
+
+（`loadShippedPackage` 在 Windows 上必须用 `pathToFileURL` 再 `import()`，否则会以
+`protocol 'd:'` 失败——2026-10-31 修。）
 
 ## 活体验收记录（2026-10-09，NasHost 上的运行实例）
 
@@ -177,5 +204,12 @@ host 自测含与出厂 `@deepseek-ai/dsh-system-prompt` 的**交叉验证**：�
 - **`read` 回显不截断**：工具会把文件全文交给模型，超过出厂 spill 阈值（本部署
   `maxInlineBytes: 50000`）时由 `dsh-spill-policy` 落盘给指针；`maxBytes` 只约束
   **注入**（超限截断并附提示），不约束 `read` 的回显。
+- **全局增量没有设置页编辑器**（v3）：能用工具 `scope: "global"` 或
+  `POST /dsh-workspace-context/save` 带 `{scope:"global"}` 改，也能直接编辑
+  `$DSH_HOME/workspace-context/global.md`；设置页目前只列各工作区条目。
+- **全局增量没有单独启用位**：停用只能清空正文，或在插件 config 里
+  `globalEnabled: false`（后者同时关掉工具对它的写入入口之外的注入）。
+- **全局增量会影响所有工作区**：模型用 `scope: "global"` 写入时，改动对本机每个
+  工作区的每一次请求都生效——与各工作区条目同級可信，不要把不可信来源的内容写进去。
 - **存储不被 git 管**：文件在 `$DSH_HOME` 下，不进仓库，也没有历史版本；误删靠
   `trash/` 捞回（回收站只增不自动清理，需要时人工清）。
