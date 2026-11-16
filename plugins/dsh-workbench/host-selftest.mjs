@@ -1,11 +1,24 @@
 
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const dir = mkdtempSync(join(tmpdir(), 'wb-test-'));
 const stateFile = join(dir, 'workbench.json');
 const reaFile = join(dir, 'rea-mcp', 'tools.json');
+
+// REA 的 v2 状态夹具：本插件只读它，写它必须在测试里模拟（真实写者是 rea-mcp）。
+// 初值 master=false，这样「勾上 REA」才会真的产生一次驱动调用。
+const writeRea = (master, sessions = {}) => {
+  mkdirSync(join(dir, 'rea-mcp'), { recursive: true });
+  writeFileSync(reaFile, JSON.stringify({
+    version: 2,
+    defaults: { masterEnabled: master, mode: 'all', enabled: [], updatedAt: null },
+    sessions,
+    updatedAt: null,
+  }), 'utf8');
+};
+writeRea(false);
 
 // capture exported internals via a hacked import: we re-run the module with its route registry faked.
 const mod = await import('./index.js?v=wb-test-1').catch(() => null);
@@ -40,6 +53,15 @@ globalThis.fetch = async (url, options) => {
   }
   if (String(url).includes('/dsh-rea-mcp/')) {
     reaCalls.push({ url: String(url), options });
+    // 忠实模拟 rea-mcp：/workbench 只翻转本会话语义下的 masterEnabled，/reset 清覆盖。
+    if (String(url).includes('/workbench')) {
+      writeRea(JSON.parse(options.body).on === true);
+      return { ok: true, json: async () => ({ ok: true, saved: true }) };
+    }
+    if (String(url).includes('/reset')) {
+      writeRea(false);
+      return { ok: true, json: async () => ({ ok: true, cleared: 'sessions[root-1]' }) };
+    }
     return { ok: true, json: async () => ({ ok: true, stats: { enabled: 28, total: 207 }, state: { masterEnabled: true } }) };
   }
   if (String(url).includes('/dsh-admin-channel/')) {
@@ -62,7 +84,7 @@ globalThis.fetch = async (url, options) => {
   }
   if (String(url).includes('/dsh-dual-agent/')) {
     dualCalls.push({ url: String(url), options });
-    // 开关式属主：status 回 phase/running/armed；action 回新的 phase。
+    // 开关式属主：status 报 phase/running/armed；action 回新态 phase。
     if (String(url).includes('/status')) {
       return { ok: true, json: async () => ({ sessionId: 'SID', phase: 'armed', running: true, armed: true, note: '已武装：请键入本任务的初始指令。', childId: null, hatchAt: 1_700_000_000_000, agentLive: true, stateFile: '/x', storeError: null }) };
     }
@@ -113,13 +135,21 @@ check('family resolved via parent', st.family === 'root-1');
 check('default none checked', st.checked.length === 0);
 check('two entries', st.entries.length === 2);
 
-// 2. set both -> ultracode set + rea workbench called
+// 2. set both -> ultracode set + rea workbench called（带 sessionId，只动本会话）
 st = await call('/dsh-workbench/set', 'POST', { sessionId: 'child-1', checked: ['ultracode', 'rea'] });
 check('set saved', st.checked.includes('ultracode') && st.checked.includes('rea'));
 check('ultracode driven', ultraCalls.some((c) => c.url.includes('/set') && JSON.parse(c.options.body).active === true));
 check('rea driven', reaCalls.some((c) => c.url.includes('/workbench') && JSON.parse(c.options.body).on === true));
+const reaWorkbenchCall = reaCalls.filter((c) => c.url.includes('/workbench')).at(-1);
+check('rea driven with sessionId (not defaults)', JSON.parse(reaWorkbenchCall.options.body).sessionId === 'child-1');
+check('status reports rea source', st.rea?.source === 'defaults' && st.rea?.masterEnabled === true);
 const onDisk = JSON.parse(readFileSync(stateFile, 'utf8'));
 check('persisted family-root key', onDisk.sessions['root-1'].checked.includes('ultracode'));
+
+// 2b. 状态没变就不发写：再提交同一份勾选，不该产生新的 REA 调用
+const reaCallCountBefore = reaCalls.length;
+await call('/dsh-workbench/set', 'POST', { sessionId: 'child-1', checked: ['ultracode', 'rea'] });
+check('no redundant rea write when unchanged', reaCalls.length === reaCallCountBefore);
 
 // 3. family sharing: sibling sees the same selection
 sessionsById.set('child-2', { id: 'child-2', header: { parentSession: 'root-1' } });
@@ -128,6 +158,8 @@ check('sibling inherits', st.checked.includes('rea') && st.checked.includes('ult
 
 // 4. rea unchecked -> prompt waterfall strips mcp:rea section
 st = await call('/dsh-workbench/set', 'POST', { sessionId: 'child-1', checked: ['ultracode'] });
+const reaOffCall = reaCalls.filter((c) => c.url.includes('/workbench')).at(-1);
+check('rea off driven with sessionId', JSON.parse(reaOffCall.options.body).on === false && JSON.parse(reaOffCall.options.body).sessionId === 'child-1');
 const assembly = { sections: [
   { name: 'harness:identity', text: 'x' },
   { name: 'mcp:rea', text: '### MCP server: rea\n\n...' },
@@ -144,10 +176,12 @@ await call('/dsh-workbench/set', 'POST', { sessionId: 'child-1', checked: ['ultr
 const result2 = await waterfallHandlers[0](assembly, { agent: ctxAgent }, async () => assembly);
 check('rea section kept when checked', result2.sections.some((s) => s.name === 'mcp:rea'));
 
-// 6. reset clears
+// 6. reset clears（含本会话的 REA 覆盖）
 st = await call('/dsh-workbench/reset', 'POST', { sessionId: 'child-1' });
 check('reset clears checked', st.checked.length === 0);
 check('ultracode reset called', ultraCalls.some((c) => c.url.includes('/reset')));
+const reaResetCall = reaCalls.filter((c) => c.url.includes('/reset')).at(-1);
+check('rea reset called with sessionId', reaResetCall !== undefined && JSON.parse(reaResetCall.options.body).sessionId === 'child-1');
 
 // 7. 动作条目的开关契约：status 透出 kind/checked/phase/note，action 转发目标 enabled
 st = await call('/dsh-workbench/status?sessionId=child-1');

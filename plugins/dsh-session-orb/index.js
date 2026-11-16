@@ -39,6 +39,14 @@ const WAKE_EVENTS = [
   'agent/status',
 ];
 
+/** Win32 window coordinates live in a signed desktop space; keep persisted values inside it. */
+const COORD_LIMIT = 32_767;
+
+/** @param {number} value */
+function clampCoordinate(value) {
+  return Math.min(COORD_LIMIT, Math.max(-COORD_LIMIT, Math.round(value)));
+}
+
 export const inject = ['webServer'];
 
 export function apply(ctx) {
@@ -70,11 +78,12 @@ export function apply(ctx) {
     },
   });
 
-  const native = new NativeOrb({
-    pluginRoot,
-    log,
-    onEvent: (event) => onNativeEvent(event),
-  });
+  // Deliberately no `onEvent` here. `onNativeEvent` below is the single
+  // dispatcher for every helper message (both the bridge channel and the
+  // supervision channel) and hands the same event to `native.handleEvent` as a
+  // pure state sink. Wiring `onEvent` to that dispatcher as well made
+  // `handleEvent` re-enter it, one stack frame per event.
+  const native = new NativeOrb({ pluginRoot, log });
 
   /** Never exposed to the renderer: it authenticates the helper process. */
   const token = randomBytes(24).toString('hex');
@@ -106,7 +115,33 @@ export function apply(ctx) {
       pid: process.pid,
       spawn: spawnOptions === null ? null : { origin: spawnOptions.origin, lang: spawnOptions.lang },
     }),
+    // The same options *with* the token, for routes that start the helper.
+    nativeOptions: () => spawnOptions,
   });
+
+  /**
+   * The ball's right-click menu only knows how to draw and click; what an item
+   * *means* is decided here, next to the rest of the semantics.
+   * @param {string} action
+   */
+  function onMenuAction(action) {
+    if (action === 'hide') {
+      store.patchSettings({ visible: false });
+      hub.bump();
+      log.info('orb: hidden from the ball menu (re-enable it on the settings page)');
+      return;
+    }
+    if (action === 'open-latest') {
+      const head = hub.queue[0] ?? null;
+      if (head === null) {
+        log.info('orb: menu asked for the latest session but nothing is pending');
+        return;
+      }
+      hub.pushCommand('open-session', { sessionId: head.sessionId });
+      hub.advance('menu');
+      log.info(`orb: menu opened session ${String(head.sessionId)}`);
+    }
+  }
 
   /** @param {object} event */
   function onNativeEvent(event) {
@@ -128,19 +163,26 @@ export function apply(ctx) {
       const x = Number(event.x);
       const y = Number(event.y);
       if (Number.isFinite(x) && Number.isFinite(y)) {
-        store.setPosition({ x, y });
+        // The helper reports physical pixels, which a multi-monitor desktop can
+        // legitimately push below zero. Clamp to the Win32 coordinate range so a
+        // corrupt report cannot persist an orb position off every screen.
+        const cx = clampCoordinate(x);
+        const cy = clampCoordinate(y);
+        if (cx !== x || cy !== y) log.warn(`orb: drag-end clamped ${x},${y} -> ${cx},${cy}`);
+        store.setPosition({ x: cx, y: cy });
         hub.bump();
       }
+    } else if (type === 'menu' && typeof event.action === 'string') {
+      onMenuAction(event.action);
     } else if (type === 'log' && typeof event.message === 'string') {
       log.info(`orb[helper]: ${event.message.slice(0, 500)}`);
     } else if (type === 'error' && typeof event.message === 'string') {
       log.warn(`orb[helper]: ${event.message.slice(0, 500)}`);
     } else if (type === 'fatal') {
       log.error(`orb[helper]: ${String(event.message ?? 'fatal')}`);
-      native.state = 'failed';
-      native.reason = String(event.message ?? 'helper reported a fatal error');
-      hub.bump();
     }
+    // Applied exactly once, here: handling `fatal` above as well would set the
+    // failure state twice and hide which transition actually happened.
     native.handleEvent(event);
   }
 
@@ -172,10 +214,25 @@ export function apply(ctx) {
     }
   }
 
+  /**
+   * Host events that carry detection data, mapped to the hub call consuming
+   * them. The rest of WAKE_EVENTS is only a hint that the session list moved.
+   */
+  const eventHandlers = {
+    'api-session/added': (summary) => hub.noteAdded(summary),
+    'api-session/removed': (sessionId) => hub.noteRemoved(sessionId),
+    'api-session/status': (sessionId, running) => hub.noteStatus(sessionId, running),
+  };
+
   function subscribeWakeEvents() {
     for (const name of WAKE_EVENTS) {
       try {
-        const off = ctx.on(name, () => hub.wake());
+        const handler = eventHandlers[name];
+        const off = ctx.on(name, (...args) => {
+          hub.noteEvent(name);
+          if (handler !== undefined) handler(...args);
+          hub.wake();
+        });
         if (typeof off === 'function') wakeOffs.push(off);
       } catch {
         // Not every Host build declares every event; a missing one is not fatal

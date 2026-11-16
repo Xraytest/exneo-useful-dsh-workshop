@@ -269,8 +269,9 @@ export class OrbBridge {
  * @param {import('./native.js').NativeOrb} options.native
  * @param {import('./store.js').Log} options.log
  * @param {() => object} options.runtimeStatus
+ * @param {() => ({origin: string, token: string, lang: string} | null)} options.nativeOptions
  */
-export function createRendererRoutes({ hub, store, native, log, runtimeStatus, VERSION, PLUGIN_ID }) {
+export function createRendererRoutes({ hub, store, native, log, runtimeStatus, nativeOptions, VERSION, PLUGIN_ID }) {
   /** @type {Set<() => void>} */
   const disposers = [];
 
@@ -335,7 +336,9 @@ export function createRendererRoutes({ hub, store, native, log, runtimeStatus, V
       notice: hub.snapshot().notice,
       summary: hub.summary(),
       native: native.status(),
-      bridge: null,
+      // The renderer settings page shows bridge health; a hardcoded null made
+      // it claim "no bridge" while the helper was connected over it.
+      bridge: runtimeStatus().bridge ?? null,
     })),
     register('POST', '/session-orb/settings', async ({ body }) => {
       const patch = body?.patch ?? body ?? {};
@@ -384,8 +387,16 @@ export function createRendererRoutes({ hub, store, native, log, runtimeStatus, V
         return { ok: true, dismissed: hub.advance('renderer') };
       }
       if (action === 'revive-native') {
-        const status = await native.revive(runtimeStatus().spawn);
-        return { ok: true, native: status };
+        // `runtimeStatus().spawn` is the *renderer-facing* view of the spawn
+        // options and deliberately hides the bridge token. Reviving from it
+        // handed the helper `--token undefined`: the ball came up, could not
+        // authenticate, and died a minute later, taking the orb with it.
+        const options = nativeOptions();
+        if (options === null) {
+          return { ok: false, error: 'the orb bridge has not been started yet', native: native.status() };
+        }
+        const status = await native.revive(options);
+        return { ok: status.state !== 'failed', native: status };
       }
       if (action === 'open-latest') {
         const queue = hub.summary().queue;

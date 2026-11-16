@@ -105,6 +105,22 @@ const ACTIONS = [
     runningLabel: '已开启',
     idleLabel: '未开启',
   },
+  // v12（2026-11-13 用户指令「你把开关放工具箱里，做成 UI」）：上下文注入开关。
+  // 属主 dsh-inject-switch。拨开/拨关只动 $DSH_HOME/prompt-inject.md：关的时候属主
+  // 先把正文存进 dsh-inject-switch/state.json，再写一行占位注释（非空、非默认，
+  // 所以不会被 dsh-purge 启动时的 seedPromptInjectAtBoot 重写回内置默认）。
+  // 二级菜单里是 workspace-policy / cwd 勾选 / 代码补丁层实况。
+  {
+    id: 'inject-switch',
+    label: '上下文注入',
+    description: '提示词层开关',
+    kind: 'switch',
+    route: '/dsh-inject-switch/action',
+    payload: (sessionId, enabled) => (typeof enabled === 'boolean' ? { sessionId, enabled } : { sessionId }),
+    runningLabel: '注入中',
+    idleLabel: '已关闭',
+    menu: { route: '/dsh-inject-switch/menu', label: '注入设置' },
+  },
 ];
 const ENTRY_IDS = new Set(ENTRIES.map((entry) => entry.id));
 
@@ -312,16 +328,52 @@ export function apply(ctx, config = {}) {
     ctx.logger?.warn?.('dsh-workbench: 选择落盘读写失败', cause);
   });
 
-  /** REA 是否勾选：以 rea-mcp 的 masterEnabled 为准（单一事实源）。 */
-  const reaMasterEnabled = () => {
+  /**
+   * 读 rea-mcp 的状态文件（同步：system-prompt/assemble 必须保持同步）。
+   * v2 = `{ version: 2, defaults, sessions }`；v1（顶层直接是一份选择）= 全部当
+   * defaults；没有文件 / 读不出来 → null（视为 rea-mcp 的默认全选）。
+   */
+  const readReaState = () => {
     try {
       const reaFile = reaStateFileOf();
-      if (!existsSync(reaFile)) return true; // 无文件 = rea-mcp 默认全选
+      if (!existsSync(reaFile)) return null;
       const parsed = JSON.parse(readFileSync(reaFile, 'utf8'));
-      return parsed?.masterEnabled !== false;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+      const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+      const looksV2 = parsed.defaults !== undefined || parsed.sessions !== undefined || parsed.version === 2;
+      if (!looksV2) return { defaults: parsed, sessions: {} }; // v1：全局一份，等同 defaults
+      return {
+        defaults: isObject(parsed.defaults) ? parsed.defaults : {},
+        sessions: isObject(parsed.sessions) ? parsed.sessions : {},
+      };
     } catch {
-      return true; // 读不到按「选中」处理：宁可多注不误杀
+      return null; // 读不到按「选中」处理：宁可多注不误杀
     }
+  };
+
+  /** 该会话生效的 REA 选择桶：会话覆盖（家族根键）优先，否则 defaults。 */
+  const reaBucketOf = (sessionId) => {
+    const doc = readReaState();
+    if (doc === null) return null;
+    const rootId = familyRootOf(store, sessionId, sessions());
+    const override = rootId === undefined ? undefined : doc.sessions[rootId];
+    if (override !== undefined && override !== null && typeof override === 'object' && !Array.isArray(override)) {
+      return { bucket: override, source: 'session', root: rootId };
+    }
+    return { bucket: doc.defaults, source: 'defaults', root: rootId };
+  };
+
+  /** REA 在该会话里是否开启：以 rea-mcp 的按会话状态为准（单一事实源）。 */
+  const reaMasterEnabled = (sessionId) => {
+    const resolved = reaBucketOf(sessionId);
+    if (resolved === null) return true;
+    return resolved.bucket?.masterEnabled !== false;
+  };
+
+  /** 'session' | 'defaults' | 'none'（none = 没有状态文件）。 */
+  const reaSourceOf = (sessionId) => {
+    const resolved = reaBucketOf(sessionId);
+    return resolved === null ? 'none' : resolved.source;
   };
 
   const reaStateFileOf = () => {
@@ -338,9 +390,9 @@ export function apply(ctx, config = {}) {
     const rootId = familyRootOf(store, sessionId, sessions());
     const record = store.checkedOf(rootId);
     const checked = new Set(record.checked.filter((id) => ENTRY_IDS.has(id)));
-    // REA 以 rea-mcp 的真实开关为准（设置页可能直接改过它）。
-    if (checked.has('rea') && reaMasterEnabled() !== true) checked.delete('rea');
-    if (!checked.has('rea') && reaMasterEnabled() === true) {
+    // REA 以 rea-mcp 的真实开关为准（设置页可能直接改过它），而且按会话判定。
+    if (checked.has('rea') && reaMasterEnabled(sessionId) !== true) checked.delete('rea');
+    if (!checked.has('rea') && reaMasterEnabled(sessionId) === true) {
       // rea-mcp 开着但本箱没勾：仍然算未勾选——工作箱是入口，以箱为准。
     }
     return checked;
@@ -457,7 +509,9 @@ export function apply(ctx, config = {}) {
         };
       }),
       rea: {
-        masterEnabled: reaMasterEnabled(),
+        // 按会话判定：同一个 REA 开关在不同会话里可以不同（v2 起）。
+        masterEnabled: reaMasterEnabled(sessionId),
+        source: reaSourceOf(sessionId),
         connected: true,
       },
       ultracode: await ultracodeStatus,
@@ -498,13 +552,20 @@ export function apply(ctx, config = {}) {
     } catch (cause) {
       issues.push(`Ultracode 开关写入失败：${errorText(cause)}`);
     }
-    // ③ 驱动 REA：只翻转 masterEnabled，保留用户的工具白名单。
+    // ③ 驱动 REA：只翻转**本会话**的 masterEnabled，保留用户的工具白名单。
+    //   · 必须先带 sessionId：不带的话 rea-mcp 会写到 defaults，等于把这一箱的
+    //     开关扩散到所有没有覆盖的会话（v2 之前的泄漏路径）；
+    //   · 状态没变就不发：避免每次勾别的条目都凭空给本会话建一份覆盖（建了就
+    //     和 defaults 脱钩了，后续改默认值它不跟）。
     const wantRea = checked.includes('rea');
+    const reaNow = reaMasterEnabled(sessionId);
     let reaResult = null;
-    try {
-      reaResult = await postJson(ctx, `${REA_ROUTE}/workbench`, { on: wantRea });
-    } catch (cause) {
-      issues.push(`REA 开关写入失败：${errorText(cause)}`);
+    if (wantRea !== reaNow) {
+      try {
+        reaResult = await postJson(ctx, `${REA_ROUTE}/workbench`, { sessionId, on: wantRea });
+      } catch (cause) {
+        issues.push(`REA 开关写入失败：${errorText(cause)}`);
+      }
     }
     const status = await statusOf(sessionId);
     status.issues = issues;
@@ -523,6 +584,8 @@ export function apply(ctx, config = {}) {
     store.clear(rootId);
     let ultracodeResult = null;
     try { ultracodeResult = await postJson(ctx, `${ULTRA_ROUTE}/reset`, { sessionId }); } catch { /* reset 语义：清掉即可 */ }
+    // REA 的会话覆盖也一起清掉（回到 defaults 继承）；没有覆盖时它是空操作。
+    try { await postJson(ctx, `${REA_ROUTE}/reset`, { sessionId }); } catch { /* 同上 */ }
     return json(200, await statusOf(sessionId));
   });
 

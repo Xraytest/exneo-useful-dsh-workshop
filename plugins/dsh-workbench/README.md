@@ -99,7 +99,7 @@ host 侧改动：ACTIONS 的 dual-agent 行随属主更名「双主智能」→�
 | 项 | 类型 | 行为 |
 |---|---|---|
 | Ultracode | 开关 | 勾选转发 `/dsh-ultracode/set {active:true}`——装配期直注 Ultracode 段并改写 `tool:workflow` 段；未勾选转发 `{active:false}`——注入收口段 |
-| REA | 开关 | 勾选经 `/dsh-rea-mcp/workbench {on:true}` 打开 `masterEnabled`；未勾选 → rea-mcp 用 `tools.restrict()` 摘除全部 `mcp__rea__*` + 本插件在 `system-prompt/assemble` 瀑布里删掉 `mcp:rea` 提示段 |
+| REA | 开关 | **按会话**：勾选经 `/dsh-rea-mcp/workbench {sessionId, on:true}` 打开**本会话**的 `masterEnabled`；未勾选 → rea-mcp 用 `tools.restrict()` 摘除全部 `mcp__rea__*` + 本插件在 `system-prompt/assemble` 瀑布里删掉 `mcp:rea` 提示段。只影响这一箱，别处的会话不受影响 |
 | 双智能指导 | **开关 + 二级菜单** | 拨开转发 `/dsh-dual-agent/action { sessionId, enabled:true }` → 使能（主智能只判断、下一条消息交给后台执行者）；拨关 `{ enabled:false }` → 中断执行者（不挑刺）并解除。行尾「子代理模型与规则 ▸」进二级菜单（选子代理模型链、限额、约束力度、核验开关）。语义全在 dsh-dual-agent，本插件只画开关与通用件 |
 | 管理员权限通道 | **开关** | 拨开转发 `/dsh-admin-channel/action { sessionId, enabled:true }` → 属主弹一次 UAC 并拉起常驻提权进程；拨关 → `{ enabled:false }` 结束提权进程。授权时长不限（属主 `idleTimeoutMs=0`，无空闲自动关闭）。勾选态/阶段/说明/悬停提示全来自属主 `/dsh-admin-channel/status`；本插件不实现提权 |
 
@@ -114,6 +114,9 @@ systemPrompt section 且没有开关，只能由装配瀑布最后一手删）�
   `$DSH_HOME/workbench.json`（0600、原子写、跨进程合并；家谱只读
   `ultracode.json` 的 families 表——家谱事实的唯一写者仍是 dsh-ultracode，
   本插件绝不重复记）。分支上勾选 = 全家族一起勾选。
+- REA 条目：**本插件不落盘**。真值每次 status 时向 rea-mcp 现问（同步读它的状态文件），
+  读到的也是**本会话**（家族根）那一份：有覆盖读覆盖，没有就继承 `defaults`。
+  写入只经 `/dsh-rea-mcp/workbench {sessionId, on}`——REA 状态的唯一写者仍是 rea-mcp。
 - 动作条目：**不落盘**——running 真值每次 status 轮询时向属主插件现问
   （`GET <属主路由前缀>/status?sessionId=…`）。
 
@@ -122,9 +125,13 @@ systemPrompt section 且没有开关，只能由装配瀑布最后一手删）�
 ```
 GET  /dsh-workbench/status?sessionId=…  → 勾选状态 + 条目 + 动作实况 + REA/ultracode 实况
 POST /dsh-workbench/set                 ← { sessionId, checked: [id…] }
-POST /dsh-workbench/reset               ← { sessionId }   （清空勾选并 reset ultracode）
+POST /dsh-workbench/reset               ← { sessionId }   （清空勾选并 reset ultracode + 本会话 REA 覆盖）
 POST /dsh-workbench/action              ← { sessionId, actionId }   （v2：转发属主插件）
 ```
+
+`status.entries[rea].checked` 与 `status.rea = { masterEnabled, source:'session'|'defaults', connected }`
+都来自 rea-mcp 的**本会话**状态；`/set` 只在本会话的 REA 状态**需要变化**时才回写，
+`/reset` 会连本会话的 REA 覆盖一起清掉。
 
 ## 自测
 
@@ -139,12 +146,14 @@ node plugins/dsh-workbench/client-selftest-v2.mjs    # 40 项：开关渲染/乐
 - `client.js`：内容哈希供包，改完**刷新页面**。
 - `index.js`：Loader 按 specifier 缓存——新写 `entry-v<N+1>.js`（`?v=` +1），
   把 `cordis.patch.yml` 里 `workbench` 行的 name 指过去（**row id 不变**），
-  再 remove → install 本 bundle。当前：**entry-v9.js / ?v=wb-11**。
+  再 remove → install 本 bundle。当前：**entry-v10.js / ?v=wb-12**。
+  ⚠️ 只改 `cordis.patch.yml` 不保证运行中的实例换代码；如果 `/status` 里看不到新字段，
+  就走一次 `plugin_manager remove_bundle` → `install_bundle`。
 
 ## 相关插件
 
 - `dsh-ultracode`（胶囊让位 order 90，逻辑不动）
-- `rea-mcp`（+`/dsh-rea-mcp/workbench` 直连路由，只翻 `masterEnabled`）
+- `rea-mcp`（`/dsh-rea-mcp/workbench` 直连路由，**带 sessionId**、只翻本会话的 `masterEnabled`）
 - `dsh-dual-agent`（v2 动作条目的第一个属主：双主智能启动/停止）
 - `dsh-plugin-autoupdate`（设置页「插件更新」，本插件的新版本同样会被它监看）
 
@@ -161,3 +170,42 @@ node plugins/dsh-workbench/client-selftest-v2.mjs    # 40 项：开关渲染/乐
    （64vh），内容一多就整块长出屏幕。现在浮层 `max-height: min(calc(100vh - 220px),
    420px)`，子视图 `max-height: calc(100vh - 260px)` 且 `flex:1 1 auto; min-height:0`；
    列表态整层可滚（`[data-pop-scroll]`）。540–900px 视口下推演均不出屏。
+
+## v11（2026-11-12）：REA 开关按会话隔离
+
+**症状**：在任何会话里动 REA 工具，别的上下文一起变——包括在**设置页**精挑的工具集。
+
+**根因**：REA 的选择过去是 `tools.json` 里**唯一一份**，本插件拨总开关也只发
+`{ on: boolean }`（不带会话），写的自然是那份全局状态。工作台的勾选本身是按家族谱系
+存的，但它的「真值」来自那份全局状态，于是看着像工作台也串了。
+
+**改法**（rea-mcp 那次改动的对侧，两边必须成对看）：
+
+1. `readReaState()` 同步读 v2 状态文件（v1 形状按「整个顶层 = defaults」兜底），
+   `reaBucketOf` 里先按 `parentSession` 走到**家族根**再查 `sessions[root]`，
+   查不到就用 `defaults`；两个插件用同一条走法（≤64 层、成环不炸）。
+2. `statusOf(sessionId)` 新增 `rea: { masterEnabled, source:'session'|'defaults', connected }`，
+   下拉里的 REA 勾选 = **本会话**的有效状态（不看全局）。
+3. `/set` 带上 `sessionId`，并且**只在本会话状态确实要变时**才 POST `/dsh-rea-mcp/workbench`。
+   这一条很关键：无脑每次都发，会让「勾了别的条目」也顺手给本会话建一份覆盖，
+   从此和 `defaults` 脱钩，之后改默认它不跟（实测第 07 步专门验了这个）。
+4. `/reset` 除了清勾选、reset ultracode，再带 `sessionId` 调 rea-mcp 的 `/reset`，
+   把这个会话的 REA 覆盖一起清掉，回到继承。
+
+**兼容**：对面还是旧 rea-mcp 时，`readReaState()` 读到 v1 也照常工作（全体走 `defaults`），
+`/workbench` 多带的 `sessionId` 被旧实现忽略——退化成 v10 的老行为，不会报错。
+
+**实测**（`_tmp/toolbox-isolation/probe-workbench.ps1`，每一步都打真接口）：
+
+```
+01 defaults: master=False enabled=207 sessions=[]
+02 wb set A=[rea]        → A: master=True source=session
+03 REA A                 → source=session hasOverride=True
+04 REA B                 → source=defaults hasOverride=False        ← 隔离
+05 WB status B           → rea.master=False checked=False          ← 工作台也跟着隔离
+06 defaults after A      → master=False enabled=207 sessions=[A]    ← 默认没被改
+07 wb set C=[]（无关项）  → C 未被建覆盖                             ← 不发多余写
+08 REA reset A           → sessions=[] A 回到继承
+09 WB status A           → rea.master=False source=defaults
+10 defaults final        → master=False mode=all enabled=207 sessions=[]
+```

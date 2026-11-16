@@ -179,7 +179,9 @@ window.__ModuleLoader__.load({
             });
             notification.onclick = () => {
               window.focus();
-              ctx.get('uiWorkspace')?.openSession({ sessionId });
+              // `openSession(target)` 只接受 SessionId 字符串或 SubagentAddress 对象；
+              // 传 `{ sessionId }` 会让会话控制器取到 undefined（UI 留在主页）。
+              ctx.get('uiWorkspace')?.openSession(sessionId);
               notification.close();
             };
           } catch {

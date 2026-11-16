@@ -1,6 +1,6 @@
 {
   "name": "@local/rea-mcp",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "description": "REA (reverse-engineer anything) as a self-contained DSH plugin: MCP bridge + settings-page tool picker.",

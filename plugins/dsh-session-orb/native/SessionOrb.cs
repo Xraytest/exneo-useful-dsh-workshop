@@ -32,6 +32,7 @@ using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using FormsTimer = System.Windows.Forms.Timer;
 
 namespace DshSessionOrb
@@ -58,6 +59,13 @@ namespace DshSessionOrb
         public const int ULW_ALPHA = 0x00000002;
 
         public const int WM_CLOSE = 0x0010;
+        public const int WM_SYSCOMMAND = 0x0112;
+        public const int SC_RESTORE = 0xF120;
+        public const uint SEM_FAILCRITICALERRORS = 0x0001;
+        public const uint SEM_NOGPFAULTERRORBOX = 0x0002;
+        public const uint SEM_NOOPENFILEERRORBOX = 0x8000;
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint SetErrorMode(uint mode);
 
         public const int SW_SHOWNORMAL = 1;
         public const int SW_SHOW = 5;
@@ -65,6 +73,9 @@ namespace DshSessionOrb
 
         public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
         public const int MDT_EFFECTIVE_DPI = 0;
+
+        public const uint GW_HWNDPREV = 3;
+        public const int DWMWA_CLOAKED = 14;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct BLENDFUNCTION
@@ -118,6 +129,12 @@ namespace DshSessionOrb
         public static extern int GetWindowLongW(IntPtr hwnd, int index);
         [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+        [DllImport("shell32.dll")]
+        public static extern int SHQueryUserNotificationState(out int state);
         [DllImport("user32.dll")]
         public static extern bool PostMessageW(IntPtr hwnd, int message, IntPtr wparam, IntPtr lparam);
         [DllImport("user32.dll")]
@@ -327,6 +344,9 @@ namespace DshSessionOrb
         public int BubbleMs = 8000;
         public bool Pulse = true;
         public bool Badge = true;
+        /// <summary>Whether the ball is on screen. The process keeps running while
+        /// hidden so re-showing it costs nothing and no state is lost.</summary>
+        public bool Visible = true;
 
         public static OrbSettings Parse(IDictionary<string, object> map)
         {
@@ -340,6 +360,7 @@ namespace DshSessionOrb
             s.BubbleMs = Math.Max(0, Math.Min(600000, Json.Int(map, "bubbleMs", s.BubbleMs)));
             s.Pulse = Json.Bool(map, "pulse", s.Pulse);
             s.Badge = Json.Bool(map, "badge", s.Badge);
+            s.Visible = Json.Bool(map, "visible", s.Visible);
             return s;
         }
 
@@ -352,7 +373,8 @@ namespace DshSessionOrb
                 && this.Radius == other.Radius
                 && Math.Abs(this.BubbleAlpha - other.BubbleAlpha) < 0.002
                 && this.Pulse == other.Pulse
-                && this.Badge == other.Badge;
+                && this.Badge == other.Badge
+                && this.Visible == other.Visible;
         }
 
         private static double Clamp(double value, double low, double high)
@@ -418,7 +440,7 @@ namespace DshSessionOrb
         }
     }
 
-    internal static class Paint
+    internal static class Ink
     {
         public static readonly Color BadgeColor = Color.FromArgb(255, 95, 87);
         public static readonly Color BubbleBg = Color.FromArgb(8, 9, 12);
@@ -628,6 +650,10 @@ namespace DshSessionOrb
 
     internal abstract class LayeredWindow : Form
     {
+        /// <summary>This process id, cached: the cover test compares every window
+        /// above us against it twice a second.</summary>
+        private static readonly int SelfPid = Process.GetCurrentProcess().Id;
+
         public bool CloseRequested;
 
         protected LayeredWindow()
@@ -678,16 +704,130 @@ namespace DshSessionOrb
         }
 
         /// <summary>
-        /// Re-assert membership of the topmost band. Another program calling
-        /// SetWindowPos(HWND_NOTOPMOST) strips the bit, and the window never comes
-        /// back on its own, so this runs on a slow watchdog.
+        /// Puts this window at the front of the topmost band.
+        ///
+        /// Membership of that band is a style bit, but the order *inside* it is a
+        /// plain z-order: every always-on-top app raised after us (a player, the
+        /// tray flyout, a hardware panel, QQ's floating bar) ends up above this
+        /// window while our bit stays exactly as it was. Re-asserting the bit
+        /// therefore fixes nothing; only another SetWindowPos(HWND_TOPMOST) moves
+        /// us back to the front, because that call re-inserts the window at the
+        /// head of the band.
         /// </summary>
         public void AssertTopMost()
         {
             if (!this.IsHandleCreated || this.IsDisposed) return;
-            if (this.TopMostPresent) return;
             Win32.SetWindowPos(this.Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
                 Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+        }
+
+        /// <summary>
+        /// Repair pass for the watchdog: checks the *z-order*, not just the style
+        /// bit. Returns true when the window had to be raised, with a short note
+        /// naming the window that was covering it.
+        /// </summary>
+        public bool EnsureOnTop(out string note)
+        {
+            note = null;
+            if (!this.IsHandleCreated || this.IsDisposed || !this.Visible) return false;
+            if (!this.TopMostPresent)
+            {
+                this.AssertTopMost();
+                note = "restored the WS_EX_TOPMOST bit";
+                return true;
+            }
+            // A fullscreen app or a presentation owns the screen: it is above every
+            // normal window on purpose, and fighting it would only flicker.
+            if (ScreenBusy()) return false;
+            string cover = this.CoveringWindow();
+            if (cover == null) return false;
+            this.AssertTopMost();
+            note = "raised above " + cover;
+            return true;
+        }
+
+        /// <summary>
+        /// Describes the first window above this one that actually hides part of
+        /// it, or null when nothing does. Walks GW_HWNDPREV (the window directly
+        /// above) and stops at the first non-topmost window: nothing above the
+        /// band can cover a topmost window.
+        /// </summary>
+        public string CoveringWindow()
+        {
+            Rectangle mine = this.Bounds;
+            IntPtr walk = Win32.GetWindow(this.Handle, Win32.GW_HWNDPREV);
+            int guard = 0;
+            while (walk != IntPtr.Zero && guard++ < 96)
+            {
+                int ex = Win32.GetWindowLongW(walk, Win32.GWL_EXSTYLE);
+                if ((ex & Win32.WS_EX_TOPMOST) == 0) break;
+                if (this.CoversMe(walk, mine)) return DescribeWindow(walk);
+                walk = Win32.GetWindow(walk, Win32.GW_HWNDPREV);
+            }
+            return null;
+        }
+
+        private bool CoversMe(IntPtr window, Rectangle mine)
+        {
+            if (!Win32.IsWindowVisible(window)) return false;
+            // Cloaked windows (suspended UWP frames, ghost frames of a closed app)
+            // are enumerable but invisible: they must never provoke a raise.
+            int cloaked;
+            if (Win32.DwmGetWindowAttribute(window, Win32.DWMWA_CLOAKED, out cloaked, sizeof(int)) == 0 && cloaked != 0) return false;
+            uint pid;
+            Win32.GetWindowThreadProcessId(window, out pid);
+            // Our own card and menu live in this same process and are supposed to
+            // sit above the ball; treating them as obstacles would make the two
+            // windows fight for the same slot twice a second.
+            if (pid == (uint)SelfPid) return false;
+            Win32.RECT rect;
+            if (!Win32.GetWindowRect(window, out rect)) return false;
+            if (rect.Width <= 0 || rect.Height <= 0) return false;
+            if (IsNeverObstacle(ClassOf(window))) return false;
+            return mine.Left < rect.Right && rect.Left < mine.Right
+                && mine.Top < rect.Bottom && rect.Top < mine.Bottom;
+        }
+
+        private static bool ScreenBusy()
+        {
+            int state;
+            if (Win32.SHQueryUserNotificationState(out state) != 0) return false;
+            // 2 busy, 3 D3D fullscreen, 4 presentation mode, 6 quiet time.
+            return state == 2 || state == 3 || state == 4 || state == 6;
+        }
+
+        /// <summary>
+        /// Topmost windows that must not push the ball around: desktop surfaces,
+        /// transient tooltips and the tray flyout (none of them is "an app that
+        /// covered the ball"), plus the shell's own full-screen pickers - Start,
+        /// search, action center, Alt-Tab, Task View. A translucent ball floating
+        /// over the Start menu reads as a bug, not as "always on top"; when the
+        /// picker closes the ball is visible again with no repair needed.
+        /// </summary>
+        private static bool IsNeverObstacle(string cls)
+        {
+            if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_Desktop") return true;
+            if (cls == "tooltips_class32" || cls == "NotifyIconOverflowWindow") return true;
+            if (cls == "TaskListThumbnailWnd" || cls == "ForegroundStaging") return true;
+            if (cls == "TaskSwitcherWnd" || cls == "MultitaskingViewFrame") return true;
+            if (cls.StartsWith("Windows.UI.Core", StringComparison.Ordinal)) return true;
+            if (cls.StartsWith("XamlExplorerHostIsland", StringComparison.Ordinal)) return true;
+            if (cls.StartsWith("Windows.Internal.Shell", StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        private static string ClassOf(IntPtr window)
+        {
+            StringBuilder cls = new StringBuilder(256);
+            Win32.GetClassNameW(window, cls, cls.Capacity);
+            return cls.ToString();
+        }
+
+        private static string DescribeWindow(IntPtr window)
+        {
+            uint pid;
+            Win32.GetWindowThreadProcessId(window, out pid);
+            return ClassOf(window) + " pid=" + pid.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>Raise within the topmost band.</summary>
@@ -791,12 +931,12 @@ namespace DshSessionOrb
             get { return new Rectangle(this.Left + this.padding, this.Top + this.padding, this.ballSize, this.ballSize); }
         }
 
-        public int Padding
+        public int Pad
         {
             get { return this.padding; }
         }
 
-        public float Scale
+        public float DpiScale
         {
             get { return this.scale; }
         }
@@ -804,6 +944,12 @@ namespace DshSessionOrb
         public bool IsDragging
         {
             get { return this.dragging; }
+        }
+
+        /// <summary>True once a bitmap exists AND a handle can publish it.</summary>
+        public bool HasSurface
+        {
+            get { return this.baseSurface != null && this.IsHandleCreated; }
         }
 
         public void Configure(OrbSettings next, OrbNotice current, int runningCount)
@@ -845,8 +991,8 @@ namespace DshSessionOrb
 
             Dispose(this.shadowNormal);
             Dispose(this.shadowHover);
-            this.shadowNormal = Paint.Shadow(this.total, this.total, ball, radius, blur, 8f * this.scale, 107);
-            this.shadowHover = Paint.Shadow(this.total, this.total, ball, radius + 2f, blur + 2f, 10f * this.scale, 128);
+            this.shadowNormal = Ink.Shadow(this.total, this.total, ball, radius, blur, 8f * this.scale, 107);
+            this.shadowHover = Ink.Shadow(this.total, this.total, ball, radius + 2f, blur + 2f, 10f * this.scale, 128);
 
             if (this.badgeFont != null)
             {
@@ -855,7 +1001,7 @@ namespace DshSessionOrb
             }
             if (this.badgeText.Length > 0)
             {
-                this.badgeFont = new Font(Paint.Family("Segoe UI"), 10f * this.scale, FontStyle.Bold, GraphicsUnit.Pixel);
+                this.badgeFont = new Font(Ink.Family("Segoe UI"), 10f * this.scale, FontStyle.Bold, GraphicsUnit.Pixel);
             }
 
             this.sizeChangedPending = true;
@@ -867,8 +1013,8 @@ namespace DshSessionOrb
         private void RenderBase()
         {
             Dispose(this.baseSurface);
-            this.baseSurface = Paint.Canvas(this.total, this.total);
-            using (Graphics g = Paint.Begin(this.baseSurface))
+            this.baseSurface = Ink.Canvas(this.total, this.total);
+            using (Graphics g = Ink.Begin(this.baseSurface))
             {
                 float radius = Math.Max(0f, this.settings.Radius * this.scale);
                 RectangleF ball = new RectangleF(this.padding, this.padding, this.ballSize, this.ballSize);
@@ -889,7 +1035,7 @@ namespace DshSessionOrb
                 if (this.dragging) opacity = 1.0;
                 double scaleFactor = shrink;
 
-                using (GraphicsPath path = Paint.RoundRect(shape, radius * scaleFactor))
+                using (GraphicsPath path = Ink.RoundRect(shape, (float)(radius * scaleFactor)))
                 {
                     int fill = (int)Math.Round(this.settings.Fill * opacity * 255.0);
                     using (SolidBrush brush = new SolidBrush(Color.FromArgb(fill, 0, 0, 0)))
@@ -905,7 +1051,7 @@ namespace DshSessionOrb
 
                 // Top inner highlight: the 1px specular line that makes a dark
                 // translucent ball read as glass instead of a hole.
-                using (GraphicsPath clip = Paint.RoundRect(shape, radius * scaleFactor))
+                using (GraphicsPath clip = Ink.RoundRect(shape, (float)(radius * scaleFactor)))
                 {
                     Region previous = g.Clip;
                     g.SetClip(clip, CombineMode.Replace);
@@ -942,7 +1088,7 @@ namespace DshSessionOrb
                 if (this.badgeText.Length > 0 && this.badgeFont != null)
                 {
                     float badgeHeight = 16f * this.scale;
-                    using (StringFormat measureFormat = Paint.Typographic())
+                    using (StringFormat measureFormat = Ink.Typographic())
                     {
                         SizeF measured = g.MeasureString(this.badgeText, this.badgeFont, new PointF(0f, 0f), measureFormat);
                         float badgeWidth = Math.Max(badgeHeight, measured.Width + 8f * this.scale);
@@ -951,12 +1097,12 @@ namespace DshSessionOrb
                             shape.Top + 5f * this.scale,
                             badgeWidth,
                             badgeHeight);
-                        using (GraphicsPath path = Paint.RoundRect(badge, badgeHeight / 2f))
-                        using (SolidBrush brush = new SolidBrush(Color.FromArgb((int)Math.Round(opacity * 255.0), Paint.BadgeColor)))
+                        using (GraphicsPath path = Ink.RoundRect(badge, badgeHeight / 2f))
+                        using (SolidBrush brush = new SolidBrush(Color.FromArgb((int)Math.Round(opacity * 255.0), Ink.BadgeColor)))
                         {
                             g.FillPath(brush, path);
                         }
-                        using (StringFormat centered = Paint.Centered())
+                        using (StringFormat centered = Ink.Centered())
                         using (SolidBrush brush = new SolidBrush(Color.FromArgb((int)Math.Round(opacity * 255.0), 255, 255, 255)))
                         {
                             g.DrawString(this.badgeText, this.badgeFont, brush, badge, centered);
@@ -982,9 +1128,9 @@ namespace DshSessionOrb
             if (this.frameSurface == null || this.frameSurface.Width != this.total || this.frameSurface.Height != this.total)
             {
                 Dispose(this.frameSurface);
-                this.frameSurface = Paint.Canvas(this.total, this.total);
+                this.frameSurface = Ink.Canvas(this.total, this.total);
             }
-            using (Graphics g = Paint.Begin(this.frameSurface))
+            using (Graphics g = Ink.Begin(this.frameSurface))
             {
                 g.DrawImageUnscaled(this.baseSurface, 0, 0);
                 float radius = Math.Max(0f, this.settings.Radius * this.scale);
@@ -997,7 +1143,7 @@ namespace DshSessionOrb
                 if (alpha > 1)
                 {
                     RectangleF ring = RectangleF.Inflate(ball, grow, grow);
-                    using (GraphicsPath path = Paint.RoundRect(ring, radius + grow))
+                    using (GraphicsPath path = Ink.RoundRect(ring, radius + grow))
                     using (Pen pen = new Pen(Color.FromArgb(alpha, 255, 255, 255), Math.Max(1f, 1f * this.scale)))
                     {
                         g.DrawPath(pen, path);
@@ -1040,6 +1186,13 @@ namespace DshSessionOrb
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Right)
+            {
+                // Context menu. The menu takes the mouse capture itself, so the
+                // ball must not start a drag from this button.
+                OrbEvents.RaiseMenu();
+                return;
+            }
             if (e.Button != MouseButtons.Left) return;
             Point cursor;
             Win32.GetCursorPos(out cursor);
@@ -1146,7 +1299,6 @@ namespace DshSessionOrb
         private Rectangle closeHit;
         private string titleUsed = "";
         private int moreUsed;
-        private int bubbleMs;
 
         public int CardWidth
         {
@@ -1158,7 +1310,7 @@ namespace DshSessionOrb
             get { return this.cardHeight; }
         }
 
-        public int Margin
+        public int CardMargin
         {
             get { return this.margin; }
         }
@@ -1168,7 +1320,7 @@ namespace DshSessionOrb
             get { return new Rectangle(this.Left + this.margin, this.Top + this.margin, this.cardWidth, this.cardHeight); }
         }
 
-        public bool Shown
+        public bool IsShown
         {
             get { return this.shown; }
         }
@@ -1177,7 +1329,7 @@ namespace DshSessionOrb
         {
             if (Math.Abs(value - this.scale) < 0.01f) return;
             this.scale = value;
-            if (this.surface != null && this.Margin > 0)
+            if (this.surface != null && this.CardMargin > 0)
             {
                 Rectangle card = this.CardRect;
                 this.Build(this.titleUsed, this.moreUsed, this.kicker, this.more);
@@ -1222,23 +1374,23 @@ namespace DshSessionOrb
             float kickerHeight = 14f * this.scale;
             float lineHeight = 19f * this.scale;
             float blip = 5f * this.scale;
-            bool cjk = Paint.NeedsCjk(title) || Paint.NeedsCjk(kickerText);
+            bool cjk = Ink.NeedsCjk(title) || Ink.NeedsCjk(kickerText);
             string family = cjk ? "Microsoft YaHei UI" : "Segoe UI";
 
-            Font titleFont = new Font(Paint.Family(Paint.NeedsCjk(title) ? "Microsoft YaHei UI" : "Segoe UI"),
+            Font titleFont = new Font(Ink.Family(Ink.NeedsCjk(title) ? "Microsoft YaHei UI" : "Segoe UI"),
                 13.5f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
-            Font kickerFont = new Font(Paint.Family(family), 11f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
-            Font moreFont = new Font(Paint.Family(family), 11f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
+            Font kickerFont = new Font(Ink.Family(family), 11f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
+            Font moreFont = new Font(Ink.Family(family), 11f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
             try
             {
                 float content;
                 float titleHeight;
                 List<string> lines;
-                using (Bitmap probe = Paint.Canvas(8, 8))
+                using (Bitmap probe = Ink.Canvas(8, 8))
                 using (Graphics pg = Graphics.FromImage(probe))
                 {
                     pg.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                    using (StringFormat format = Paint.Typographic())
+                    using (StringFormat format = Ink.Typographic())
                     {
                         float contentMax = maxCard - padX * 2f;
                         float titleWidth = string.IsNullOrEmpty(title) ? 0f : pg.MeasureString(title, titleFont, new PointF(0f, 0f), format).Width;
@@ -1247,7 +1399,7 @@ namespace DshSessionOrb
                         float desired = Math.Max(titleWidth, Math.Max(kickerWidth, moreWidth));
                         content = Math.Min(contentMax, Math.Max(60f * this.scale, desired));
                     }
-                    lines = Paint.Wrap(pg, title, titleFont, content, 2);
+                    lines = Ink.Wrap(pg, title, titleFont, content, 2);
                     titleHeight = Math.Max(1, lines.Count) * lineHeight;
                 }
                 this.cardWidth = (int)Math.Ceiling(content + padX * 2f);
@@ -1259,29 +1411,29 @@ namespace DshSessionOrb
 
                 int width = this.cardWidth + this.margin * 2;
                 int height = this.cardHeight + this.margin * 2;
-                Bitmap canvas = Paint.Canvas(width, height);
+                Bitmap canvas = Ink.Canvas(width, height);
                 int[] close = new int[4];
-                using (Graphics g = Paint.Begin(canvas))
+                using (Graphics g = Ink.Begin(canvas))
                 {
                     RectangleF card = new RectangleF(this.margin, this.margin, this.cardWidth, this.cardHeight);
                     float radius = 13f * this.scale;
-                    using (Bitmap shadow = Paint.Shadow(width, height, card, radius, 12f * this.scale, 8f * this.scale, 87))
+                    using (Bitmap shadow = Ink.Shadow(width, height, card, radius, 12f * this.scale, 8f * this.scale, 87))
                     {
                         g.DrawImageUnscaled(shadow, 0, 0);
                     }
 
                     int alpha = (int)Math.Round(this.settings.BubbleAlpha * 255.0);
-                    using (GraphicsPath path = Paint.RoundRect(card, radius))
-                    using (SolidBrush brush = new SolidBrush(Color.FromArgb(alpha, Paint.BubbleBg)))
+                    using (GraphicsPath path = Ink.RoundRect(card, radius))
+                    using (SolidBrush brush = new SolidBrush(Color.FromArgb(alpha, Ink.BubbleBg)))
                     {
                         g.FillPath(brush, path);
                     }
-                    using (GraphicsPath path = Paint.RoundRect(card, radius))
+                    using (GraphicsPath path = Ink.RoundRect(card, radius))
                     using (Pen pen = new Pen(Color.FromArgb(36, 255, 255, 255), Math.Max(1f, this.scale)))
                     {
                         g.DrawPath(pen, path);
                     }
-                    using (GraphicsPath clip = Paint.RoundRect(card, radius))
+                    using (GraphicsPath clip = Ink.RoundRect(card, radius))
                     {
                         Region previous = g.Clip;
                         g.SetClip(clip, CombineMode.Replace);
@@ -1292,31 +1444,31 @@ namespace DshSessionOrb
                         g.Clip = previous;
                     }
 
-                    using (StringFormat format = Paint.Typographic())
+                    using (StringFormat format = Ink.Typographic())
                     {
                         float x = card.Left + padX;
                         float y = card.Top + padTop;
                         if (kickerText.Length > 0)
                         {
                             float centerY = y + kickerHeight / 2f;
-                            using (SolidBrush dot = new SolidBrush(Color.FromArgb(242, Paint.LiveDot)))
+                            using (SolidBrush dot = new SolidBrush(Color.FromArgb(242, Ink.LiveDot)))
                             {
                                 g.FillEllipse(dot, x, centerY - blip / 2f, blip, blip);
                             }
-                            Paint.Text(g, kickerText, kickerFont, Color.FromArgb(158, 255, 255, 255),
+                            Ink.Text(g, kickerText, kickerFont, Color.FromArgb(158, 255, 255, 255),
                                 new PointF(x + blip + 6f * this.scale, y), format);
                             y += kickerHeight + gap;
                         }
                         for (int i = 0; i < lines.Count; i++)
                         {
-                            Paint.Text(g, lines[i], titleFont, Paint.TextPrimary,
+                            Ink.Text(g, lines[i], titleFont, Ink.TextPrimary,
                                 new PointF(x, y + i * lineHeight), format);
                         }
                         y += titleHeight;
                         if (moreText.Length > 0)
                         {
                             y += gap;
-                            Paint.Text(g, moreText, moreFont, Color.FromArgb(128, 255, 255, 255),
+                            Ink.Text(g, moreText, moreFont, Color.FromArgb(128, 255, 255, 255),
                                 new PointF(x, y), format);
                         }
                     }
@@ -1336,8 +1488,8 @@ namespace DshSessionOrb
                     {
                         g.DrawEllipse(pen, hit);
                     }
-                    Font glyphFont = new Font(Paint.Family("Segoe UI"), 12f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
-                    using (StringFormat centered = Paint.Centered())
+                    Font glyphFont = new Font(Ink.Family("Segoe UI"), 12f * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
+                    using (StringFormat centered = Ink.Centered())
                     using (SolidBrush brush = new SolidBrush(Color.FromArgb(184, 255, 255, 255)))
                     {
                         g.DrawString("\u00d7", glyphFont, brush, hit, centered);
@@ -1430,6 +1582,457 @@ namespace DshSessionOrb
         }
     }
 
+    /// <summary>
+    /// The ball's right-click menu, hand-drawn as its own layered window.
+    /// ContextMenuStrip and ToolStripDropDown both need foreground activation,
+    /// which a WS_EX_NOACTIVATE window can never obtain - the stock menu would
+    /// disappear the instant it opened. So the menu is a peer of the orb: same
+    /// layered presentation, no activation, and mouse capture (not focus) keeps
+    /// the pointer while it is open, which is also how an outside click closes it.
+    /// </summary>
+    internal sealed class OrbMenuWindow : LayeredWindow
+    {
+        private sealed class Row
+        {
+            public string Label = "";
+            public string Hint = "";
+            public string Action = "";
+            public bool Enabled = true;
+            public bool Divider;
+            public bool Info;
+        }
+
+        private readonly List<Row> rows = new List<Row>();
+        private FontFamily latin;
+        private FontFamily cjk;
+        private Bitmap surface;
+        private Bitmap shadowSurface;
+        private Rectangle[] hits = new Rectangle[0];
+        private float scale = 1f;
+        private int cardWidth;
+        private int cardHeight;
+        private int margin;
+        private int padX;
+        private int padY;
+        private int rowHeight;
+        private int hintHeight;
+        private int dividerHeight;
+        private int hover = -1;
+        private int openedAt;
+        private int touchedAt;
+        private bool open;
+
+        public OrbMenuWindow()
+        {
+            this.latin = Ink.Family("Segoe UI");
+            this.cjk = Ink.Family("Microsoft YaHei UI");
+            // A title of its own: Probe.orbWindows and Takeover.CountOthers
+            // recognise the ball by its exact window text, so a second window
+            // called DSH_SESSION_ORB would read as a duplicate orb.
+            this.Text = "DSH_SESSION_ORB_MENU";
+            this.Hide();
+        }
+
+        public bool IsOpen
+        {
+            get { return this.open; }
+        }
+
+        /// <summary>
+        /// Diagnostics hook. The application points this at orb.log so a menu that
+        /// closes on its own can be explained from the log instead of guessed at.
+        /// </summary>
+        public static Action<string> Trace;
+
+        private static void Note(string message)
+        {
+            Action<string> handler = Trace;
+            if (handler != null) handler(message);
+        }
+
+        /// <summary>Opens the menu with the card's top-left corner at the cursor.</summary>
+        public void ShowMenu(string lang, float dial, bool hasPending, Rectangle ball)
+        {
+            if (!this.IsHandleCreated || this.IsDisposed) return;
+            this.scale = dial < 0.5f ? 0.5f : dial;
+            MenuText text = MenuText.For(lang);
+
+            this.rows.Clear();
+            this.rows.Add(new Row { Label = text.OpenDsh, Action = "open-dsh" });
+            this.rows.Add(new Row { Label = text.OpenLatest, Action = "open-latest", Enabled = hasPending });
+            this.rows.Add(new Row { Divider = true });
+            this.rows.Add(new Row { Label = text.Hide, Hint = text.HideHint, Action = "hide" });
+            this.rows.Add(new Row { Label = text.Reset, Action = "reset" });
+            this.rows.Add(new Row { Divider = true });
+            this.rows.Add(new Row {
+                Label = text.Info + " \u00b7 " + ((int)Math.Round(this.scale * 100f)) + "%",
+                Info = true,
+                Enabled = false
+            });
+
+            this.margin = (int)Math.Round(12 * this.scale);
+            this.padX = (int)Math.Round(12 * this.scale);
+            this.padY = (int)Math.Round(8 * this.scale);
+            this.rowHeight = (int)Math.Round(30 * this.scale);
+            this.hintHeight = (int)Math.Round(14 * this.scale);
+            this.dividerHeight = (int)Math.Round(9 * this.scale);
+
+            this.cardWidth = 0;
+            using (Bitmap probe = new Bitmap(1, 1))
+            using (Graphics g = Graphics.FromImage(probe))
+            {
+                for (int i = 0; i < this.rows.Count; i++)
+                {
+                    Row row = this.rows[i];
+                    if (row.Divider) continue;
+                    float content = this.Measure(g, row.Label, 12.5f);
+                    if (row.Hint.Length > 0) content = Math.Max(content, this.Measure(g, row.Hint, 10f));
+                    int needed = this.padX * 2 + (int)Math.Ceiling(content);
+                    if (needed > this.cardWidth) this.cardWidth = needed;
+                }
+            }
+            int minimum = (int)Math.Round(146 * this.scale);
+            if (this.cardWidth < minimum) this.cardWidth = minimum;
+
+            this.hits = new Rectangle[this.rows.Count];
+            int y = this.margin + this.padY;
+            for (int i = 0; i < this.rows.Count; i++)
+            {
+                Row row = this.rows[i];
+                if (row.Divider)
+                {
+                    this.hits[i] = new Rectangle(this.margin, y, this.cardWidth, this.dividerHeight);
+                    y += this.dividerHeight;
+                    continue;
+                }
+                int bandHeight = this.rowHeight + (row.Hint.Length > 0 ? this.hintHeight : 0);
+                this.hits[i] = new Rectangle(this.margin, y, this.cardWidth, bandHeight);
+                y += bandHeight;
+            }
+            this.cardHeight = y + this.padY - this.margin;
+
+            int width = this.cardWidth + this.margin * 2;
+            int height = this.cardHeight + this.margin * 2;
+            if (this.surface == null || this.surface.Width != width || this.surface.Height != height)
+            {
+                if (this.surface != null) this.surface.Dispose();
+                if (this.shadowSurface != null) this.shadowSurface.Dispose();
+                this.surface = Ink.Canvas(width, height);
+                RectangleF card = new RectangleF(this.margin, this.margin, this.cardWidth, this.cardHeight);
+                this.shadowSurface = Ink.Shadow(width, height, card, 10f * this.scale, 7f * this.scale, 2f * this.scale, 92);
+            }
+            this.Width = width;
+            this.Height = height;
+            this.hover = -1;
+            this.PaintCard();
+
+            // Place the card clear of the ball instead of on top of it: right
+            // aligned with the ball, sitting just above it, flipping below when
+            // the ball is docked near the top of the screen. Both ends are then
+            // clamped into the monitor's work area.
+            Rectangle work = Screen.FromRectangle(ball).WorkingArea;
+            int gap = (int)Math.Round(10 * this.scale);
+            int cardX = ball.Right - this.cardWidth;
+            int cardY = ball.Top - gap - this.cardHeight;
+            if (cardY < work.Top + 2) cardY = ball.Bottom + gap;
+            int maxX = work.Right - this.cardWidth - 2;
+            int maxY = work.Bottom - this.cardHeight - 2;
+            if (cardX > maxX) cardX = maxX;
+            if (cardX < work.Left + 2) cardX = work.Left + 2;
+            if (cardY > maxY) cardY = maxY;
+            if (cardY < work.Top + 2) cardY = work.Top + 2;
+            this.MoveTo(cardX - this.margin, cardY - this.margin);
+
+            this.open = true;
+            this.openedAt = Environment.TickCount;
+            this.touchedAt = this.openedAt;
+            // Publish before showing, but after MoveTo: Present() reads Left/Top
+            // for its destination rectangle and would otherwise place the surface
+            // wherever the window happened to be a moment earlier.
+            Present(this.surface, 255);
+            if (!this.Visible) this.Show();
+            this.Raise();
+            this.AssertTopMost();
+            this.Capture = true;
+            Note("opened at " + this.Left + "," + this.Top + " " + this.Width + "x" + this.Height
+                + " visible=" + this.Visible + " capture=" + this.Capture);
+        }
+
+        public void HideMenu()
+        {
+            if (!this.open && !this.Visible) return;
+            Note("closing (open=" + this.open + " visible=" + this.Visible
+                + " capture=" + this.Capture + " hover=" + this.hover + ")");
+            this.open = false;
+            this.hover = -1;
+            try
+            {
+                if (this.Capture) this.Capture = false;
+            }
+            catch
+            {
+            }
+            if (this.IsHandleCreated && !this.IsDisposed) this.Hide();
+        }
+
+        /// <summary>
+        /// Watchdog: a menu that lost the mouse (another program grabbed capture)
+        /// or sat untouched is stale and would otherwise hang over the desktop.
+        /// </summary>
+        public void Tick()
+        {
+            if (!this.open) return;
+            int now = Environment.TickCount;
+            if (now - this.openedAt < 700) return;
+            if (!this.Capture)
+            {
+                Note("watchdog: capture lost after " + (now - this.openedAt) + " ms");
+                this.HideMenu();
+                return;
+            }
+            if (now - this.touchedAt > 12000)
+            {
+                Note("watchdog: idle " + (now - this.touchedAt) + " ms");
+                this.HideMenu();
+            }
+        }
+
+        private void PaintCard()
+        {
+            if (this.surface == null) return;
+            RectangleF card = new RectangleF(this.margin, this.margin, this.cardWidth, this.cardHeight);
+            float radius = 10f * this.scale;
+            int insetX = (int)Math.Round(4 * this.scale);
+            int insetY = (int)Math.Round(2 * this.scale);
+            using (Graphics g = Ink.Begin(this.surface))
+            {
+                if (this.shadowSurface != null) g.DrawImageUnscaled(this.shadowSurface, 0, 0);
+                using (GraphicsPath path = Ink.RoundRect(card, radius))
+                {
+                    using (SolidBrush brush = new SolidBrush(Color.FromArgb(247, Ink.BubbleBg)))
+                    {
+                        g.FillPath(brush, path);
+                    }
+                    using (Pen pen = new Pen(Color.FromArgb(30, 255, 255, 255), Math.Max(1f, 1f * this.scale)))
+                    {
+                        g.DrawPath(pen, path);
+                    }
+                }
+
+                for (int i = 0; i < this.rows.Count; i++)
+                {
+                    Row row = this.rows[i];
+                    Rectangle band = this.hits[i];
+                    if (row.Divider)
+                    {
+                        int lineY = band.Y + band.Height / 2;
+                        using (Pen pen = new Pen(Color.FromArgb(26, 255, 255, 255), 1f))
+                        {
+                            g.DrawLine(pen, band.Left + this.padX, lineY, band.Right - this.padX, lineY);
+                        }
+                        continue;
+                    }
+
+                    if (i == this.hover)
+                    {
+                        RectangleF lit = new RectangleF(
+                            band.Left + insetX,
+                            band.Top + insetY,
+                            band.Width - insetX * 2,
+                            band.Height - insetY * 2);
+                        using (GraphicsPath path = Ink.RoundRect(lit, 7f * this.scale))
+                        using (SolidBrush brush = new SolidBrush(Color.FromArgb(32, 255, 255, 255)))
+                        {
+                            g.FillPath(brush, path);
+                        }
+                    }
+
+                    Color label = row.Enabled ? Ink.TextPrimary : Color.FromArgb(126, 247, 248, 250);
+                    if (row.Info) label = Color.FromArgb(112, 247, 248, 250);
+                    float textX = band.Left + this.padX;
+                    using (Font labelFont = this.TextFont(row.Label, 12.5f))
+                    using (Font hintFont = row.Hint.Length > 0 ? this.TextFont(row.Hint, 10f) : null)
+                    using (StringFormat format = Ink.Typographic())
+                    {
+                        // Centre the text block by its measured line heights
+                        // instead of guessing an ascent offset.
+                        float labelHeight = labelFont.GetHeight(g);
+                        float hintHeightPx = hintFont == null ? 0f : hintFont.GetHeight(g);
+                        float top = band.Top + (band.Height - (labelHeight + hintHeightPx)) / 2f;
+                        Ink.Text(g, row.Label, labelFont, label, new PointF(textX, top), format);
+                        if (hintFont != null)
+                        {
+                            Ink.Text(g, row.Hint, hintFont, Color.FromArgb(150, 247, 248, 250),
+                                new PointF(textX, top + labelHeight), format);
+                        }
+                    }
+                }
+            }
+        }
+
+        private float Measure(Graphics g, string text, float size)
+        {
+            using (Font font = this.TextFont(text, size))
+            using (StringFormat format = Ink.Typographic())
+            {
+                return g.MeasureString(text, font, new PointF(0f, 0f), format).Width;
+            }
+        }
+
+        private Font TextFont(string text, float size)
+        {
+            FontFamily family = Ink.NeedsCjk(text) ? this.cjk : this.latin;
+            return new Font(family, size * this.scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        }
+
+        private int HitTest(int x, int y)
+        {
+            for (int i = 0; i < this.hits.Length && i < this.rows.Count; i++)
+            {
+                Row row = this.rows[i];
+                if (row.Divider || !row.Enabled || row.Action.Length == 0) continue;
+                if (this.hits[i].Contains(x, y)) return i;
+            }
+            return -1;
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (!this.open) return;
+            this.touchedAt = Environment.TickCount;
+            Rectangle card = new Rectangle(this.margin, this.margin, this.cardWidth, this.cardHeight);
+            if (!card.Contains(e.X, e.Y))
+            {
+                // Capture routes clicks from anywhere on screen here, so a click
+                // that landed on the desktop, DSH, or the ball closes the menu.
+                this.HideMenu();
+                return;
+            }
+            if (e.Button != MouseButtons.Left) return;
+            int index = this.HitTest(e.X, e.Y);
+            if (index < 0) return;
+            string action = this.rows[index].Action;
+            // Act on press, not release: the menu holds the capture and is about
+            // to disappear, so a matching button-up may never reach it.
+            this.HideMenu();
+            if (action.Length > 0) OrbEvents.RaiseMenuAction(action);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!this.open) return;
+            this.touchedAt = Environment.TickCount;
+            int index = this.HitTest(e.X, e.Y);
+            if (index == this.hover) return;
+            this.hover = index;
+            this.PaintCard();
+            Present(this.surface, 255);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (!this.open || this.hover < 0) return;
+            this.hover = -1;
+            this.PaintCard();
+            Present(this.surface, 255);
+        }
+
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            Note("capture-changed open=" + this.open + " capture=" + this.Capture);
+            if (!this.open) return;
+            if (this.Capture) return;
+            // The release of the button that opened the menu arrives on this window
+            // (it holds the capture) and drops the capture with it. Re-take it on the
+            // next pump turn - the button-up is still being dispatched right now and
+            // would drop it again - instead of treating it as a dismissal.
+            if (Environment.TickCount - this.openedAt < 900)
+            {
+                try
+                {
+                    this.BeginInvoke(new MethodInvoker(this.RetakeCapture));
+                }
+                catch
+                {
+                    this.HideMenu();
+                }
+                return;
+            }
+            // Somebody else took the mouse: the menu can no longer see clicks, so
+            // it must not stay on screen pretending to be interactive.
+            this.HideMenu();
+        }
+
+        // Re-assert the capture the opening gesture took away, but only while the
+        // menu is still inside its opening grace window; after that a lost capture
+        // means a click landed somewhere else and the menu has to go.
+        private void RetakeCapture()
+        {
+            if (!this.open) return;
+            if (this.Capture) return;
+            if (Environment.TickCount - this.openedAt >= 900)
+            {
+                Note("capture never came back, closing");
+                this.HideMenu();
+                return;
+            }
+            try
+            {
+                this.Capture = true;
+            }
+            catch
+            {
+            }
+            Note("re-took capture=" + this.Capture);
+            if (!this.Capture) this.HideMenu();
+        }
+
+        protected override void OnCloseRequested()
+        {
+            this.HideMenu();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (this.surface != null) this.surface.Dispose();
+                if (this.shadowSurface != null) this.shadowSurface.Dispose();
+                this.surface = null;
+                this.shadowSurface = null;
+            }
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>Bilingual menu labels, kept next to the menu that draws them.</summary>
+    internal sealed class MenuText
+    {
+        public string OpenDsh = "Open DSH";
+        public string OpenLatest = "Open latest session";
+        public string Hide = "Hide the ball";
+        public string HideHint = "Turn it back on in the DSH settings";
+        public string Reset = "Move back to the corner";
+        public string Info = "Independent window";
+
+        public static MenuText For(string lang)
+        {
+            MenuText text = new MenuText();
+            if (lang == null || !lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase)) return text;
+            text.OpenDsh = "\u6253\u5f00 DSH";
+            text.OpenLatest = "\u6253\u5f00\u6700\u8fd1\u5b8c\u6210\u7684\u4f1a\u8bdd";
+            text.Hide = "\u9690\u85cf\u60ac\u6d6e\u7403";
+            text.HideHint = "\u56de DSH \u8bbe\u7f6e\u9875\u53ef\u4ee5\u518d\u6253\u5f00";
+            text.Reset = "\u590d\u4f4d\u5230\u53f3\u4e0b\u89d2";
+            text.Info = "\u72ec\u7acb\u7a97\u53e3";
+            return text;
+        }
+    }
+
     /// <summary>Process-wide event hub so the windows never touch the network.</summary>
     internal static class OrbEvents
     {
@@ -1437,6 +2040,10 @@ namespace DshSessionOrb
         public static event Action BubbleClick;
         public static event Action Dismiss;
         public static event Action Exit;
+        /// <summary>Right-click on the ball: open the context menu at the cursor.</summary>
+        public static event Action Menu;
+        /// <summary>A menu row was chosen; the payload is its action id.</summary>
+        public static event Action<string> MenuAction;
 
         public static void RaiseClick()
         {
@@ -1460,6 +2067,18 @@ namespace DshSessionOrb
         {
             Action handler = Exit;
             if (handler != null) handler();
+        }
+
+        public static void RaiseMenu()
+        {
+            Action handler = Menu;
+            if (handler != null) handler();
+        }
+
+        public static void RaiseMenuAction(string action)
+        {
+            Action<string> handler = MenuAction;
+            if (handler != null) handler(action);
         }
     }
 
@@ -1661,6 +2280,7 @@ namespace DshSessionOrb
         private readonly int parentPid;
         private readonly OrbWindow orb;
         private readonly BubbleWindow bubble;
+        private readonly OrbMenuWindow menu;
         private readonly FormsTimer uiTimer;
         private readonly FormsTimer frameTimer;
         private HostClient client;
@@ -1668,12 +2288,29 @@ namespace DshSessionOrb
         private float scale = 1f;
         private int placed;
         private bool exiting;
+        /// <summary>Why the ball is leaving, reported with `bye` so the Host can
+        /// tell "the bridge went away" (restartable) from "the Host is exiting"
+        /// (do not restart) without guessing.</summary>
+        private string exitReason = "shutdown";
         private double fade;
         private int fadeDirection;
-        private long lastTopMostCheck;
+        /// <summary>Last z-order keep-on-top pass (Environment.TickCount).</summary>
+        private long lastTopCheck;
+        /// <summary>Last time the ball actually had to be raised.</summary>
+        private long lastTopRaise;
+        /// <summary>Log throttle for keep-on-top repairs; the repairs themselves
+        /// are never throttled, only the lines they write.</summary>
+        private long lastTopLog;
+        private int suppressedTopLogs;
+        /// <summary>Set from a SystemEvents thread to force a pass on the UI thread.</summary>
+        private int forceTopCheck;
+        private int noticeUntil;
         private long lastDpiCheck;
         private long lastParentCheck;
         private System.Threading.Timer startTimer;
+        private OrbState pending;
+        private bool published;
+        private bool hidden;
 
         public OrbApplication(string origin, string token, int parentPid)
         {
@@ -1682,15 +2319,28 @@ namespace DshSessionOrb
             this.parentPid = parentPid;
 
             this.orb = new OrbWindow();
-            this.orb.CreateControl();
             this.bubble = new BubbleWindow();
-            this.bubble.CreateControl();
+            this.menu = new OrbMenuWindow();
+            // CreateControl() does nothing for an invisible Form, so the handle
+            // used to be created by whoever touched .Handle first - the SSE
+            // thread, which has no message loop. That window was enumerable and
+            // "visible" but could never publish a surface, receive a mouse
+            // message, or run a BeginInvoke callback: a permanent zombie. Read
+            // Handle here, on the thread that is about to pump the message loop.
+            if (this.orb.Handle == IntPtr.Zero || this.bubble.Handle == IntPtr.Zero || this.menu.Handle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("orb window handle could not be created");
+            }
 
             this.orb.Moved += this.OnOrbMoved;
+            OrbMenuWindow.Trace = this.OnMenuTrace;
+            Reveal.Trace(delegate(string message) { this.OnLog("log", message); });
             OrbEvents.Click += this.OnClick;
             OrbEvents.BubbleClick += this.OnBubbleClick;
             OrbEvents.Dismiss += this.OnDismiss;
             OrbEvents.Exit += this.OnExit;
+            OrbEvents.Menu += this.OnMenu;
+            OrbEvents.MenuAction += this.OnMenuAction;
 
             this.orb.Configure(this.state.Settings, null, 0);
 
@@ -1702,11 +2352,34 @@ namespace DshSessionOrb
             this.frameTimer = new FormsTimer();
             this.frameTimer.Interval = 33;
             this.frameTimer.Tick += this.OnFrame;
+
+            // Display topology, session unlock and theme changes all rearrange the
+            // topmost band behind our back (a monitor coming back re-maps every
+            // window). One pass on the next tick is enough to reclaim the front.
+            SystemEvents.DisplaySettingsChanged += this.OnSystemEvent;
+            SystemEvents.UserPreferenceChanged += this.OnSystemEvent;
+            SystemEvents.SessionSwitch += this.OnSystemEvent;
+        }
+
+        /// <summary>
+        /// Raised on a SystemEvents thread, so it only arms a flag: touching a Form
+        /// from here is how the handle once ended up owned by the wrong thread.
+        /// </summary>
+        private void OnSystemEvent(object sender, EventArgs e)
+        {
+            if (this.exiting) return;
+            this.RequestTopCheck();
+        }
+
+        /// <summary>Ask for a keep-on-top pass on the next tick.</summary>
+        private void RequestTopCheck()
+        {
+            Interlocked.Exchange(ref this.forceTopCheck, 1);
         }
 
         public void Start()
         {
-            this.client = new HostClient(this.origin, this.token, this.OnState, this.OnLog, this.OnExit);
+            this.client = new HostClient(this.origin, this.token, this.OnState, this.OnLog, this.OnHostDead);
             this.client.Start();
             this.startTimer = new System.Threading.Timer(this.OnStartup, null, 400, Timeout.Infinite);
         }
@@ -1726,7 +2399,10 @@ namespace DshSessionOrb
             if (this.exiting || incoming == null) return;
             if (!this.orb.IsHandleCreated)
             {
-                this.Apply(incoming);
+                // Never touch a Form from the thread that delivered the event:
+                // doing so is how the handle ended up owned by the SSE thread,
+                // which cannot paint, take input, or run an invoke callback.
+                this.pending = incoming;
                 return;
             }
             try
@@ -1735,6 +2411,7 @@ namespace DshSessionOrb
             }
             catch
             {
+                this.pending = incoming;
             }
         }
 
@@ -1742,6 +2419,7 @@ namespace DshSessionOrb
         {
             if (this.exiting) return;
             OrbNotice previous = this.state.Notice;
+            bool hadPosition = this.state.HasPosition;
             this.state = incoming;
 
             if (this.placed == 0)
@@ -1752,6 +2430,9 @@ namespace DshSessionOrb
             }
 
             this.orb.Configure(incoming.Settings, incoming.Notice, incoming.Running);
+            // Before placement: ShowOrb() consults this flag, so a ball that is
+            // switched off must know it before it is placed for the first time.
+            this.ApplyVisibility(incoming.Settings.Visible);
 
             if (this.placed == 0)
             {
@@ -1760,13 +2441,30 @@ namespace DshSessionOrb
             }
             else if (incoming.HasPosition)
             {
+                // Re-place from the Host's position. v2.0.0 clamped the *current*
+                // window position here, so the clamp returned what was already on
+                // screen and this branch could never move anything: every
+                // external change (reset, the one-shot v1 migration, a second
+                // renderer, another display) was silently dropped while the Host
+                // went on reporting the new coordinates as the live position.
                 Rectangle work = Screen.FromRectangle(new Rectangle(incoming.Position.X, incoming.Position.Y, this.orb.Width, this.orb.Height)).WorkingArea;
-                Point clamped = this.Clamp(this.orb.Left, this.orb.Top, work);
-                this.orb.MoveTo(clamped.X, clamped.Y);
+                Point clamped = this.Clamp(incoming.Position.X, incoming.Position.Y, work);
+                if (clamped.X != this.orb.Left || clamped.Y != this.orb.Top)
+                {
+                    this.orb.MoveTo(clamped.X, clamped.Y);
+                    if (!this.hidden) this.orb.PresentRest();
+                }
+            }
+            else if (hadPosition)
+            {
+                // A position that was cleared means "put it back in the corner".
+                // Guarded by hadPosition so the steady state (no position stored)
+                // does not re-place and re-post on every push.
+                this.PlaceDefault();
             }
 
             bool noticeChanged = incoming.Notice != null && (previous == null || !incoming.Notice.SameAs(previous));
-            if (noticeChanged)
+            if (noticeChanged && !this.hidden)
             {
                 this.bubble.SetLabels(this.kicker(), this.moreLabel());
                 this.bubble.Build(incoming.Settings, incoming.Notice, this.kicker(), this.moreLabel());
@@ -1775,16 +2473,26 @@ namespace DshSessionOrb
                 this.fade = 0;
                 this.fadeDirection = 1;
                 this.bubble.SetFade(0);
+                int ms = incoming.Settings.BubbleMs;
+                this.noticeUntil = ms > 0 ? unchecked(Environment.TickCount + ms) : 0;
                 this.StartFrames();
             }
-            else if (incoming.Notice == null && this.bubble.Shown)
+            else if (incoming.Notice == null && this.bubble.IsShown)
             {
                 this.fadeDirection = -1;
                 this.StartFrames();
             }
 
             this.UpdateFrames();
-            this.orb.PresentRest();
+            if (!this.hidden) this.orb.PresentRest();
+            if (!this.published && this.orb.HasSurface)
+            {
+                this.published = true;
+                this.OnLog("log", "surface published " + this.orb.Width + "x" + this.orb.Height
+                    + " scale=" + this.scale.ToString("0.##", CultureInfo.InvariantCulture)
+                    + " thread=" + Thread.CurrentThread.ManagedThreadId
+                    + " placed=" + this.placed + " visible=" + this.orb.Visible);
+            }
         }
 
         private string kicker()
@@ -1820,8 +2528,8 @@ namespace DshSessionOrb
         {
             Rectangle work = Screen.PrimaryScreen.WorkingArea;
             int margin = (int)Math.Round(18 * this.scale);
-            int x = work.Right - this.orb.Width - margin + this.orb.Padding;
-            int y = work.Bottom - this.orb.Height - margin + this.orb.Padding;
+            int x = work.Right - this.orb.Width - margin + this.orb.Pad;
+            int y = work.Bottom - this.orb.Height - margin + this.orb.Pad;
             this.placed = 1;
             Point clamped = this.Clamp(x, y, work);
             this.ShowOrb(clamped);
@@ -1837,14 +2545,57 @@ namespace DshSessionOrb
         private void ShowOrb(Point topLeft)
         {
             this.orb.Location = topLeft;
-            this.orb.PresentRest();
+            // A switched-off ball still records where it belongs, so turning it
+            // back on puts it exactly where the user last left it.
+            if (this.hidden) return;
+            // Show first, then publish: Present() is a no-op until the handle
+            // exists, so publishing first left a mapped window with no surface
+            // (fully transparent - "visible" to Win32, empty to the eye).
             if (!this.orb.Visible) this.orb.Show();
+            this.orb.PresentRest();
             this.orb.AssertTopMost();
+            this.RequestTopCheck();
+        }
+
+        /// <summary>
+        /// Applies the display switch. Off is a soft mute: the process, the SSE
+        /// stream and the stored position all survive, so switching back on is
+        /// instant and loses nothing. Nothing may be drawn, animated or raised
+        /// while off - an invisible window that keeps calling SetWindowPos would
+        /// still be a topmost window nobody can see or click.
+        /// </summary>
+        private void ApplyVisibility(bool visible)
+        {
+            if (!visible)
+            {
+                if (this.hidden) return;
+                this.hidden = true;
+                this.bubble.HideCard();
+                this.fade = 0;
+                this.fadeDirection = 0;
+                if (this.frameTimer.Enabled) this.frameTimer.Stop();
+                if (this.menu.IsOpen) this.menu.HideMenu();
+                if (this.orb.Visible) this.orb.Hide();
+                this.OnLog("log", "orb hidden (settings.visible=false)");
+                return;
+            }
+
+            if (!this.hidden) return;
+            this.hidden = false;
+            if (this.placed != 0)
+            {
+                if (!this.orb.Visible) this.orb.Show();
+                this.orb.PresentRest();
+                this.orb.AssertTopMost();
+                this.RequestTopCheck();
+            }
+            this.UpdateFrames();
+            this.OnLog("log", "orb shown (settings.visible=true)");
         }
 
         private void PositionBubble()
         {
-            if (!this.bubble.Shown && this.state.Notice == null) return;
+            if (!this.bubble.IsShown && this.state.Notice == null) return;
             Rectangle ball = this.orb.BallRect;
             Rectangle work = Screen.FromRectangle(ball).WorkingArea;
             int gap = (int)Math.Round(10 * this.scale);
@@ -1861,7 +2612,7 @@ namespace DshSessionOrb
             if (x + cardWidth > work.Right - 8) x = ball.Right - cardWidth;
             if (x < work.Left + 4) x = work.Left + 4;
             if (x + cardWidth > work.Right - 4) x = Math.Max(work.Left + 4, work.Right - 4 - cardWidth);
-            this.bubble.Location = new Point(x - this.bubble.Margin, y - this.bubble.Margin);
+            this.bubble.Location = new Point(x - this.bubble.CardMargin, y - this.bubble.CardMargin);
             this.bubble.Raise();
         }
 
@@ -1882,7 +2633,8 @@ namespace DshSessionOrb
                 this.orb.SetScale(current);
                 this.bubble.SetScale(current);
             }
-            if (this.bubble.Shown) this.PositionBubble();
+            if (this.bubble.IsShown) this.PositionBubble();
+            this.RequestTopCheck();
             this.Post(new Dictionary<string, object> {
                 { "type", "drag-end" },
                 { "reason", "drag" },
@@ -1895,7 +2647,8 @@ namespace DshSessionOrb
         /// <summary>True when the ring should be advancing.</summary>
         private bool Pulsing()
         {
-            return this.state.Running > 0 && this.state.Settings.Pulse && !this.orb.IsDragging && this.placed != 0;
+            return this.state.Running > 0 && this.state.Settings.Pulse && !this.orb.IsDragging
+                && this.placed != 0 && !this.hidden;
         }
 
         private void StartFrames()
@@ -1983,6 +2736,65 @@ namespace DshSessionOrb
             this.StartFrames();
         }
 
+        private void OnMenuTrace(string message)
+        {
+            this.OnLog("log", "menu: " + message);
+        }
+
+        private void OnMenu()
+        {
+            if (this.exiting || this.hidden) return;
+            // The notice card and the menu cannot share the screen: the card sits
+            // right above the ball, where the menu opens, and would swallow the
+            // clicks meant for the first row. Hide it without telling the Host -
+            // this is not a dismissal, the notice stays in the queue.
+            if (this.bubble.IsShown) this.bubble.HideCard();
+            this.fade = 0;
+            this.fadeDirection = 0;
+            this.UpdateFrames();
+            // Ball bounds, not the cursor: the menu is placed relative to the ball
+            // so it never covers it (see ShowMenu).
+            this.menu.ShowMenu(this.state.Lang, this.scale, this.state.Notice != null, this.orb.Bounds);
+        }
+
+        private void OnMenuAction(string action)
+        {
+            if (this.exiting || action == null) return;
+            if (action == "open-dsh")
+            {
+                Reveal.OnWorker();
+                return;
+            }
+            if (action == "open-latest")
+            {
+                this.Post(new Dictionary<string, object> {
+                    { "type", "menu" },
+                    { "action", "open-latest" }
+                });
+                // The Host can only queue the command; the renderer may be
+                // throttled to about one timer per minute while hidden, so bring
+                // DSH forward from here instead of waiting for it.
+                Reveal.OnWorker();
+                return;
+            }
+            if (action == "hide")
+            {
+                this.Post(new Dictionary<string, object> {
+                    { "type", "menu" },
+                    { "action", "hide" }
+                });
+                // Hide first, persist second: the ball must disappear on the same
+                // click, and the Host echo of settings.visible=false then lands on
+                // an already hidden window (ApplyVisibility is idempotent).
+                this.ApplyVisibility(false);
+                return;
+            }
+            if (action == "reset")
+            {
+                this.PlaceDefault();
+            }
+        }
+
         private void OnLog(string level, string message)
         {
             if (this.exiting) return;
@@ -1992,16 +2804,38 @@ namespace DshSessionOrb
             });
         }
 
+        /// <summary>The bridge has been unreachable for twelve pings: nothing can
+        /// drive the ball any more, so leave and say why.</summary>
+        private void OnHostDead()
+        {
+            this.exitReason = "host-unreachable";
+            this.OnExit();
+        }
+
         private void OnExit()
         {
             if (this.exiting) return;
             this.exiting = true;
             try
             {
+                SystemEvents.DisplaySettingsChanged -= this.OnSystemEvent;
+                SystemEvents.UserPreferenceChanged -= this.OnSystemEvent;
+                SystemEvents.SessionSwitch -= this.OnSystemEvent;
+            }
+            catch
+            {
+                // Static event sources are process-wide; a failure here can only
+                // matter for a helper that is already leaving.
+            }
+            try
+            {
                 this.uiTimer.Stop();
                 this.frameTimer.Stop();
                 if (this.startTimer != null) this.startTimer.Dispose();
-                this.Post(new Dictionary<string, object> { { "type", "bye" } });
+                this.Post(new Dictionary<string, object> {
+                    { "type", "bye" },
+                    { "reason", this.exitReason }
+                });
                 if (this.client != null) this.client.Stop();
             }
             catch
@@ -2011,6 +2845,11 @@ namespace DshSessionOrb
             {
                 if (this.orb != null) this.orb.Hide();
                 if (this.bubble != null) this.bubble.HideCard();
+                if (this.menu != null)
+                {
+                    this.menu.HideMenu();
+                    this.menu.Dispose();
+                }
             }
             catch
             {
@@ -2021,12 +2860,19 @@ namespace DshSessionOrb
         private void OnTick(object sender, EventArgs e)
         {
             if (this.exiting) return;
-            long now = Environment.TickCount;
-            if (now - this.lastTopMostCheck > 4000)
+            if (this.pending != null)
             {
-                this.lastTopMostCheck = now;
-                this.orb.AssertTopMost();
-                if (this.bubble.Shown) this.bubble.AssertTopMost();
+                OrbState next = this.pending;
+                this.pending = null;
+                this.Apply(next);
+            }
+            long now = Environment.TickCount;
+            this.menu.Tick();
+            bool forced = Interlocked.Exchange(ref this.forceTopCheck, 0) != 0;
+            if (forced || now - this.lastTopCheck >= 500)
+            {
+                this.lastTopCheck = now;
+                this.KeepOnTop(now, forced);
             }
             if (now - this.lastDpiCheck > 5000)
             {
@@ -2037,24 +2883,124 @@ namespace DshSessionOrb
                     this.scale = current;
                     this.orb.SetScale(current);
                     this.bubble.SetScale(current);
-                    if (this.bubble.Shown)
+                    if (this.bubble.IsShown)
                     {
                         this.bubble.Build(this.state.Settings, this.state.Notice, this.kicker(), this.moreLabel());
                         this.PositionBubble();
                     }
-                    this.orb.PresentRest();
+                    if (!this.hidden) this.orb.PresentRest();
                 }
             }
             if (now - this.lastParentCheck > 3000)
             {
                 this.lastParentCheck = now;
-                if (!Reveal.ParentAlive(this.parentPid)) this.OnExit();
+                if (!Reveal.ParentAlive(this.parentPid))
+                {
+                    // The Host process is gone: there is nobody left to talk to,
+                    // and a restart would only flash another ball on screen.
+                    this.exitReason = "parent-gone";
+                    this.OnExit();
+                }
             }
+        }
+
+        /// <summary>
+        /// Keeps the ball - and the card above it - at the front of the topmost
+        /// band, roughly twice a second.
+        ///
+        /// The old watchdog only re-asserted the WS_EX_TOPMOST bit every 4 s, so a
+        /// ball whose bit was intact and whose z-order had been overtaken by any
+        /// other always-on-top window stayed buried until that window went away:
+        /// "topmost" flickering off was really "still topmost, just not the
+        /// topmost-most". A pass that changes nothing costs one GetWindowLong call.
+        /// </summary>
+        private void KeepOnTop(long now, bool forced)
+        {
+            if (this.exiting || this.hidden || this.placed == 0) return;
+
+            // While the menu is open the user is touching this helper's own
+            // window: raising the ball over the menu would swallow the click.
+            if (this.menu.IsOpen)
+            {
+                string menuNote;
+                if (this.menu.EnsureOnTop(out menuNote)) this.NoteTopmost("menu " + menuNote, now);
+                return;
+            }
+
+            // After a raise, give the world a moment before looking again: this
+            // bounds the work at one repair per 1.5 s even if an invisible overlay
+            // keeps reporting itself as a cover.
+            if (!forced && now - this.lastTopRaise < 1500) return;
+
+            string note;
+            if (this.orb.EnsureOnTop(out note))
+            {
+                this.lastTopRaise = now;
+                this.NoteTopmost("ball " + note, now);
+                // The card belongs above the ball by design; a ball that has just
+                // moved to the front of the band would otherwise cover its card.
+                if (this.bubble.IsShown) this.bubble.Raise();
+            }
+            if (this.bubble.IsShown && this.bubble.EnsureOnTop(out note))
+            {
+                this.lastTopRaise = now;
+                this.NoteTopmost("card " + note, now);
+            }
+        }
+
+        /// <summary>
+        /// One log line per repair burst. A repair that repeats every 1.5 s would
+        /// otherwise write a line every 1.5 s forever and bury the rest of the log.
+        /// </summary>
+        private void NoteTopmost(string note, long now)
+        {
+            if (now - this.lastTopLog < 60000)
+            {
+                this.suppressedTopLogs += 1;
+                return;
+            }
+            this.lastTopLog = now;
+            string suffix = this.suppressedTopLogs == 0
+                ? ""
+                : " (+" + this.suppressedTopLogs.ToString(CultureInfo.InvariantCulture) + " more since the last line)";
+            this.suppressedTopLogs = 0;
+            this.OnLog("log", "topmost: " + note + suffix);
         }
 
         private void Post(IDictionary<string, object> payload)
         {
             if (this.client != null) this.client.Post(payload);
+        }
+
+        /// <summary>
+        /// Last words before a crash. The Host logs these as orb.log lines, so a
+        /// silent death (0xCFFFFFFF with no message) becomes a diagnosable one.
+        /// </summary>
+        public void ReportFatal(Exception error)
+        {
+            string message = "unknown";
+            if (error != null)
+            {
+                message = error.GetType().Name + ": " + error.Message;
+                if (!string.IsNullOrEmpty(error.StackTrace))
+                {
+                    string trace = error.StackTrace.Replace("\r", " ").Replace("\n", " | ");
+                    if (trace.Length > 400) trace = trace.Substring(0, 400);
+                    message = message + " @ " + trace;
+                }
+            }
+            if (message.Length > 700) message = message.Substring(0, 700);
+            try
+            {
+                this.Post(new Dictionary<string, object> {
+                    { "type", "fatal" },
+                    { "message", message }
+                });
+            }
+            catch
+            {
+            }
+            Console.Error.WriteLine("session-orb: fatal: " + message);
         }
 
         public void RequestExit()
@@ -2068,6 +3014,8 @@ namespace DshSessionOrb
     {
         private static IntPtr cached;
         private static long cachedAt;
+        private static Action<string> trace;
+        private static int revealing;
 
         public static void OnWorker()
         {
@@ -2118,7 +3066,11 @@ namespace DshSessionOrb
                 if (title.Length == 0) return true;
                 Win32.RECT rect;
                 if (!Win32.GetWindowRect(hwnd, out rect)) return true;
-                if (rect.Width < 200 || rect.Height < 200) return true;
+                // A minimized window has no usable rect: Windows answers
+                // -32000,-32000 with a 237x39 stub, which the old guard read as
+                // "not DSH" and dropped. Finding it is what lets the ball restore
+                // a minimized DSH instead of failing to locate it at all.
+                if (!Win32.IsIconic(hwnd) && (rect.Width < 200 || rect.Height < 200)) return true;
                 long area = (long)rect.Width * (long)rect.Height;
                 if (hwnd == last) area += 100000000L;
                 if (area <= bestArea) return true;
@@ -2162,54 +3114,137 @@ namespace DshSessionOrb
         }
 
         /// <summary>
-        /// Ask the running DSH instance to show its window. A second launch hits
-        /// the single-instance lock and lands in claimDesktopSingleInstance's
-        /// callback, which is focusPrimaryWindow(): show() + focus(). Showing the
-        /// HWND directly instead would leave Chromium's renderer believing it is
-        /// still hidden, and the page would never repaint.
+        /// Diagnostics hook; the application points this at orb.log.
+        /// </summary>
+        public static void Trace(Action<string> handler)
+        {
+            trace = handler;
+        }
+
+        /// <summary>
+        /// Ask the running DSH instance to show its window.
+        ///
+        /// Chromium tracks window visibility in its own widget/compositor state,
+        /// so the window has to be shown by something Chromium itself handles.
+        /// WM_SYSCOMMAND/SC_RESTORE goes through its window procedure and works
+        /// for both a minimized and a tray-hidden window: measured, the window
+        /// comes back and repaints. Calling ShowWindow(SW_RESTORE/SW_SHOW) here
+        /// instead maps the HWND without touching that state - the page then
+        /// never submits another frame and the window sticks on its last frame
+        /// until DSH is restarted (the frozen window this used to cause).
         /// </summary>
         public static void RevealDsh()
         {
-            IntPtr hwnd = FindDshWindow();
-            if (hwnd == IntPtr.Zero)
+            // One reveal at a time. The ball click, the bubble click and two menu
+            // rows each queue a worker; without this guard they overlap, every one
+            // spawning a second instance and parking in WaitShown - the v3.1
+            // regression that left the window stuck minimized and unresponsive
+            // when the user clicked repeatedly (live 2026-11-16 00:15).
+            if (Interlocked.CompareExchange(ref revealing, 1, 0) != 0) return;
+            try
             {
-                try
+                IntPtr hwnd = FindDshWindow();
+                if (hwnd == IntPtr.Zero)
                 {
-                    Win32.ShellExecuteW(IntPtr.Zero, "open", "dsh://open", null, null, Win32.SW_SHOWNORMAL);
+                    TraceLine("reveal: no DSH window found; asking the dsh:// protocol");
+                    AskProtocol();
+                    return;
                 }
-                catch
+                if (Win32.IsWindowVisible(hwnd) && !Win32.IsIconic(hwnd))
                 {
+                    ForceForeground(hwnd);
+                    return;
                 }
-                return;
+                // Step 1: map the HWND through Chromium's own window procedure.
+                // SC_RESTORE reliably brings the window on screen from BOTH the
+                // minimized and the tray-hidden state, so the orb never looks dead.
+                // On its own the page may still think it is hidden (frozen
+                // painting); step 2 addresses that, but appearing first is what
+                // keeps reveal from ever failing to show a window.
+                TraceLine("reveal: SC_RESTORE (visible=" + Win32.IsWindowVisible(hwnd) + " iconic=" + Win32.IsIconic(hwnd) + ")");
+                Win32.PostMessageW(hwnd, Win32.WM_SYSCOMMAND, new IntPtr(Win32.SC_RESTORE), IntPtr.Zero);
+                WaitShown(hwnd, 1200);
+                // Step 2: exactly ONE second-instance launch. It lands in
+                // focusPrimaryWindow() -> BrowserWindow.show(), the only route the
+                // sandbox replica measured that restores a tray-hidden page to
+                // visibilityState=visible. Once, never in a loop, never concurrent.
+                TraceLine("reveal: SC_RESTORE then one second instance");
+                RelaunchDsh(hwnd);
+                if (WaitShown(hwnd, 3000))
+                {
+                    ForceForeground(hwnd);
+                    return;
+                }
+                // Step 3: the dsh:// protocol reaches the same focusPrimaryWindow
+                // through a different delivery path (open-url).
+                TraceLine("reveal: not shown yet; trying dsh://open");
+                AskProtocol();
+                if (WaitShown(hwnd, 1500))
+                {
+                    ForceForeground(hwnd);
+                    return;
+                }
+                TraceLine("reveal: done (no raw ShowWindow - it freezes painting)");
             }
-            if (Win32.IsWindowVisible(hwnd) && !Win32.IsIconic(hwnd))
+            finally
             {
-                ForceForeground(hwnd);
-                return;
+                Interlocked.Exchange(ref revealing, 0);
             }
-            uint pid;
-            Win32.GetWindowThreadProcessId(hwnd, out pid);
-            string path = ProcessPath(pid);
-            if (!string.IsNullOrEmpty(path))
+        }
+
+        private static void RelaunchDsh(IntPtr hwnd)
+        {
+            try
             {
-                IntPtr result = Win32.ShellExecuteW(IntPtr.Zero, "open", path, null, Path.GetDirectoryName(path), Win32.SW_SHOWNORMAL);
-                if ((long)result > 32)
-                {
-                    for (int i = 0; i < 60; i++)
-                    {
-                        if (Win32.IsWindowVisible(hwnd) && !Win32.IsIconic(hwnd)) break;
-                        Thread.Sleep(50);
-                    }
-                    if (Win32.IsWindowVisible(hwnd))
-                    {
-                        ForceForeground(hwnd);
-                        return;
-                    }
-                }
+                uint pid;
+                Win32.GetWindowThreadProcessId(hwnd, out pid);
+                string path = ProcessPath(pid);
+                if (string.IsNullOrEmpty(path)) return;
+                TraceLine("reveal: second instance " + path);
+                Win32.ShellExecuteW(IntPtr.Zero, "open", path, null, Path.GetDirectoryName(path), Win32.SW_SHOWNORMAL);
             }
-            Win32.ShowWindow(hwnd, Win32.SW_RESTORE);
-            Win32.ShowWindow(hwnd, Win32.SW_SHOW);
-            ForceForeground(hwnd);
+            catch (Exception error)
+            {
+                TraceLine("reveal: second instance failed: " + error.Message);
+            }
+        }
+
+        private static void AskProtocol()
+        {
+            try
+            {
+                Win32.ShellExecuteW(IntPtr.Zero, "open", "dsh://open", null, null, Win32.SW_SHOWNORMAL);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>Visible and not minimized: the page is on screen and repainting.</summary>
+        private static bool WaitShown(IntPtr hwnd, int millis)
+        {
+            const int step = 50;
+            int waited = 0;
+            while (true)
+            {
+                if (Win32.IsWindow(hwnd) && Win32.IsWindowVisible(hwnd) && !Win32.IsIconic(hwnd)) return true;
+                if (waited >= millis) return false;
+                Thread.Sleep(step);
+                waited += step;
+            }
+        }
+
+        private static void TraceLine(string message)
+        {
+            Action<string> handler = trace;
+            if (handler == null) return;
+            try
+            {
+                handler(message);
+            }
+            catch
+            {
+            }
         }
 
         /// <summary>
@@ -2406,6 +3441,16 @@ namespace DshSessionOrb
         [STAThread]
         private static int Main(string[] argv)
         {
+            // Never show a native error popup (disk/hard-error dialogs, crash
+            // reporter prompts). We report through the bridge and stderr only.
+            try
+            {
+                uint old = Win32.SetErrorMode(0);
+                Win32.SetErrorMode(old | Win32.SEM_FAILCRITICALERRORS | Win32.SEM_NOGPFAULTERRORBOX | Win32.SEM_NOOPENFILEERRORBOX);
+            }
+            catch
+            {
+            }
             // Before any window, bitmap or Screen query: without this every
             // coordinate we read back would be virtualised at 96 DPI.
             Dpi.Enable();
@@ -2416,17 +3461,33 @@ namespace DshSessionOrb
             string origin = args.Get("origin", null);
             string token = args.Get("token", null);
             int parent = args.GetInt("parent", 0);
-            if (string.IsNullOrEmpty(origin) || string.IsNullOrEmpty(token))
+            // "undefined"/"null" arrive when the Host hands us a placeholder
+            // instead of a real token (Node stringifies a missing value). Such a
+            // helper would pass every local check, get 403 on the bridge, and
+            // then die quietly after twelve failed pings — a ball that vanishes
+            // a minute after it appears. Refuse it here, loudly, instead.
+            if (string.IsNullOrEmpty(origin) || string.IsNullOrEmpty(token) || token == "undefined" || token == "null")
             {
-                Console.Error.WriteLine("session-orb: --origin and --token are required");
+                Console.Error.WriteLine("session-orb: --origin and a real --token are required");
                 return 2;
             }
 
             Takeover.CloseDuplicates();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // Route UI-thread exceptions to our reporter instead of the default
+            // "unhandled exception" dialog, which cannot be answered headless.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
             OrbApplication app = new OrbApplication(origin, token, parent);
+            Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs e)
+            {
+                app.ReportFatal(e.Exception);
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            {
+                app.ReportFatal(e.ExceptionObject as Exception);
+            };
             app.Start();
             try
             {

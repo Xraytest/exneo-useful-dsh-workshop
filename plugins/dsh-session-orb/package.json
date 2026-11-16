@@ -1,9 +1,9 @@
 {
   "name": "dsh-session-orb",
-  "version": "1.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
-  "description": "A draggable translucent black orb that floats over the Harness Web UI, pops the session name above itself whenever a session finishes, and exposes its opacity, size and timing in a Settings page.",
+  "description": "A translucent black orb that lives in its own native window (Win32 topmost, own process) — it survives DSH hiding to the tray, pops the session name whenever a turn finishes, and exposes its look, timing, visibility and diagnostics in a Settings page.",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
@@ -15,6 +15,8 @@
   "files": [
     "index.js",
     "client.js",
+    "host",
+    "native",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

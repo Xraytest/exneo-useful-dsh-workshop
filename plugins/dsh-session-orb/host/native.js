@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, basename } from 'node:path';
 
 /** Restart policy: at most this many spawns inside the window, then give up. */
 const MAX_RESTARTS = 5;
@@ -29,13 +29,40 @@ const CSC_FLAGS = [
   '/target:winexe',
   '/platform:anycpu',
   '/optimize+',
-  '/warn:1',
+  '/warn:4',
   '/utf8output',
-  '/r:System.dll',
-  '/r:System.Core.dll',
-  '/r:System.Drawing.dll',
-  '/r:System.Windows.Forms.dll',
 ];
+
+/**
+ * Assemblies the helper links against. They are resolved by absolute path: a
+ * bare `/r:System.dll` is looked up next to the *source* file and in the current
+ * directory, neither of which is the framework directory, so the compile would
+ * fail with CS0006 from any working directory but the framework's own.
+ * `System.Web.Extensions.dll` is what provides `JavaScriptSerializer`; it ships
+ * in the same in-box directory.
+ */
+const FRAMEWORK_ASSEMBLIES = [
+  'System.dll',
+  'System.Core.dll',
+  'System.Drawing.dll',
+  'System.Windows.Forms.dll',
+  'System.Web.Extensions.dll',
+];
+
+/**
+ * @param {string} csc
+ * @returns {string[]} `/r:` switches with absolute paths
+ */
+function referenceArgs(csc) {
+  const dir = dirname(csc);
+  return FRAMEWORK_ASSEMBLIES.map((name) => {
+    const path = join(dir, name);
+    if (!existsSync(path)) {
+      throw new Error(`the .NET Framework assemblies are incomplete: ${path} is missing (needed to compile the orb helper)`);
+    }
+    return `/r:${path}`;
+  });
+}
 
 /** @param {string} frameworkDir */
 function cscCandidates() {
@@ -55,13 +82,11 @@ export class NativeOrb {
    * @param {object} options
    * @param {string} options.pluginRoot
    * @param {import('./store.js').Log} options.log
-   * @param {(state: object) => void} options.onEvent native -> host event
    */
-  constructor({ pluginRoot, log, onEvent }) {
+  constructor({ pluginRoot, log }) {
     this.pluginRoot = pluginRoot;
     this.source = join(pluginRoot, 'native', 'SessionOrb.cs');
     this.log = log;
-    this.onEvent = onEvent;
     /** @type {'idle'|'compiling'|'running'|'restarting'|'failed'|'unsupported'} */
     this.state = 'idle';
     this.reason = null;
@@ -80,7 +105,16 @@ export class NativeOrb {
     this.restartTimer = null;
     this.disposed = false;
     this.starting = false;
+    /** Bumped on every spawn: an exit handler that no longer matches the
+     * current generation belongs to a helper we already replaced, and must not
+     * touch the supervision state (it used to null out a live `pid` and schedule
+     * a second, tokenless spawn). */
+    this.generation = 0;
+    /** @type {string | null} */
+    this.lastExitReason = null;
     this.buildDir = null;
+    /** Build directory the live helper was started from; excluded from pruning. */
+    this.activeBuildDir = null;
   }
 
   get supported() {
@@ -109,6 +143,14 @@ export class NativeOrb {
       this.state = 'unsupported';
       this.reason = `the native orb helper targets Windows; this Host runs on ${process.platform}`;
       this.log.warn(`orb: ${this.reason}`);
+      return this.status();
+    }
+    if (typeof options?.origin !== 'string' || typeof options?.token !== 'string' || options.token === '') {
+      // Never spawn a helper we know the bridge will reject: it would look
+      // alive for a minute and then take the ball away with it.
+      this.state = 'failed';
+      this.reason = 'refusing to start the helper without a bridge token';
+      this.log.error(`orb: ${this.reason}`);
       return this.status();
     }
     if (!existsSync(this.source)) {
@@ -141,10 +183,11 @@ export class NativeOrb {
       throw new Error('no in-box C# compiler (csc.exe) found under %WINDIR%\\Microsoft.NET');
     }
     const source = readFileSync(this.source);
+    const flags = [...CSC_FLAGS, ...referenceArgs(csc)];
     const hash = createHash('sha1')
       .update(source)
       .update(csc)
-      .update(CSC_FLAGS.join(' '))
+      .update(flags.join(' '))
       .digest('hex')
       .slice(0, 12);
     const root = join(join(process.env.LOCALAPPDATA ?? join(process.env.USERPROFILE ?? '.', 'AppData', 'Local')), 'dsh-session-orb', 'build');
@@ -165,7 +208,7 @@ export class NativeOrb {
     writeFileSync(staging, `\uFEFF${source.toString('utf8')}`, 'utf8');
     this.log.info(`orb: compiling helper with ${csc} -> ${exe}`);
     const started = Date.now();
-    await this.runCompiler(csc, staging, exe);
+    await this.runCompiler(csc, flags, staging, exe);
     this.exe = exe;
     this.compiledAt = statSync(exe).mtimeMs;
     this.log.info(`orb: helper compiled in ${Date.now() - started} ms`);
@@ -175,25 +218,43 @@ export class NativeOrb {
 
   /** @param {string} root @param {string} keep */
   pruneBuilds(root, keep) {
+    /** @type {string[]} */
+    let names;
     try {
-      for (const name of readdirSync(root)) {
-        if (name === keep) continue;
-        rmSync(join(root, name), { recursive: true, force: true });
-      }
+      names = readdirSync(root);
     } catch {
-      // Cache pruning is best effort.
+      return; // Cache pruning is best effort.
+    }
+    for (const name of names) {
+      if (name === keep) continue;
+      // Never prune the build the live helper was started from: Windows cannot
+      // delete a running image anyway, and a half-deleted directory would be
+      // reused by the next compile.
+      if (this.activeBuildDir !== null && name === basename(this.activeBuildDir)) continue;
+      try {
+        rmSync(join(root, name), { recursive: true, force: true });
+      } catch (error) {
+        this.log.warn(`orb: cannot prune build ${name}: ${String(error?.message ?? error)}`);
+      }
     }
   }
 
-  /** @param {string} csc @param {string} source @param {string} exe */
-  runCompiler(csc, source, exe) {
+  /** @param {string} csc @param {string[]} flags @param {string} source @param {string} exe */
+  runCompiler(csc, flags, source, exe) {
     return new Promise((resolve, reject) => {
-      const args = [...CSC_FLAGS, `/out:${exe}`, source];
+      const args = [...flags, `/out:${exe}`, source];
       const child = spawn(csc, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
       /** @type {Buffer[]} */
       const chunks = [];
       const timer = setTimeout(() => {
         child.kill();
+        // A killed csc can leave a truncated image behind; `existsSync` would
+        // then reuse it forever because the cache key already matches.
+        try {
+          rmSync(exe, { force: true });
+        } catch {
+          // Best effort: the next compile overwrites it anyway.
+        }
         reject(new Error(`csc timed out after ${COMPILE_TIMEOUT_MS} ms`));
       }, COMPILE_TIMEOUT_MS);
       child.stdout?.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
@@ -218,6 +279,10 @@ export class NativeOrb {
 
   /** @param {string} exe @param {{origin: string, token: string, lang: string}} options */
   spawn(exe, options) {
+    // A fresh generation has no pending exit reason: a late "revive"/"stop" left
+    // over from the helper we just replaced would otherwise be read as the cause
+    // of this helper's next crash and silently suppress its restart.
+    this.lastExitReason = null;
     if (this.disposed) return;
     const args = [
       '--origin',
@@ -230,9 +295,11 @@ export class NativeOrb {
       options.lang,
     ];
     const child = spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const generation = (this.generation += 1);
     this.child = child;
     this.pid = child.pid ?? null;
     this.exe = exe;
+    this.activeBuildDir = dirname(exe);
     this.state = 'running';
     this.reason = null;
     this.spawnLog.push(Date.now());
@@ -240,25 +307,51 @@ export class NativeOrb {
     child.stdout?.on('data', (chunk) => this.logChild('out', chunk));
     child.stderr?.on('data', (chunk) => this.logChild('err', chunk));
     child.on('error', (error) => {
+      if (generation !== this.generation) return;
       this.log.error(`orb: spawn error ${String(error?.message ?? error)}`);
       this.state = 'failed';
       this.reason = String(error?.message ?? error);
     });
     child.on('exit', (code, signal) => {
+      // A helper we already replaced (revive, stop, or a newer spawn) must not
+      // report into the supervision state: doing so cleared the live `pid` and
+      // scheduled a second spawn with no token.
+      if (generation !== this.generation) {
+        this.log.info(`orb: old helper (pid=${String(child.pid)}) exited code=${String(code)} signal=${String(signal)}; ignored`);
+        return;
+      }
       const exitedAt = Date.now();
       this.exitedAt = exitedAt;
       this.pid = null;
       this.child = null;
       if (this.disposed) return;
-      this.log.warn(`orb: helper exited code=${String(code)} signal=${String(signal)}`);
-      if (code === 0) {
-        // A clean exit means "another instance owns the orb" or "we were told to go".
+      const why = this.lastExitReason;
+      this.lastExitReason = null;
+      const clean = code === 0;
+      this.log.warn(`orb: helper exited code=${String(code)} signal=${String(signal)}${why === null ? '' : ` (${why})`}`);
+      if (why === 'revive' || why === 'stop') {
+        // We killed it on purpose (settings-page restart, plugin dispose). The
+        // caller owns what happens next, so this exit must neither consume a
+        // restart slot nor schedule a second helper: the old code did both, which
+        // put two balls on screen for ~400 ms per revive and burned the
+        // 5-spawns-in-10-minutes budget on a few button clicks.
+        this.state = 'idle';
+        this.reason = null;
+        return;
+      }
+      // Only "the Host is going away" makes a retired helper correct. Any other
+      // exit — including a clean one, which used to be filed as "somebody else
+      // owns the orb" — leaves the user without a ball, so it is retried within
+      // the same bound as a crash.
+      if (clean && (why === 'parent-gone' || why === 'shutdown')) {
         this.state = 'idle';
         this.reason = null;
         return;
       }
       this.state = 'restarting';
-      this.reason = `helper exited with code ${String(code)}`;
+      this.reason = clean
+        ? 'helper exited cleanly without leaving a ball behind'
+        : `helper exited with code ${String(code)}`;
       if (this.spawnLog.length >= MAX_RESTARTS) {
         this.state = 'failed';
         this.reason = `helper exited ${this.spawnLog.length} times in under 10 minutes; giving up. See orb.log.`;
@@ -288,8 +381,12 @@ export class NativeOrb {
   }
 
   /**
-   * Relay a message the native process reported over HTTP. Kept here so the
-   * transport layer does not have to know about supervision.
+   * Apply a message the native process reported over HTTP to the supervision
+   * state. This is a *sink*, never a relay: the Host already dispatches every
+   * helper event through `index.js:onNativeEvent`, and re-emitting it from here
+   * called straight back into that dispatcher. The result was infinite mutual
+   * recursion — every event logged and applied ~1000 times before the stack
+   * blew, which is why `orb.log` filled with repeated `helper ready` lines.
    * @param {{type?: string}} event
    */
   handleEvent(event) {
@@ -297,11 +394,16 @@ export class NativeOrb {
       this.state = 'running';
       this.reason = null;
     }
+    if (event?.type === 'bye') {
+      // The helper announces why it is leaving before it goes: "parent-gone"
+      // and "shutdown" are correct exits, anything else is a ball we have to
+      // bring back.
+      this.lastExitReason = typeof event.reason === 'string' ? event.reason : null;
+    }
     if (event?.type === 'fatal') {
       this.state = 'failed';
       this.reason = typeof event.message === 'string' ? event.message : 'native helper reported a fatal error';
     }
-    this.onEvent?.(event);
   }
 
   /** Restart the helper from scratch (settings page "重试").
@@ -310,12 +412,13 @@ export class NativeOrb {
     this.spawnLog = [];
     this.restarts = 0;
     this.reason = null;
-    this.stopChild();
+    this.stopChild('revive');
     this.state = 'idle';
     return this.start(options);
   }
 
-  stopChild() {
+  /** @param {string|null} [reason] */
+  stopChild(reason = null) {
     if (this.restartTimer !== null) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
@@ -323,6 +426,7 @@ export class NativeOrb {
     const child = this.child;
     if (child === null) return;
     this.child = null;
+    if (reason !== null) this.lastExitReason = reason;
     try {
       child.kill();
     } catch {
@@ -336,6 +440,6 @@ export class NativeOrb {
       clearInterval(this.watchdog);
       this.watchdog = null;
     }
-    this.stopChild();
+    this.stopChild('stop');
   }
 }

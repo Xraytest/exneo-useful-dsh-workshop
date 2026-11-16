@@ -33,8 +33,8 @@
 #     不影响 MCP 连接本身。补齐方法是给 rea-mcp-server 行加 env（见 README）。
 - insert:
     - id: rea-mcp
-      # 版本化 entry：改 host 实现后 +1（v3 = +workbench 直连路由）。
-      name: './entry-v3.js'
+      # 版本化 entry：改 host 实现后 +1（v5 = 写入串行化 + 写前重读 + restrict 重试）。
+      name: './entry-v5.js'
       config:
         # 选择状态落盘位置；省略 = $DSH_HOME/rea-mcp/tools.json。
         stateFile: null

@@ -92,6 +92,16 @@ export class Hub {
     this.seq = 0;
     this.degraded = null;
     this.lastNotice = null;
+    /** Last provider probe, so a dead notice pipeline stays diagnosable. */
+    this.provider = null;
+    /** Wake-event tally by name: proves which Host events actually arrive. */
+    this.events = Object.create(null);
+    /** True once any Host event reached the plugin; the event bus then drives detection. */
+    this.eventsSeen = false;
+    /** @type {Map<string, string>} session id -> origin (`subagent`, `web`, ...) */
+    this.origins = new Map();
+    /** @type {Map<string, {title: string, cwd: string}>} session id -> learned metadata */
+    this.meta = new Map();
     this.counters = { confirmed: 0, suppressed: 0, retracted: 0, skipped: 0 };
     this.renderer = { at: 0, visible: null, lang: null, url: null, box: null };
     /** @type {{id:string,type:string,sessionId?:string,at:number}[]} */
@@ -110,6 +120,8 @@ export class Hub {
   start() {
     if (this.polling) return this;
     this.polling = true;
+    this.baseline = true;
+    void this.seed();
     this.schedule();
     return this;
   }
@@ -126,6 +138,105 @@ export class Hub {
     this.noticeTimer = null;
     this.pendingConfirm.clear();
     this.listeners.clear();
+  }
+
+  /**
+   * Record one delivered Host event. The tally is the only runtime evidence
+   * that the notice pipeline has a live input, so it is published in the
+   * renderer summary instead of being logged per event.
+   * @param {string} name
+   */
+  noteEvent(name) {
+    const key = String(name);
+    this.events[key] = (this.events[key] ?? 0) + 1;
+    this.eventsSeen = true;
+  }
+
+  // --------------------------------------------------------------- events
+
+  /**
+   * `api-session/added` carries the Host's own session summary. Titles and the
+   * origin flag exist nowhere else in the plugin's reach, so learn them here.
+   * @param {object} summary
+   */
+  noteAdded(summary) {
+    if (summary === null || typeof summary !== 'object') return;
+    const id = sessionIdOf(summary);
+    if (id === '') return;
+    if (typeof summary.origin === 'string' && summary.origin !== '') this.origins.set(id, summary.origin);
+    const title = titleOf(summary);
+    const cwd = typeof summary.cwd === 'string' ? summary.cwd : '';
+    if (title !== '' || cwd !== '') {
+      const previous = this.meta.get(id);
+      this.meta.set(id, {
+        title: title !== '' ? title : previous?.title ?? '',
+        cwd: cwd !== '' ? cwd : previous?.cwd ?? '',
+      });
+    }
+    if (title !== '') this.store.mergeTitles({ [id]: title });
+    if (summary.running === true && !this.previousRunning.has(id)) {
+      this.previousRunning.set(id, true);
+      this.runningCount = this.previousRunning.size;
+    }
+    this.bump();
+  }
+
+  /**
+   * `api-session/status` is emitted as `(sessionId, running)` on every Agent
+   * status change: the transition itself, without polling.
+   * @param {string} id
+   * @param {boolean} running
+   */
+  noteStatus(id, running) {
+    if (typeof id !== 'string' || id === '') return;
+    if (running === true) {
+      const was = this.previousRunning.has(id);
+      this.previousRunning.set(id, true);
+      this.runningCount = this.previousRunning.size;
+      if (this.baseline && !was) this.onResumed(id);
+      this.bump();
+      return;
+    }
+    if (running !== false) return;
+    const was = this.previousRunning.has(id);
+    this.previousRunning.delete(id);
+    this.runningCount = this.previousRunning.size;
+    if (!was) {
+      this.bump();
+      return;
+    }
+    if (this.origins.get(id) === 'subagent') {
+      this.counters.skipped += 1;
+      this.bump();
+      return;
+    }
+    const meta = this.meta.get(id);
+    const title = meta?.title || this.store.title(id) || (meta?.cwd ? basename(meta.cwd) : '');
+    this.scheduleConfirm({ id, title });
+    this.bump();
+  }
+
+  /** @param {string} id */
+  noteRemoved(id) {
+    if (typeof id !== 'string' || id === '') return;
+    this.origins.delete(id);
+    this.meta.delete(id);
+    if (this.previousRunning.delete(id)) this.runningCount = this.previousRunning.size;
+    this.bump();
+  }
+
+  /**
+   * One-shot baseline so a session that was already running when the plugin
+   * loaded still reports its next completion, and stale titles are refreshed.
+   */
+  async seed() {
+    const rows = await this.readSessions();
+    if (this.disposed || rows === null) return;
+    try {
+      this.reconcile(rows);
+    } catch (error) {
+      this.log.warn(`orb: baseline seed failed: ${String(error?.message ?? error)}`);
+    }
   }
 
   /** Wake hint from a Host event: poll soon instead of waiting for the interval. */
@@ -147,10 +258,16 @@ export class Hub {
   }
 
   async tick() {
+    // Once Host events prove they arrive, they are the source of truth: the
+    // list() poll only exists for Hosts whose event bus does not reach a plugin.
+    if (this.eventsSeen) {
+      this.degraded = null;
+      return;
+    }
     const rows = await this.readSessions();
     if (this.disposed) return;
     if (rows === null) {
-      this.degraded = 'sessionController.list() is unavailable in this Host';
+      this.degraded = `sessionController.list() is unavailable in this Host (${this.provider ?? 'probe pending'})`;
       return;
     }
     this.degraded = null;
@@ -161,13 +278,27 @@ export class Hub {
     }
   }
 
-  /** @returns {Promise<object[] | null>} */
+  /**
+   * The Host service exposes no plain `list()`; the Remote method wraps the
+   * internal `listState`, which is what a plugin can call directly.
+   * @returns {Promise<object[] | null>}
+   */
   async readSessions() {
     const provider = this.getProvider();
-    if (provider === null || provider === undefined || typeof provider.list !== 'function') return null;
+    this.provider = describeProvider(provider);
+    if (provider === null || provider === undefined) return null;
+    /** @type {((signal: null) => Promise<unknown>) | null} */
+    let read = null;
+    const listState = provider.listState;
+    if (listState !== null && typeof listState === 'object' && typeof listState.list === 'function') {
+      read = () => listState.list(null);
+    } else if (typeof provider.list === 'function') {
+      read = () => provider.list();
+    }
+    if (read === null) return null;
     try {
-      const value = await provider.list();
-      const rows = value?.sessions ?? value;
+      const value = await read();
+      const rows = value?.items ?? value?.sessions ?? value;
       return Array.isArray(rows) ? rows : null;
     } catch (error) {
       this.log.warn(`sessionController.list() failed: ${String(error?.message ?? error)}`);
@@ -191,12 +322,21 @@ export class Hub {
 
     for (const row of rows) {
       if (row === null || typeof row !== 'object') continue;
-      const id = row.id;
-      if (typeof id !== 'string' || id === '') continue;
+      const id = sessionIdOf(row);
+      if (id === '') continue;
       const was = this.previousRunning.has(id);
       const running = runningFlagOf(row);
       const title = titleOf(row);
       if (title !== '') learned[id] = title;
+      if (typeof row.origin === 'string' && row.origin !== '') this.origins.set(id, row.origin);
+      const cwd = typeof row.cwd === 'string' ? row.cwd : '';
+      if (title !== '' || cwd !== '') {
+        const previous = this.meta.get(id);
+        this.meta.set(id, {
+          title: title !== '' ? title : previous?.title ?? '',
+          cwd: cwd !== '' ? cwd : previous?.cwd ?? '',
+        });
+      }
 
       if (running === null) {
         // Unreadable status: preserve the previous verdict rather than invent one.
@@ -392,12 +532,16 @@ export class Hub {
         };
   }
 
-  /** The state document pushed to the native orb. */
+  /**
+   * The state document pushed to the native orb. `seq` changes only when the
+   * document changes (`bump()`), so a read-only peek cannot invalidate the
+   * helper's de-duplication.
+   */
   snapshot() {
     const current = this.queue[0] ?? null;
     return {
       v: 2,
-      seq: (this.seq += 1),
+      seq: this.seq,
       at: Date.now(),
       running: this.runningCount,
       notice:
@@ -425,6 +569,7 @@ export class Hub {
     const flush = () => {
       this.emitScheduled = false;
       if (this.disposed) return;
+      this.seq += 1;
       const state = this.snapshot();
       for (const listener of this.listeners) {
         try {
@@ -453,6 +598,8 @@ export class Hub {
       lastNotice: this.lastNotice,
       counters: { ...this.counters },
       degraded: this.degraded,
+      provider: this.provider,
+      events: { ...this.events },
       renderer: this.renderer,
       commands: this.commands.length,
       baseline: this.baseline,
@@ -466,4 +613,39 @@ function safeLocale() {
   } catch {
     return '';
   }
+}
+
+/**
+ * Session rows use `sessionId` in the Host's own summaries and `id` in older
+ * shapes; accept both instead of silently skipping every row.
+ * @param {object} row
+ * @returns {string}
+ */
+function sessionIdOf(row) {
+  if (typeof row.sessionId === 'string' && row.sessionId !== '') return row.sessionId;
+  if (typeof row.id === 'string' && row.id !== '') return row.id;
+  return '';
+}
+
+/**
+ * Describe what the session provider lookup actually returned, so a Host that
+ * does not expose `sessionController` to plugins reports it instead of failing
+ * silently into a decorative orb.
+ * @param {unknown} provider
+ * @returns {string}
+ */
+function describeProvider(provider) {
+  if (provider === undefined) return 'ctx.get("sessionController") === undefined';
+  if (provider === null) return 'ctx.get("sessionController") === null';
+  if (typeof provider !== 'object' && typeof provider !== 'function') {
+    return `ctx.get("sessionController") is a ${typeof provider}`;
+  }
+  /** @type {string[]} */
+  let keys = [];
+  try {
+    keys = Object.keys(provider);
+  } catch {
+    keys = [];
+  }
+  return `provider has no list(); own keys: ${keys.slice(0, 12).join(', ') || '(none)'}`;
 }

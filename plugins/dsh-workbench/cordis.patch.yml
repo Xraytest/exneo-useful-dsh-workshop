@@ -14,9 +14,13 @@
 # v9（2026-11-03）：dual-agent 行随属主合并更名「双智能指导」，并新增**可进入的
 # 二级菜单**（内容由属主出：GET spec / POST op；工作箱只画通用件——加一个新属主
 # 不用改工作箱代码，属主插件也不必 require 别人的模块）。row id 与 route 不变。
+# v10（2026-11-12）：REA 的状态按会话隔离（rea-mcp v2：defaults + 会话覆盖表）。
+# 本箱读文件时按本会话家族根挑桶，写开关时带 sessionId；v9 及之前省略 sessionId，
+# 等于每次在本箱里动任意条目都顺手改全局 REA 开关（泄漏到别的上下文）。row id
+# 与 route 不变。
 - insert:
     - id: workbench
-      name: './entry-v9.js'
+      name: './entry-v11.js'
       config:
         # 选择落盘位置；null/省略 = $DSH_HOME/workbench.json。
         stateFile: null

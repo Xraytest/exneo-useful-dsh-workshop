@@ -33,6 +33,16 @@ window.__ModuleLoader__.load({
       section: 'REA 工具',
       title: 'REA 工具选择',
       desc: 'REA 通过 MCP 暴露 200+ 个逆向分析工具，全部 schema 会随每轮请求进入模型上下文。这里决定哪些工具对模型可见：没选中的工具模型看不到、也调不动（连接保持）。保存后立即生效。',
+      scopeLabel: '作用范围',
+      scopeDefault: '默认（未单独设置的会话都继承它）',
+      scopeOwn: '本会话单独设置：只影响这个会话，其他上下文不受影响。',
+      scopeInherit: '这个会话目前继承「默认」。一旦在这里保存，就从默认脱钩，改成它自己的设置。',
+      scopeLive: '在线',
+      scopeOverride: '有覆盖',
+      scopeSwitchDiscard: '切换作用范围会丢弃未保存的修改。',
+      scopeDefaultHint: '默认设置只被「没有单独设置」的会话继承；已经单独设置过的会话不受影响。切换作用范围会丢弃未保存的修改。',
+      resetSession: '清除本会话设置（回到默认）',
+      resetDefault: '恢复默认全选',
       master: '启用 REA 工具',
       masterOff: '已整体停用：连接保留，但模型看不到任何 REA 工具。',
       connected: '已连接',
@@ -65,6 +75,16 @@ window.__ModuleLoader__.load({
       section: 'REA tools',
       title: 'REA tool selection',
       desc: 'REA exposes 200+ reverse-engineering tools over MCP, and every schema rides along in each request. Choose which tools the model can see: unselected tools are invisible and uncallable, while the connection stays live. Changes apply on save.',
+      scopeLabel: 'Scope',
+      scopeDefault: 'Default (inherited by every session without its own setting)',
+      scopeOwn: 'This session only: other contexts are untouched.',
+      scopeInherit: 'This session inherits the default. Saving here detaches it from the default and gives it its own setting.',
+      scopeLive: 'live',
+      scopeOverride: 'override',
+      scopeSwitchDiscard: 'Switching scope discards unsaved changes.',
+      scopeDefaultHint: 'The default is inherited only by sessions without their own setting; sessions that saved their own setting are unaffected. Switching scope discards unsaved changes.',
+      resetSession: 'Clear this session (back to default)',
+      resetDefault: 'Reset to all',
       master: 'Enable REA tools',
       masterOff: 'Disabled entirely: the connection stays, but the model sees no REA tool.',
       connected: 'connected',
@@ -135,6 +155,12 @@ window.__ModuleLoader__.load({
       '.rea-ok { font-size: 12px; color: var(--dsw-alias-state-success-primary); }',
       '.rea-empty { font-size: 12px; color: var(--dsw-alias-label-secondary); padding: 12px; text-align: center; }',
       '.rea-disabled { opacity: .55; }',
+      '.rea-select { font-size: 12px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); max-width: 100%; }',
+      '.rea-select:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }',
+      '.rea-scope { display: flex; flex-direction: column; gap: 6px; flex: 1 1 260px; min-width: 0; }',
+      '.rea-scope-label { font-size: 11px; color: var(--dsw-alias-label-secondary); }',
+      '.rea-scope-hint { font-size: 11px; line-height: 1.65; color: var(--dsw-alias-label-secondary); }',
+      '.rea-scope-hint.own { color: var(--dsw-alias-state-success-primary); }',
     ].join('\n');
 
     async function api(path, options) {
@@ -209,12 +235,15 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = useState('');
       const [search, setSearch] = useState('');
       const [saving, setSaving] = useState(false);
+      // 作用范围：'' = defaults（未单独设置的会话都继承它）；否则是会话家族根的 id。
+      const [scope, setScope] = useState('');
 
       const load = useCallback(async (announce) => {
         setPhase((current) => (current === 'ready' ? 'ready' : 'loading'));
         setError('');
         try {
-          const payload = await api(ROUTE_STATE, { headers: { accept: 'application/json' } });
+          const url = scope === '' ? ROUTE_STATE : `${ROUTE_STATE}?sessionId=${encodeURIComponent(scope)}`;
+          const payload = await api(url, { headers: { accept: 'application/json' } });
           setSnapshot(payload);
           setDraft(draftOf(payload));
           setPhase('ready');
@@ -223,7 +252,7 @@ window.__ModuleLoader__.load({
           setError(`${t('loadFailed')}：${String(cause && cause.message ? cause.message : cause)}`);
           setPhase('error');
         }
-      }, [t]);
+      }, [t, scope]);
 
       useEffect(() => { void load(false); }, [load]);
 
@@ -310,6 +339,8 @@ window.__ModuleLoader__.load({
               masterEnabled: draft.master,
               mode: draft.enabled.size >= total ? 'all' : 'custom',
               enabled: [...draft.enabled],
+              // 带了 sessionId = 只写这个会话的覆盖；省略 = 写 defaults。
+              ...(scope === '' ? {} : { sessionId: scope }),
             }),
           });
           setSnapshot(payload);
@@ -327,7 +358,12 @@ window.__ModuleLoader__.load({
         setError('');
         setNotice('');
         try {
-          const payload = await api(ROUTE_RESET, { method: 'POST' });
+          // 会话范围：删掉这个会话的覆盖（回到 defaults 继承）；默认范围：重置 defaults。
+          const payload = await api(ROUTE_RESET, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(scope === '' ? {} : { sessionId: scope }),
+          });
           setSnapshot(payload);
           setDraft(draftOf(payload));
           setNotice(t('saved'));
@@ -343,6 +379,44 @@ window.__ModuleLoader__.load({
       const connected = server !== null && server.connected === true;
       const issues = snapshot && Array.isArray(snapshot.issues) ? snapshot.issues.filter((issue) => typeof issue === 'string') : [];
       const notes = server !== null && Array.isArray(server.notes) ? server.notes.filter((item) => typeof item === 'string') : [];
+
+      // 作用范围清单：默认 + 服务端给的会话目录（有覆盖的 + 在线会话）。
+      // 目录里没有但当前 scope 指向的根也补一个，免得下拉框显示空白。
+      const scopeInfo = snapshot !== null && snapshot.scope !== undefined ? snapshot.scope : null;
+      const directory = snapshot !== null && Array.isArray(snapshot.directory) ? snapshot.directory : [];
+      const scopeOptions = directory.slice();
+      if (scope !== '' && !scopeOptions.some((entry) => entry.root === scope)) {
+        scopeOptions.unshift({ root: scope, override: true, live: false });
+      }
+      const sessionLabel = (entry) => {
+        const root = String(entry.root === undefined || entry.root === null ? '' : entry.root);
+        const short = root.length > 14 ? `…${root.slice(-8)}` : root;
+        const cwd = typeof entry.cwd === 'string' ? entry.cwd.replace(/[\\/]+$/, '') : '';
+        const tail = cwd === '' ? '' : cwd.split(/[\\/]/).pop();
+        let label = tail === '' ? short : `${short} · ${tail}`;
+        if (entry.override === true) label += ` · ${t('scopeOverride')}`;
+        if (entry.live === true) label += ` · ${t('scopeLive')}`;
+        return label;
+      };
+      const scopeCard = h('div', { className: 'rea-card' },
+        h('div', { className: 'rea-row' },
+          h('div', { className: 'rea-scope' },
+            h('div', { className: 'rea-scope-label' }, t('scopeLabel')),
+            h('select', {
+              className: 'rea-select',
+              value: scope,
+              disabled: saving,
+              'aria-label': t('scopeLabel'),
+              onChange: (event) => { setNotice(''); setScope(event.target.value); },
+            },
+            h('option', { value: '' }, t('scopeDefault')),
+            ...scopeOptions.map((entry) => h('option', { key: entry.root, value: entry.root }, sessionLabel(entry))),
+            ),
+            h('div', { className: scope === '' ? 'rea-scope-hint' : 'rea-scope-hint own' },
+              scope === '' ? t('scopeDefaultHint') : (scopeInfo !== null && scopeInfo.hasOverride === true ? t('scopeOwn') : t('scopeInherit'))),
+          ),
+        ),
+      );
 
       const header = h('div', { className: 'rea-head' },
         h('div', { className: 'rea-title' }, t('title')),
@@ -379,7 +453,7 @@ window.__ModuleLoader__.load({
             className: 'rea-btn',
             disabled: saving || phase !== 'ready',
             onClick: () => { void reset(); },
-          }, t('reset')),
+          }, scope === '' ? t('resetDefault') : t('resetSession')),
           h('button', {
             type: 'button',
             className: 'rea-btn primary',
@@ -470,6 +544,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'rea-page' },
           header,
           h('div', { className: 'rea-desc' }, t('desc')),
+          scopeCard,
           phase !== 'ready' ? null : master,
           toolbar,
           list,

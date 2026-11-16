@@ -30,6 +30,9 @@ const DEFAULTS = {
   confirmMs: 2500,
   pulse: true,
   badge: true,
+  // Whether the orb is on screen at all. The helper process stays alive while
+  // hidden so switching it back on is instant.
+  visible: true,
 };
 
 /** Hard bounds; anything outside is clamped rather than rejected, so a stale or
@@ -72,6 +75,7 @@ export function normalizeSettings(raw) {
     confirmMs: Math.round(clampNumber(input.confirmMs, ...LIMITS.confirmMs, DEFAULTS.confirmMs)),
     pulse: input.pulse === undefined ? DEFAULTS.pulse : input.pulse !== false,
     badge: input.badge === undefined ? DEFAULTS.badge : input.badge !== false,
+    visible: input.visible === undefined ? DEFAULTS.visible : input.visible !== false,
   };
 }
 
