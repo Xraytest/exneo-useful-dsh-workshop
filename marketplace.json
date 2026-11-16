@@ -222,7 +222,7 @@
       "id": "dsh-provider-alias",
       "path": "plugins/dsh-provider-alias",
       "rowId": "provider-alias",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "category": "model",
       "description": "自定义模型供应商：在「设置 → 模型」声明 endpoint / 协议 / 模型 / 自有 API Key，并可按协议配置各自的端点路径（内置 opencode-go 的 per-request session header 规格）。",
       "license": "MIT",

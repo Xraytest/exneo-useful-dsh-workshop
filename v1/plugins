@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-11-11T12:21:25.666Z",
+  "generatedAt": "2026-11-16T13:46:52Z",
   "items": [
     {
       "id": "dsh-admin-channel",
@@ -471,7 +471,7 @@
       "name": "dsh-provider-alias",
       "displayName": "provider-alias",
       "summary": "自定义模型供应商：在「设置 → 模型」声明 endpoint / 协议 / 模型 / 自有 API Key，并可按协议配置各自的端点路径（内置 opencode-go 的 per-request session header 规格）。",
-      "latestVersion": "0.4.0",
+      "latestVersion": "0.4.1",
       "license": "MIT",
       "categories": [
         "model"
@@ -487,13 +487,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "68fec6f64cf81ec21a3a84919914481379f658c8"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-16T13:46:52Z"
     },
     {
       "id": "dsh-safefull",
