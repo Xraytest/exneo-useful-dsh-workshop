@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-alias",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Declare your own model providers with an optional request spec, plus per-protocol endpoints so one gateway can serve several wire APIs at their own paths — opencode-go's per-request session header and its Google side, for one.",
   "keywords": [
     "dsh",

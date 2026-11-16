@@ -22,11 +22,17 @@ window.__ModuleLoader__.load({
 		 */
 		const CSS_ENDPOINTS = ".pva_endpoints{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:8px;padding-top:12px;display:flex}.pva_endpointHead{align-items:center;gap:8px;display:flex;justify-content:space-between}.pva_endpointList{flex-direction:column;gap:8px;display:flex}.pva_endpointRow{grid-template-columns:minmax(0,190px) minmax(0,1fr) auto;align-items:center;gap:8px;display:grid}.pva_endpointUrl{min-width:0}.pva_modelListActions{align-items:center;gap:8px;display:flex}.pva_fetchFamily{width:auto;max-width:200px;min-width:150px}.pva_modelWide{grid-column:1/-1}";
 		const CSS_TAG = "dsh-provider-alias/Card.module.css";
+		/**
+		 * The rules the thinking-level editor adds: one row per declared level, a
+		 * ladder selector beside the wire value it sends. Kept apart from the cloned
+		 * page stylesheet for the same reason as the endpoint rules above.
+		 */
+		const CSS_REASONING = ".pva_modelReasoning{grid-column:1/-1;border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:6px;padding-top:8px;display:flex}.pva_modelReasoningHead{align-items:center;gap:8px;display:flex;justify-content:space-between}.pva_modelReasoningRow{grid-template-columns:minmax(0,132px) minmax(0,1fr) auto;align-items:center;gap:8px;display:grid}.pva_modelReasoningRow .pva_iconButton{align-self:center;margin-bottom:0}.pva_modelReasoningValue{min-width:0}.pva_modelReasoning .pva_addModelButton{margin-top:2px}";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(CSS_TAG) + "]") === null) {
 			const tag = document.createElement("style");
 			tag.dataset.plugin = "dsh-provider-alias";
 			tag.dataset.pluginCss = CSS_TAG;
-			tag.textContent = CSS + CSS_ENDPOINTS;
+			tag.textContent = CSS + CSS_ENDPOINTS + CSS_REASONING;
 			document.head.appendChild(tag);
 		}
 		/**
@@ -87,6 +93,45 @@ window.__ModuleLoader__.load({
 		const SPEC_LABEL_KEYS = { "opencode-go": "specOpencodeGo" };
 		/** Copy keys for each spec's one-line explanation. */
 		const SPEC_HINT_KEYS = { "opencode-go": "specHintOpencodeGo" };
+		/**
+		 * The thinking levels a model may declare, in escalating order. A model's
+		 * `reasoningEfforts` is a map from one of these names to the value its wire
+		 * protocol expects, so the host refuses a level outside this list when the
+		 * document is saved — the card offers exactly these names and nothing else.
+		 */
+		const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+		/**
+		 * The levels each protocol's upstream accepts. Google is the narrow one:
+		 * pi-ai throws while assembling a Google request whose level is not one of
+		 * these four, so a Google row may not declare the rest — the refusal is
+		 * reworded here rather than discovered as a failed message.
+		 */
+		const PROTOCOL_THINKING_LEVELS = { "google-generative-ai": ["off", "minimal", "low", "medium", "high"] };
+		/** Copy keys for each thinking level's display name. */
+		const REASONING_LEVEL_KEYS = {
+			off: "reasoningLevelOff",
+			minimal: "reasoningLevelMinimal",
+			low: "reasoningLevelLow",
+			medium: "reasoningLevelMedium",
+			high: "reasoningLevelHigh",
+			xhigh: "reasoningLevelXhigh",
+			max: "reasoningLevelMax"
+		};
+		/** The levels a freshly enabled model starts with: Off plus the common trio. */
+		const INITIAL_REASONING_LEVELS = ["off", "low", "medium", "high"];
+		/**
+		 * The specs whose gateway publishes no model listing on some protocol, and
+		 * the prefix the host puts on that refusal.
+		 *
+		 * Both are a cross-file contract with the host half of this plugin
+		 * (`lib/index.js` exports the same table and prefix as `internals`): the
+		 * discovery RPC rethrows the host's error as a plain message, so the text is
+		 * the only part of a refusal this card can see. A spec listed here has no
+		 * listing to fetch at all — the button is not offered — and any family that
+		 * answers with the prefix is retired for the rest of the session.
+		 */
+		const SPECS_WITHOUT_LISTING = { "opencode-go": ["google-generative-ai"] };
+		const NO_LISTING_PREFIX = "no model list";
 		/** Placeholder capacity hints, matching the host's route defaults. */
 		const CAPACITY_HINT = {
 			contextWindow: "1M",
@@ -284,6 +329,97 @@ window.__ModuleLoader__.load({
 			const key = SPEC_HINT_KEYS[spec];
 			return key === void 0 ? t("specHintNone") : t(key);
 		}
+		//#region reasoning
+		/**
+		 * The thinking levels a model on this protocol may declare.
+		 * @param api - the protocol the row is served under, undefined until known.
+		 * @returns the levels, escalating; every level when the protocol is unconstrained.
+		 */
+		function reasoningLevels(api) {
+			return PROTOCOL_THINKING_LEVELS[api] ?? THINKING_LEVELS;
+		}
+		/**
+		 * A level's display name, falling back to the identifier so a hand-written
+		 * level still reads as itself.
+		 * @param t - the bound copy function.
+		 * @param level - the level's name.
+		 * @returns the localized name.
+		 */
+		function reasoningLevelLabel(t, level) {
+			const key = REASONING_LEVEL_KEYS[level];
+			return key === void 0 ? level : t(key);
+		}
+		/**
+		 * The wire value a level sends unless its own row says otherwise.
+		 * @param level - one of {@link THINKING_LEVELS}.
+		 * @returns the level's own name, or `null` for `off`, which sends nothing.
+		 */
+		function defaultReasoningValue(level) {
+			return level === "off" ? null : level;
+		}
+		/**
+		 * Whether the host will resolve a stored value: a nonempty string, or
+		 * nothing at all for `off` — a `null` on any other level is a declaration
+		 * this card cannot mean.
+		 * @param level - the declared level.
+		 * @param value - the value stored for it.
+		 * @returns whether the adapter accepts the entry.
+		 */
+		function acceptedReasoningValue(level, value) {
+			return typeof value === "string" ? value.length > 0 : value === null && level === "off";
+		}
+		/**
+		 * Read a model's declared levels.
+		 *
+		 * The stored order is replaced by ladder order so the editor always reads
+		 * top-down, but a hand-written level this build does not know is kept at the
+		 * end instead of being dropped: showing it is what lets the user remove it,
+		 * and a silent drop would rewrite the document behind their back. A value the
+		 * host refuses outright (`null`, an array, a primitive) reads as an empty
+		 * declaration, which the editor can switch off or repair.
+		 * @param model - the drafted row.
+		 * @returns the `[level, value]` entries, or undefined when the field is absent
+		 *   or `false`, which both mean "this model declares no levels".
+		 */
+		function reasoningEntries(model) {
+			const value = model.reasoningEfforts;
+			if (value === void 0 || value === false) return void 0;
+			if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+			const known = THINKING_LEVELS.filter((level) => Object.prototype.hasOwnProperty.call(value, level)).map((level) => [level, value[level]]);
+			const unknown = Object.keys(value).filter((level) => !THINKING_LEVELS.includes(level)).map((level) => [level, value[level]]);
+			return known.concat(unknown);
+		}
+		/**
+		 * Replace a row's declared levels, preserving every other field.
+		 * @param model - the drafted row.
+		 * @param entries - the entries to write in ladder order, or undefined to drop
+		 *   the field entirely (the model then declares no thinking levels).
+		 * @returns the replacement row.
+		 */
+		function withReasoningEntries(model, entries) {
+			const next = { ...model };
+			if (entries === void 0) Reflect.deleteProperty(next, "reasoningEfforts");
+			else next.reasoningEfforts = Object.fromEntries(entries);
+			return next;
+		}
+		/**
+		 * The copy key naming why the host would refuse these declarations, mirroring
+		 * its checks so the card names the row instead of failing the save.
+		 * @param entries - the declared entries.
+		 * @param api - the protocol the row is served under.
+		 * @returns the copy key, or undefined when the host accepts the declaration.
+		 */
+		function reasoningFault(entries, api) {
+			const allowed = reasoningLevels(api);
+			for (const [level, value] of entries) {
+				if (!THINKING_LEVELS.includes(level)) return "modelReasoningLevelUnknown";
+				if (!allowed.includes(level)) return "modelReasoningLevelUnsupported";
+				if (!acceptedReasoningValue(level, value)) return "modelReasoningValueRequired";
+			}
+			if (!entries.some(([level]) => level !== "off")) return "modelReasoningNeedsLevel";
+			return void 0;
+		}
+		//#endregion
 		/**
 		 * Validate the model rows the way the host will.
 		 * @param models - the drafted rows.
@@ -337,6 +473,19 @@ window.__ModuleLoader__.load({
 					index,
 					key: "modelProtocolUndeclared"
 				};
+				/**
+				 * The thinking-level declaration, checked only when the row makes one: a
+				 * row with no `reasoningEfforts` (or `false`) asks for no thinking and has
+				 * nothing to refuse.
+				 */
+				const reasoning = reasoningEntries(model);
+				if (reasoning !== void 0) {
+					const reasoningFaultKey = reasoningFault(reasoning, typeof api === "string" && api.length > 0 ? api : families === void 0 ? void 0 : families[0]);
+					if (reasoningFaultKey !== void 0) return {
+						index,
+						key: reasoningFaultKey
+					};
+				}
 			}
 			return void 0;
 		}
@@ -780,7 +929,129 @@ window.__ModuleLoader__.load({
 				value: choice,
 				key: choice
 			}, PROTOCOLS.includes(choice) ? protocolLabel(t, choice) : fmt(t("protocolUnsupported"), { protocol: choice }))))));
-			const capacities = e("div", { className: c("modelAdvanced") }, capacityField("contextWindow"), capacityField("maxTokens"), inputTypes, familyField, endpointField);
+			// The declared thinking levels, edited in the host's own vocabulary.
+			const [reasoningTyping, setReasoningTyping] = react.useState();
+			/**
+			 * Where the row sends its thinking-level declaration.
+			 *
+			 * A model's level map is the only way to say how this route's gateway
+			 * spells a level — the protocol alone cannot express it — so the editor
+			 * pairs each level with the value that goes on the wire. It only offers
+			 * levels the host resolves and the selected protocol can send: a level the
+			 * host does not know would make the document unsaveable, and a level the
+			 * protocol cannot send would fail on the first message instead of here.
+			 */
+			const reasoning = reasoningEntries(model);
+			const reasoningApi = typeof model.api === "string" && model.api.length > 0 ? model.api : families?.[0];
+			const reasoningChoices = reasoningLevels(reasoningApi);
+			const reasoningUsed = reasoning === void 0 ? [] : reasoning.map(([level]) => level);
+			const reasoningFaultKey = reasoning === void 0 ? void 0 : reasoningFault(reasoning, reasoningApi);
+			/** Rewrite the whole declaration, one entry per row. */
+			const writeReasoning = (entries) => {
+				onChange(withReasoningEntries(model, entries));
+			};
+			/** Replace one row's entry in place. */
+			const replaceReasoning = (entries, at, entry) => {
+				writeReasoning(entries.map((existing, index) => index === at ? entry : existing));
+			};
+			/**
+			 * Move a row to another level, keeping its wire value only when that value
+			 * was the row's own spelling of its own level: a spelling typed for one
+			 * level says nothing about the next.
+			 */
+			const changeReasoningLevel = (entries, at, from, value, to) => {
+				const keep = typeof value === "string" && value.length > 0 && value !== from && from !== "off" && to !== "off";
+				replaceReasoning(entries, at, [to, keep ? value : defaultReasoningValue(to)]);
+			};
+			/**
+			 * Record keystrokes into the document, trimmed, while the field shows the
+			 * raw text — so the value the card saves is the one the gateway will read.
+			 */
+			const editReasoningValue = (entries, at, level, text) => {
+				setReasoningTyping({
+					level,
+					text
+				});
+				const trimmed = text.trim();
+				replaceReasoning(entries, at, [level, trimmed.length === 0 ? defaultReasoningValue(level) : trimmed]);
+			};
+			/** Drop the keystroke text, repairing a value the host would refuse. */
+			const settleReasoningValue = (entries, at, level, value) => {
+				setReasoningTyping(void 0);
+				if (!acceptedReasoningValue(level, value)) replaceReasoning(entries, at, [level, defaultReasoningValue(level)]);
+			};
+			/**
+			 * What a row's selector offers: its own level first even when this protocol
+			 * does not allow it — hiding it would misreport what the document says and
+			 * leave no way to correct it — then every allowed level nobody has taken.
+			 */
+			const reasoningChoicesFor = (level) => [...reasoningChoices.includes(level) ? [] : [level], ...reasoningChoices.filter((choice) => choice === level || !reasoningUsed.includes(choice))];
+			/** Add the lowest unused level above the highest one already declared. */
+			const addReasoningLevel = (entries) => {
+				const used = entries.map(([level]) => level);
+				const highest = Math.max(-1, ...used.map((level) => reasoningChoices.indexOf(level)));
+				const level = reasoningChoices.find((candidate, index) => index > highest && !used.includes(candidate)) ?? reasoningChoices.find((candidate) => !used.includes(candidate));
+				if (level === void 0) return;
+				writeReasoning(entries.concat([[level, defaultReasoningValue(level)]]));
+			};
+			const reasoningHeaderRow = reasoning === void 0 || reasoning.length === 0 ? null : e("div", { className: c("modelReasoningRow"), "aria-hidden": "true" }, e("span", { className: c("modelFieldLabel") }, t("modelReasoningLevel")), e("span", { className: c("modelFieldLabel") }, t("modelReasoningValue")));
+			const reasoningRows = reasoning === void 0 ? [] : reasoning.map(([level, wire], at) => e("div", { className: c("modelReasoningRow"), key: level }, e("select", {
+				className: `${c("input")} ${c("selectInput")}`,
+				value: level,
+				"aria-label": `${t("modelReasoningLevel")} ${String(at + 1)}`,
+				disabled,
+				onChange: (event) => {
+					changeReasoningLevel(reasoning, at, level, wire, event.target.value);
+				}
+			}, reasoningChoicesFor(level).map((choice) => e("option", {
+				value: choice,
+				key: choice
+			}, reasoningLevelLabel(t, choice)))), e("input", {
+				className: `${c("input")} ${c("modelReasoningValue")}`,
+				type: "text",
+				value: reasoningTyping !== void 0 && reasoningTyping.level === level ? reasoningTyping.text : typeof wire === "string" ? wire : "",
+				placeholder: level === "off" ? t("modelReasoningOffValuePlaceholder") : level,
+				"aria-label": `${reasoningLevelLabel(t, level)} ${t("modelReasoningValue")}`,
+				"aria-invalid": !acceptedReasoningValue(level, wire),
+				disabled: disabled || level === "off",
+				onChange: (event) => {
+					editReasoningValue(reasoning, at, level, event.target.value);
+				},
+				onBlur: () => {
+					settleReasoningValue(reasoning, at, level, wire);
+				}
+			}), e("button", {
+				type: "button",
+				className: `${c("iconButton")} ${c("iconButtonDanger")}`,
+				"aria-label": `${t("modelReasoningRemove")} ${reasoningLevelLabel(t, level)}`,
+				title: t("modelReasoningRemove"),
+				disabled,
+				onClick: () => {
+					writeReasoning(reasoning.filter((_entry, index) => index !== at));
+				}
+			}, e(dsh_client_ui_primitives.IconTrashOutlineRegular, { size: 14 }))));
+			const reasoningError = reasoningFaultKey === void 0 ? null : e("p", { className: c("error") }, t(reasoningFaultKey));
+			const reasoningAdd = e("button", {
+				type: "button",
+				className: c("addModelButton"),
+				disabled: disabled || reasoningChoices.every((level) => reasoningUsed.includes(level)),
+				onClick: () => {
+					if (reasoning !== void 0) addReasoningLevel(reasoning);
+				}
+			}, e(dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 14 }), t("modelReasoningAdd"));
+			const reasoningBlock = e("div", {
+				className: c("modelReasoning"),
+				role: "group",
+				"aria-label": t("modelReasoning")
+			}, e("div", { className: c("modelReasoningHead") }, e("span", { className: c("modelFieldLabel") }, t("modelReasoning")), e(dsh_client_ui_primitives.Switch, {
+				checked: reasoning !== void 0,
+				label: t("modelReasoning"),
+				disabled,
+				onChange: (on) => {
+					writeReasoning(on ? reasoningChoices.filter((level) => INITIAL_REASONING_LEVELS.includes(level)).map((level) => [level, defaultReasoningValue(level)]) : void 0);
+				}
+			})), reasoning === void 0 ? null : e("p", { className: c("advancedHint") }, reasoningApi === "google-generative-ai" ? `${t("modelReasoningHelp")} ${t("modelReasoningGoogleHelp")}` : t("modelReasoningHelp")), reasoningHeaderRow, ...reasoningRows, reasoning === void 0 ? null : reasoningError, reasoning === void 0 ? null : reasoningAdd);
+			const capacities = e("div", { className: c("modelAdvanced") }, capacityField("contextWindow"), capacityField("maxTokens"), inputTypes, familyField, reasoningBlock, endpointField);
 			return e("div", { className: c("modelEntry") }, identity, capacities);
 		}
 		//#endregion
@@ -877,6 +1148,20 @@ window.__ModuleLoader__.load({
 			 */
 			const [fetchedApi, setFetchedApi] = react.useState();
 			const family = families.find((entry) => entry.api === fetchApi) ?? families[0];
+			/**
+			 * Whether asking this family for its model list is a question it answers.
+			 *
+			 * A gateway spec whose protocol surface publishes no listing is known from
+			 * the table above, and a family that already refused with the host's
+			 * no-listing prefix is known from that refusal — the two halves of one
+			 * cross-file contract. Either way the action is not offered: a control that
+			 * can only ever reproduce the same failure is a trap, and hand entry below
+			 * is the way. The listing itself is unobservable, not merely unavailable —
+			 * asking the Google surface for a model it does not serve answers the same
+			 * missing-session error as a model it does serve, so a fetched list could
+			 * not be trusted even if one were returned.
+			 */
+			const noListing = SPECS_WITHOUT_LISTING[probe.spec]?.includes(family.api) === true || fetchFailure !== void 0 && fetchFailure.startsWith(NO_LISTING_PREFIX);
 			/**
 			 * A candidate list outlives its family only by accident. When the family
 			 * it came from stops being declared, the offer is withdrawn: its models
@@ -985,7 +1270,7 @@ window.__ModuleLoader__.load({
 			}, protocolLabel(t, entry.api))));
 			const heading = e("div", { className: c("modelListHead") }, e("div", { className: c("modelCatalogHeading") }, e("span", { className: c("modelCatalogTitle") }, t("models")), e("span", { className: c("modelCatalogMeta") }, fmt(t("modelCount"), { count: String(models.length) }))), e("div", {
 				className: c("modelListActions")
-			}, familySelect, e("button", {
+			}, familySelect, noListing ? null : e("button", {
 				type: "button",
 				className: c("linkButton"),
 				disabled: disabled || fetching || family.blocked !== void 0,
@@ -1013,7 +1298,7 @@ window.__ModuleLoader__.load({
 					onChange(models.filter((_entry, at) => at !== index).map((entry) => ({ ...entry })));
 				}
 			}));
-			const list = models.length === 0 ? e("p", { className: c("modelEmpty") }, t("modelsEmpty")) : e("div", { className: c("modelList") }, rows);
+			const list = models.length === 0 ? e("p", { className: c("modelEmpty") }, t(noListing ? "modelsEmptyManual" : "modelsEmpty")) : e("div", { className: c("modelList") }, rows);
 			const addModel = e("button", {
 				type: "button",
 				className: c("addModelButton"),
@@ -1022,8 +1307,14 @@ window.__ModuleLoader__.load({
 					onChange([...models.map((model) => ({ ...model })), { id: "", __row: mintRowId() }]);
 				}
 			}, e(dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 14 }), t("addModel"));
+			const noListingHint = noListing ? e("p", { className: c("advancedHint") }, t("noModelListing")) : null;
 			const blocked = family.blocked !== void 0 && candidates === void 0 ? e("p", { className: c("advancedHint") }, t(family.blocked)) : null;
-			const failure = fetchFailure === void 0 ? null : e("p", { className: c("error") }, fetchFailure);
+			/**
+			 * A no-listing refusal is not a failure to report: the hint above already
+			 * says this endpoint publishes no list, and the action that produced the
+			 * refusal is gone with it.
+			 */
+			const failure = fetchFailure === void 0 || noListing ? null : e("p", { className: c("error") }, fetchFailure);
 			const panel = candidates === void 0 ? null : e(CandidatePanel, {
 				candidates,
 				checked,
@@ -1042,7 +1333,7 @@ window.__ModuleLoader__.load({
 				},
 				onAdopt: adopt
 			});
-			return e("section", { className: c("modelCatalog"), "aria-label": t("models") }, heading, list, addModel, blocked, failure, panel);
+			return e("section", { className: c("modelCatalog"), "aria-label": t("models") }, heading, list, addModel, noListingHint, blocked, failure, panel);
 		}
 		//#endregion
 		//#region Editor
@@ -1378,6 +1669,12 @@ window.__ModuleLoader__.load({
 				probe: {
 					settingsNs: ns,
 					defaultApi: protocol,
+					/**
+					 * The spec the draft follows, so the editor can tell a family whose
+					 * gateway publishes no listing from one that simply failed: the spec
+					 * is what the host keys that knowledge on.
+					 */
+					...spec.length === 0 ? {} : { spec },
 					families: [{
 						api: protocol,
 						baseURL: normalizedBaseURL,
@@ -1708,6 +2005,27 @@ window.__ModuleLoader__.load({
 			modelBaseUrlInvalid: "A model's own endpoint must be an http:// or https:// URL.",
 			endpointProtocolUnsupported: "One protocol endpoint names a protocol this build cannot serve; pick a served protocol, or remove the row.",
 			protocolUnsupported: "{protocol} (unsupported)",
+			modelReasoning: "Thinking levels",
+			modelReasoningHelp: "Each level names the value this route sends for it. Off sends nothing, so its value is fixed.",
+			modelReasoningGoogleHelp: "Google accepts only Off, Minimal, Low, Medium and High.",
+			reasoningLevelOff: "Off",
+			reasoningLevelMinimal: "Minimal",
+			reasoningLevelLow: "Low",
+			reasoningLevelMedium: "Medium",
+			reasoningLevelHigh: "High",
+			reasoningLevelXhigh: "Extra high",
+			reasoningLevelMax: "Max",
+			modelReasoningLevel: "Level",
+			modelReasoningValue: "Value",
+			modelReasoningOffValuePlaceholder: "Sends nothing",
+			modelReasoningRemove: "Remove level",
+			modelReasoningAdd: "Add level",
+			modelReasoningValueRequired: "Every level needs a non-empty value.",
+			modelReasoningNeedsLevel: "Declare at least one level besides Off.",
+			modelReasoningLevelUnknown: "This build does not know this level; remove it or pick a known one.",
+			modelReasoningLevelUnsupported: "This protocol cannot send this level; remove it or pick another.",
+			noModelListing: "This endpoint publishes no model list, so models must be entered by hand.",
+			modelsEmptyManual: "No model yet. Add one by hand.",
 			fetchFamily: "Protocol",
 			protocolPlus: "{protocol} +{count}"
 		};
@@ -1812,6 +2130,27 @@ window.__ModuleLoader__.load({
 			modelBaseUrlInvalid: "模型自己的端点必须是 http:// 或 https:// 开头的地址。",
 			endpointProtocolUnsupported: "某个协议端点指定的协议本版本无法提供；请改选可用的协议，或移除该行。",
 			protocolUnsupported: "{protocol}（不支持）",
+			modelReasoning: "思考强度",
+			modelReasoningHelp: "每个强度对应发给该路由的一个取值；「关闭」不发送任何取值，因此固定为空。",
+			modelReasoningGoogleHelp: "Google 只接受「关闭、最小、低、中、高」五档。",
+			reasoningLevelOff: "关闭",
+			reasoningLevelMinimal: "最小",
+			reasoningLevelLow: "低",
+			reasoningLevelMedium: "中",
+			reasoningLevelHigh: "高",
+			reasoningLevelXhigh: "极高",
+			reasoningLevelMax: "最高",
+			modelReasoningLevel: "强度",
+			modelReasoningValue: "取值",
+			modelReasoningOffValuePlaceholder: "不发送",
+			modelReasoningRemove: "移除强度",
+			modelReasoningAdd: "添加强度",
+			modelReasoningValueRequired: "每个强度都需要非空取值。",
+			modelReasoningNeedsLevel: "除了「关闭」，至少再声明一个强度。",
+			modelReasoningLevelUnknown: "本版本无法识别该强度；请移除它或改选可识别的强度。",
+			modelReasoningLevelUnsupported: "当前协议无法发送该强度；请移除它或改选其他强度。",
+			noModelListing: "该端点不公布模型列表，请手动填写模型。",
+			modelsEmptyManual: "还没有模型，请手动添加。",
 			fetchFamily: "协议",
 			protocolPlus: "{protocol} +{count}"
 		};

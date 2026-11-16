@@ -756,6 +756,55 @@ const GOOGLE_MODEL_PAGE_LIMIT = 10;
  * overflow rejects instead of truncating.
  */
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+/**
+ * The opening words of every answer that reports an endpoint working without
+ * publishing a model listing. `lib/client.js` matches this exact prefix to
+ * retire that family's fetch button for the rest of the session, so the phrase
+ * is a cross-file contract: its `NO_LISTING_PREFIX` repeats it verbatim, and the
+ * two must change together. Anything else — a missing credential, a refused
+ * status, an unreadable body, a transport failure — never opens with it, which
+ * is what keeps a temporary failure from deleting a control that would work
+ * once the credential or the network recovered.
+ */
+const NO_LISTING_PREFIX = "no model list";
+/**
+ * Statuses that mean the path itself is not a listing: the route does not exist,
+ * the method is not allowed, or the server does not implement it. Distinct from
+ * 401/403 (a listing exists but this credential may not read it), from 429 and
+ * 5xx (the listing exists and the server is busy or broken), and from a body
+ * that does not parse (the endpoint answered, with something else).
+ */
+const NO_LISTING_STATUS = /* @__PURE__ */ new Set([404, 405, 501]);
+/**
+ * Request specs whose endpoint serves requests but publishes no model listing of
+ * the protocol it speaks, keyed by spec and then by protocol. The fact is about
+ * the gateway, not the protocol: `opencode-go` speaks Google's wire format at
+ * `/google/v1beta` and answers 404 on every ListModels path, including the
+ * version-less and `alt=json` spellings, while its own shared `/v1/models` still
+ * enumerates the gateway catalog. A listing read from that shared path cannot be
+ * attributed to the Google family — the gateway returns its `MissingSessionID`
+ * refusal for any model id, real or invented, before it looks the model up, so
+ * nothing tells us which entries the Google side serves — hence manual entry
+ * instead of a guess.
+ */
+const SPECS_WITHOUT_LISTING = { "opencode-go": ["google-generative-ai"] };
+/**
+ * Whether a family is known, before any request, to have no listing to read.
+ * @param spec - the route's request spec, absent for a plain protocol route.
+ * @param api - the protocol of the family being offered.
+ * @returns true when the spec's table names this protocol.
+ */
+function specWithoutListing(spec, api) {
+	return spec !== void 0 && SPECS_WITHOUT_LISTING[spec]?.includes(api) === true;
+}
+/**
+ * The refusal reported when a family has no listing to read.
+ * @param detail - what proved it: an answered status, or the gateway's shape.
+ * @returns an LlmError whose message opens with {@link NO_LISTING_PREFIX}.
+ */
+function noListingError(detail) {
+	return new LlmError(`${NO_LISTING_PREFIX}: ${detail}; enter this provider's models by hand`, "DISCOVERY_UNSUPPORTED");
+}
 /** A positive integer field of a listing entry, or `undefined` when absent or unusable. */
 function capacity(...candidates) {
 	for (const candidate of candidates) if (typeof candidate === "number" && Number.isInteger(candidate) && candidate > 0) return candidate;
@@ -960,6 +1009,15 @@ async function discoverModels(request, storedProfile) {
 	const api = request.api ?? "openai-completions";
 	if (!LISTABLE_PROTOCOLS.has(api)) throw new LlmError(`provider-alias: protocol "${api}" has no model listing this build can read; enter this provider's models by hand`, "DISCOVERY_UNSUPPORTED");
 	const stored = storedProfile?.();
+	/**
+	 * A spec table entry is knowledge rather than a probe: the gateway that
+	 * declares it answers this protocol's listing path with "no such route" every
+	 * time, so the refusal is reported before the network and before a credential
+	 * is resolved. That also keeps a missing key from masking the fact as a
+	 * credential failure and leaves the card's hint truthful for a route with no
+	 * key saved yet.
+	 */
+	if (specWithoutListing(stored?.spec, api)) throw noListingError(`the ${String(stored.spec)} gateway publishes no ${api} model listing`);
 	const supplied = request.apiKey ?? await stored?.resolveApiKey();
 	const apiKey = supplied === void 0 ? void 0 : usableProbeKey(supplied);
 	/**
@@ -989,7 +1047,18 @@ async function discoverModels(request, storedProfile) {
 			if (request.signal?.aborted) throw new LlmError("model discovery aborted by caller", "ABORTED", { cause: error });
 			throw new LlmError(`could not reach ${url}`, "DISCOVERY_FAILED", { cause: error });
 		}
-		if (!response.ok) throw new LlmError(`${url} answered ${response.status}${response.status === 401 || response.status === 403 ? "; check the API key" : ""}`, "DISCOVERY_FAILED");
+		/**
+		 * An endpoint that answers "no such route", "no such method" or "not
+		 * implemented" has proved it publishes no listing here, and repeating the
+		 * request cannot change that; it is reported as {@link NO_LISTING_PREFIX} so
+		 * the card stops offering the fetch. Every other status keeps the ordinary
+		 * failure wording, because each is a state that can change: a key may be
+		 * granted, a rate limit may lift, a server may recover.
+		 */
+		if (!response.ok) {
+			if (NO_LISTING_STATUS.has(response.status)) throw noListingError(`${url} answered ${response.status}`);
+			throw new LlmError(`${url} answered ${response.status}${response.status === 401 || response.status === 403 ? "; check the API key" : ""}`, "DISCOVERY_FAILED");
+		}
 		let text;
 		try {
 			text = await readBounded(response, url);
@@ -1110,6 +1179,7 @@ function apply(ctx, config) {
 			...request.api === void 0 && stored !== void 0 ? { api: stored.api } : {},
 			...signal === void 0 ? {} : { signal }
 		}, () => stored === void 0 ? void 0 : {
+			spec: stored.spec,
 			headers: stored.headers,
 			resolveApiKey: () => resolveApiKey(request.provider, stored)
 		});
@@ -1165,6 +1235,11 @@ const internals = {
 	listingUrl,
 	readListing,
 	readGoogleListing,
+	NO_LISTING_PREFIX,
+	NO_LISTING_STATUS,
+	SPECS_WITHOUT_LISTING,
+	specWithoutListing,
+	noListingError,
 	credentialStoreFrom,
 	authContextFrom,
 	aliasResolveApiKey,
