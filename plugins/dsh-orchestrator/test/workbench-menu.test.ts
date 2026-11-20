@@ -100,6 +100,21 @@ describe('workbench menu v2', () => {
     await expect(menu.applyOp({ sessionId: 's1', op: 'set', id: 'maxParallel', value: '9' })).rejects.toThrow()
   })
 
+  it('clears the stale effort when the model changes (A1 regression)', async () => {
+    const state = makeState()
+    state.setEnabled('s1', true)
+    state.setRoute('s1', { provider: 'glm', model: 'model-a' })
+    state.setReasoningEffort('s1', 'high')
+    const menu = attachWorkbenchMenu(makeHub(state))
+    await menu.applyOp({ sessionId: 's1', op: 'set', id: 'route', value: 'glm::model-b' })
+    expect(state.stateOf('s1').route).toEqual({ provider: 'glm', model: 'model-b' })
+    expect(state.stateOf('s1').reasoningEffort).toBeUndefined()
+    // 选回同一模型不清档位
+    state.setReasoningEffort('s1', 'high')
+    await menu.applyOp({ sessionId: 's1', op: 'set', id: 'route', value: 'glm::model-b' })
+    expect(state.stateOf('s1').reasoningEffort).toBe('high')
+  })
+
   it('manages the fallback chain: add, dedupe, move, remove', async () => {
     const state = makeState()
     const menu = attachWorkbenchMenu(makeHub(state))

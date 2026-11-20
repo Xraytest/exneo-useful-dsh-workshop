@@ -113,7 +113,7 @@ src/core/   pure engine, no harness imports (types, graph, plan, router,
            budget, retry, jsonschema, prompts, engine, report)
 src/dsh/    harness adapter (journal, config, runs, subagents port)
 src/index.ts plugin entry: tools, config, events, usage accounting
-test/       71 vitest cases; the engine runs offline against a scripted port
+test/       105 vitest cases; the engine runs offline against a scripted port
 examples/offline-demo.ts   npm run demo — full lifecycle without a harness
 ```
 

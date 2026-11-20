@@ -380,6 +380,7 @@ export class Engine {
       const attemptRecord: AttemptRecord = { attempt, kind: 'work', startedAt: this.ports.clock.now() }
       record.attempts.push(attemptRecord)
       const attemptRoute = routeFor(attempt)
+      if (attemptRoute !== undefined) attemptRecord.route = attemptRoute
       this.publish(run.id, {
         type: 'task/started',
         runId: run.id,

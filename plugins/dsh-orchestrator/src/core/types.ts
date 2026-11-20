@@ -100,6 +100,8 @@ export interface AttemptRecord {
   detail?: string
   outputChars?: number
   usage?: Usage
+  /** Route actually used for this attempt (fallback attempts differ from the primary). */
+  route?: Route
 }
 
 export type FailureKind =

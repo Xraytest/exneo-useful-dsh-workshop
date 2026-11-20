@@ -87,7 +87,19 @@ const normalizeRouting = (value: unknown): RoutingConfig | undefined => {
     }
   }
   const fallback = normalizeRoute(value['default'])
-  return { roles, rules, ...(fallback ? { default: fallback } : {}) }
+  const fallbackRoutes: Route[] = []
+  if (Array.isArray(value['fallbacks'])) {
+    for (const entry of value['fallbacks']) {
+      const route = normalizeRoute(entry)
+      if (route) fallbackRoutes.push(route)
+    }
+  }
+  return {
+    roles,
+    rules,
+    ...(fallback ? { default: fallback } : {}),
+    ...(fallbackRoutes.length > 0 ? { fallbacks: fallbackRoutes } : {}),
+  }
 }
 
 const normalizeLimits = (value: unknown): Partial<BudgetLimits> => {

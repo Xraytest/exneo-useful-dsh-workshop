@@ -39,6 +39,9 @@ const check = (label, cond) => { console.log((cond ? 'ok   ' : 'FAIL ') + label)
 // cordis unwrapExports：有 default 导出时具名 inject/Config 会被丢弃（灰行事故根因）
 check('模块无 default 导出（loader unwrap 陷阱）', plugin.default === undefined)
 check('inject 声明含 webServer', JSON.stringify(plugin.inject).includes('webServer'))
+// cordis 属性访问卫兵：subagents/agents 未声明时 orch_run 首调即抛（2026-11-21 报障根因）
+check('inject 声明含 subagents', JSON.stringify(plugin.inject).includes('subagents'))
+check('inject 声明含 agents', JSON.stringify(plugin.inject).includes('agents'))
 check('orch_run 已注册', tools.has('orch_run'))
 check('orch_status 已注册', tools.has('orch_status'))
 check('orch_cancel 已注册', tools.has('orch_cancel'))
@@ -106,6 +109,9 @@ check('新会话默认 running=false', fresh.payload?.running === false)
 // ── 跨域拒绝 ──
 const cross = await call('/dsh-orchestrator/action', 'POST', { sessionId: 's1', enabled: true }, { origin: 'http://evil.example' })
 check('跨域 POST 403', cross.status === 403)
+// action 端点要求显式布尔：空 body 不再被解读成「开」
+const noBool = await call('/dsh-orchestrator/action', 'POST', { sessionId: 's1' })
+check('action 缺 enabled 400', noBool.status === 400)
 
 // ── GET /menu：声明式 spec ──
 const menu = await call('/dsh-orchestrator/menu?sessionId=s1')

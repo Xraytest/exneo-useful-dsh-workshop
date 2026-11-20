@@ -66,14 +66,14 @@ export function attachWorkbenchMenu(hub) {
         items.push({
             kind: 'note',
             tone: settings.enabled ? 'ok' : 'warn',
-            text: statusLine(settings) + '。拨开工作箱开关即生效；全部选择按会话记住、随时可改。',
+            text: statusLine(settings) + '。拨开工作箱开关即生效；按会话记住（分叉出的新会话不继承）、随时可改。',
         });
         items.push({ kind: 'heading', text: '模型与思考' });
         items.push({
             kind: 'select',
             id: 'route',
             label: '子代理默认模型',
-            hint: '重试与备选之外的默认路由；插件配置里的显式角色/规则仍优先。',
+            hint: '计划内任务显式 route、角色/规则路由都优先于它。',
             value: routeLabel(settings.route),
             options: [{ value: '', label: '（沿用插件配置）' }, ...catalogOptions(catalog)],
             placeholder: catalog.error ?? '选择 provider / 模型',
@@ -86,7 +86,7 @@ export function attachWorkbenchMenu(hub) {
                 ? '先选模型，这里会列出它支持的档位。'
                 : efforts === null
                     ? '该模型的档位元数据不可用，留空走模型默认。'
-                    : '只列该模型实际支持的档位。',
+                    : '只列该模型实际支持的档位；off＝不发思考参数（供应商默认思考时仍思考）。',
             value: settings.reasoningEffort ?? '',
             options: effortOptions,
             ...(settings.route === undefined ? { disabled: true } : {}),
@@ -185,9 +185,11 @@ export function attachWorkbenchMenu(hub) {
                 const route = text === '' ? undefined : splitRoute(text);
                 if (text !== '' && route === undefined)
                     throw menuError('模型值必须是 provider::model');
+                // 先记旧模型再写入：换模型（或清空）后旧档位多半不再适用，立即清掉，
+                // 否则残留档位会随路由进每次激活、撞 UNSUPPORTED_REASONING_EFFORT 硬错。
+                const prevModel = state.stateOf(sessionId).route?.model;
                 state.setRoute(sessionId, route);
-                // 换模型后原档位多半不再适用：清掉，让面板按新模型重列。
-                if (route === undefined || state.stateOf(sessionId).route?.model !== route.model) {
+                if (route === undefined || prevModel !== route.model) {
                     if (state.stateOf(sessionId).reasoningEffort !== undefined)
                         state.setReasoningEffort(sessionId, undefined);
                 }

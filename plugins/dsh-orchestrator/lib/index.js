@@ -21,6 +21,7 @@ import { Engine } from './core/engine.js';
 import { systemClock } from './core/budget.js';
 import { DEFAULT_PLAN_LIMITS } from './core/plan.js';
 import { DEFAULT_RETRY } from './core/retry.js';
+import { mergeRoute } from './core/router.js';
 import { emptyUsage } from './core/types.js';
 import { FileJournal } from './dsh/journal.js';
 import { DEFAULT_TUNING, safeRunId, tuningForCall, tuningFromConfig } from './dsh/config.js';
@@ -33,7 +34,7 @@ export const name = 'dsh-orchestrator';
 // 'webServer' 必须 reactive 注入：dsh-web-app 的 webServer 服务在插件 apply 时可能尚未启动，
 // 一次性 ctx.get 会拿到 undefined 并静默跳过路由挂载（2026-11-21 修复：改用工作箱同款
 // inject 声明，cordis 会等 webServer 就绪后再 apply，路由必然可挂）。
-export const inject = ['tools', 'webServer'];
+export const inject = ['tools', 'webServer', 'subagents', 'agents'];
 export const Config = z.object({
     provider: z.string().default('spawn').description('ctx.subagents backend for workers (spawn = fresh in-process children).'),
     maxDepth: z.union([z.natural(), z.const('provider-managed')]).description('Child delegation depth cap; omitted reads the host subagent depth setting.'),
@@ -215,25 +216,23 @@ export function apply(ctx, config) {
             parent: { sessionId: args.parent.id, agent: args.parent },
             limits: args.tuning.limits,
             defaults: args.tuning.defaults,
-            routing: {
-                ...args.tuning.routing,
-                ...(sessionSettings.route !== undefined
-                    ? {
-                        default: {
-                            ...sessionSettings.route,
-                            ...(sessionSettings.reasoningEffort !== undefined ? { reasoningEffort: sessionSettings.reasoningEffort } : {}),
-                        },
-                    }
-                    : {}),
-                ...(sessionSettings.fallbacks !== undefined || (args.tuning.routing.fallbacks ?? []).length > 0
-                    ? {
-                        fallbacks: [
-                            ...(args.tuning.routing.fallbacks ?? []),
-                            ...(sessionSettings.fallbacks ?? []),
-                        ],
-                    }
-                    : {}),
-            },
+            routing: (() => {
+                const base = args.tuning.routing;
+                const chain = [...(base.fallbacks ?? []), ...(sessionSettings.fallbacks ?? [])];
+                if (sessionSettings.route === undefined) {
+                    return { ...base, ...(chain.length > 0 ? { fallbacks: chain } : {}) };
+                }
+                // 字段级合并（mergeRoute）：会话选择 provider/model 时保留 config default 的
+                // maxTokens 等其余字段；但换模型后沿用旧 reasoningEffort 有硬错风险
+                // （UNSUPPORTED_REASONING_EFFORT 不静默降级），会话未显式选档位时丢弃它。
+                const merged = { ...(mergeRoute(base.default, sessionSettings.route) ?? sessionSettings.route) };
+                if (sessionSettings.reasoningEffort !== undefined)
+                    merged.reasoningEffort = sessionSettings.reasoningEffort;
+                else if (sessionSettings.route.provider !== base.default?.provider ||
+                    sessionSettings.route.model !== base.default?.model)
+                    delete merged.reasoningEffort;
+                return { ...base, default: merged, ...(chain.length > 0 ? { fallbacks: chain } : {}) };
+            })(),
             trigger,
             signal: controller.signal,
         });
@@ -268,7 +267,7 @@ export function apply(ctx, config) {
     const runTool = {
         name: 'orch_run',
         description: 'Plan and run one orchestrated multi-subagent task: decompose the goal into a DAG of self-contained tasks, run independent tasks in parallel, verify results, and synthesize a final report.'
-            + ' Workers are fresh subagents with no memory of this conversation, so every task prompt must be self-contained.'
+            + ' Workers are fresh subagents with no memory of this conversation (spawn backend; the fork backend instead inherits the parent session\'s completed turns and multiplies context cost by concurrency), so every task prompt must be self-contained.'
             + ' Returns the final report when wait=await (default) or a run id to poll with orch_status when wait=background.'
             + ' Per-session toolbox settings (model, effort, concurrency, wait mode, fallbacks) apply beneath explicit arguments.'
             + ' Use for fan-out work whose pieces are independent enough to delegate; do not use for a single quick question.',
@@ -278,7 +277,7 @@ export function apply(ctx, config) {
             properties: {
                 goal: { type: 'string', description: 'The objective for the whole orchestration, in the user language.' },
                 context: { type: 'string', description: 'Optional background for the planner and workers (paths, constraints, prior findings).' },
-                plan: { type: 'string', description: 'Optional caller-authored plan as JSON text: a top-level object with a tasks array of {id,title,role,prompt,dependsOn,acceptance,critical,verify,outputSchema}. Skips the planner stage.' },
+                plan: { type: 'string', description: 'Optional caller-authored plan as JSON text: a top-level object with a tasks array of {id,title,role,prompt,dependsOn,acceptance,critical,verify,outputSchema,route}. A task route {provider,model,reasoningEffort,maxTokens} wins over role/rule/default routing. Skips the planner stage.' },
                 runId: { type: 'string', description: 'Suggested run id (lower-case slug); collides with a live run are suffixed, and a unique one is generated when omitted.' },
                 wait: { type: 'string', enum: ['await', 'background'], description: 'await (default) blocks this call until the run settles; background returns the run id immediately.' },
                 maxParallel: { type: 'integer', description: 'Per-call override: concurrent workers (default from config).' },
@@ -555,7 +554,9 @@ export function apply(ctx, config) {
             const sessionId = typeof parsed.sessionId === 'string' ? parsed.sessionId : '';
             if (sessionId === '')
                 return json(400, { error: 'sessionId 必填' });
-            sessionState.setEnabled(sessionId, parsed.enabled !== false);
+            if (typeof parsed.enabled !== 'boolean')
+                return json(400, { error: 'enabled 必须是布尔值' });
+            sessionState.setEnabled(sessionId, parsed.enabled);
             return json(200, { ok: true, ...statusPayload(sessionId) });
         });
         register('/dsh-orchestrator/menu', async (req, res, json) => {

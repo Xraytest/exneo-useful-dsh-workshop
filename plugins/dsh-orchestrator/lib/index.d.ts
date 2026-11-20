@@ -70,6 +70,7 @@ export interface Config {
             route: RouteOptions;
         }>;
         default?: RouteOptions;
+        fallbacks?: RouteOptions[];
     };
     triggers?: TriggerRule[];
 }

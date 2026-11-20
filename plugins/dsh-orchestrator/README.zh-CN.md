@@ -1,6 +1,6 @@
 # dsh-orchestrator（DSH 编排器插件）
 
-为 DeepSeek Harness 提供多子代理编排：把目标拆成任务 DAG → 并行派发全新子代理 → 按角色路由模型 → critic 校验 → 关键失败自动重规划 → 综合成一份最终报告。
+为 DeepSeek Harness 提供多子代理编排：把目标拆成任务 DAG → 并行派发子代理（spawn＝全新会话；fork＝继承主会话已完成回合，上下文成本按并发放大）→ 按角色路由模型 → critic 校验 → 关键失败自动重规划 → 综合成一份最终报告。
 
 ```
 目标 ─▶ 规划器 ─▶ [ 任务 ─▶ 工人 ─▶ 校验? ]×DAG ─▶ 综合 ─▶ 报告
@@ -111,7 +111,7 @@ src/core/   纯引擎，零 harness 依赖（types/graph/plan/router/budget/
            retry/jsonschema/prompts/engine/report）
 src/dsh/    适配层（journal、config、runs、subagents 端口）
 src/index.ts 插件入口：工具注册、配置、事件、usage 记账
-test/       71 个 vitest 用例；引擎离线跑在脚本化假端口上
+test/       105 个 vitest 用例；引擎离线跑在脚本化假端口上
 examples/offline-demo.ts   npm run demo —— 无需 harness 的全流程演示
 ```
 
