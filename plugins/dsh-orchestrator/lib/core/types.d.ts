@@ -101,7 +101,7 @@ export interface TaskRecord {
     route?: Route;
     routeSource?: RouteSource;
 }
-export type RouteSource = 'task' | 'rule' | 'role' | 'default' | 'inherit';
+export type RouteSource = 'task' | 'rule' | 'role' | 'default' | 'fallback' | 'inherit';
 /** Hard ceilings for one run. Every field is optional; omitted means unbounded. */
 export interface BudgetLimits {
     readonly maxWallMs?: number;
@@ -186,6 +186,10 @@ export interface RoutingConfig {
     readonly roles: Readonly<Record<string, Route>>;
     readonly rules: readonly RouteRule[];
     readonly default?: Route;
+    /** Ordered fallback routes for worker retries: attempt 1 uses the primary
+     * route (task/rule/role/default), attempt 2 the first fallback, and so on.
+     * Planner, critic and synthesis always stay on the primary route. */
+    readonly fallbacks?: readonly Route[];
 }
 /** Events the engine publishes; the adapter forwards them to Cordis and the journal. */
 export type OrchestratorEvent = {

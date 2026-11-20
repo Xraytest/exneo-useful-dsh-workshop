@@ -17,6 +17,13 @@ export declare const EMPTY_ROUTING: RoutingConfig;
  * Precedence: explicit task route → first matching rule → role map → default → inherit.
  */
 export declare function resolveRoute(task: TaskSpec, routing: RoutingConfig): ResolvedRoute;
+/**
+ * The deduplicated fallback list for one task: everything configured under
+ * routing.fallbacks, minus a duplicate of the primary route. The ENGINE owns
+ * the slot layout — attempt 1 is always the primary (possibly undefined =
+ * inherit), fallbacks start at attempt 2, and past the end the last repeats.
+ */
+export declare function resolveFallbacks(task: TaskSpec, routing: RoutingConfig): Route[];
 /** Merge a resolved route over a base route; defined fields win. */
 export declare function mergeRoute(base: Route | undefined, override: Route | undefined): Route | undefined;
 /** Human-readable route label for reports and events. */

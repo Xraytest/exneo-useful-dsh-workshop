@@ -74,6 +74,12 @@ export const Config = z.object({
             reasoningEffort: z.string(),
             maxTokens: z.number().step(1).min(1),
         }),
+        fallbacks: z.array(z.object({
+            provider: z.string(),
+            model: z.string(),
+            reasoningEffort: z.string(),
+            maxTokens: z.number().step(1).min(1),
+        })).description('Ordered worker retry routes: attempt 2 uses the first fallback, attempt 3 the next, and so on.'),
     }).default({}),
     triggers: z.array(z.object({
         name: z.string(),
@@ -209,15 +215,25 @@ export function apply(ctx, config) {
             parent: { sessionId: args.parent.id, agent: args.parent },
             limits: args.tuning.limits,
             defaults: args.tuning.defaults,
-            routing: sessionSettings.route === undefined
-                ? args.tuning.routing
-                : {
-                    ...args.tuning.routing,
-                    default: {
-                        ...sessionSettings.route,
-                        ...(sessionSettings.reasoningEffort !== undefined ? { reasoningEffort: sessionSettings.reasoningEffort } : {}),
-                    },
-                },
+            routing: {
+                ...args.tuning.routing,
+                ...(sessionSettings.route !== undefined
+                    ? {
+                        default: {
+                            ...sessionSettings.route,
+                            ...(sessionSettings.reasoningEffort !== undefined ? { reasoningEffort: sessionSettings.reasoningEffort } : {}),
+                        },
+                    }
+                    : {}),
+                ...(sessionSettings.fallbacks !== undefined || (args.tuning.routing.fallbacks ?? []).length > 0
+                    ? {
+                        fallbacks: [
+                            ...(args.tuning.routing.fallbacks ?? []),
+                            ...(sessionSettings.fallbacks ?? []),
+                        ],
+                    }
+                    : {}),
+            },
             trigger,
             signal: controller.signal,
         });
@@ -254,6 +270,7 @@ export function apply(ctx, config) {
         description: 'Plan and run one orchestrated multi-subagent task: decompose the goal into a DAG of self-contained tasks, run independent tasks in parallel, verify results, and synthesize a final report.'
             + ' Workers are fresh subagents with no memory of this conversation, so every task prompt must be self-contained.'
             + ' Returns the final report when wait=await (default) or a run id to poll with orch_status when wait=background.'
+            + ' Per-session toolbox settings (model, effort, concurrency, wait mode, fallbacks) apply beneath explicit arguments.'
             + ' Use for fan-out work whose pieces are independent enough to delegate; do not use for a single quick question.',
         parameters: {
             type: 'object',
@@ -282,6 +299,10 @@ export function apply(ctx, config) {
             if (parent === undefined) {
                 throw new Error('orch_run requires a calling agent (exec.agent was undefined)');
             }
+            // 会话设置层（工具箱二级菜单）：显式工具参数 > 会话设置 > 插件配置。
+            const session = sessionState.stateOf(parent.id);
+            const effectiveWait = args.wait ?? session.waitMode;
+            const effectiveMaxParallel = args.maxParallel ?? session.maxParallel;
             let plan;
             if (typeof args.plan === 'string' && args.plan.trim().length > 0) {
                 try {
@@ -291,7 +312,7 @@ export function apply(ctx, config) {
                     return 'plan is not valid JSON text: ' + String(error.message);
                 }
             }
-            const tuning = tuningForCall(tuningOverrides(args), baseTuning);
+            const tuning = tuningForCall(tuningOverrides({ ...args, maxParallel: effectiveMaxParallel }), baseTuning);
             const { runId, settled } = startRun({
                 goal: args.goal,
                 ...(typeof args.context === 'string' && args.context.length > 0 ? { context: args.context } : {}),
@@ -299,9 +320,9 @@ export function apply(ctx, config) {
                 ...(typeof args.runId === 'string' && args.runId.length > 0 ? { runId: args.runId } : {}),
                 tuning,
                 parent,
-                ...(args.wait === 'await' || args.wait === undefined ? { callerSignal: exec.signal } : {}),
+                ...(effectiveWait === 'await' || effectiveWait === undefined ? { callerSignal: exec.signal } : {}),
             });
-            if (args.wait !== 'background') {
+            if (effectiveWait !== 'background') {
                 exec.signal.throwIfAborted();
                 const final = await settled;
                 return final.report ?? '';
@@ -405,9 +426,17 @@ export function apply(ctx, config) {
                 },
             }), 'dsh-orchestrator: ' + path);
         };
+        // ── llm 目录 / 模型元数据缓存：菜单每 3s 轮询一次 spec，绝不能每次都真查 llm ──
+        const CATALOG_TTL_MS = 60_000;
+        const MODEL_INFO_TTL_MS = 120_000;
+        let catalogCache = { groups: [] };
+        let catalogAt = 0;
+        const modelInfoCache = new Map();
         const menu = attachWorkbenchMenu({
             state: sessionState,
             catalog: async () => {
+                if (Date.now() - catalogAt < CATALOG_TTL_MS)
+                    return catalogCache;
                 const llm = (() => {
                     try {
                         return ctx.get('llm');
@@ -439,7 +468,38 @@ export function apply(ctx, config) {
                 catch (cause) {
                     error = '列 provider 失败：' + String(cause.message);
                 }
-                return { groups: groups.filter((group) => group.models.length > 0), ...(error !== undefined ? { error } : {}) };
+                catalogCache = { groups: groups.filter((group) => group.models.length > 0), ...(error !== undefined ? { error } : {}) };
+                catalogAt = Date.now();
+                return catalogCache;
+            },
+            modelInfo: async (provider, model) => {
+                const key = provider + '::' + model;
+                const hit = modelInfoCache.get(key);
+                if (hit !== undefined && Date.now() - hit.at < MODEL_INFO_TTL_MS)
+                    return { efforts: hit.efforts };
+                const llm = (() => {
+                    try {
+                        return ctx.get('llm');
+                    }
+                    catch {
+                        return undefined;
+                    }
+                })();
+                let efforts = null;
+                if (llm !== undefined && typeof llm.resolveModelInfo === 'function') {
+                    try {
+                        const info = await llm.resolveModelInfo(provider, model);
+                        const raw = info?.reasoning?.efforts;
+                        efforts = Array.isArray(raw)
+                            ? raw.map((item) => String(typeof item === 'string' ? item : item?.id ?? '')).filter((id) => id !== '')
+                            : null;
+                        if (efforts !== null && efforts.length === 0)
+                            efforts = null;
+                    }
+                    catch { /* 元数据拿不到：null，面板只留「模型默认」 */ }
+                }
+                modelInfoCache.set(key, { at: Date.now(), efforts });
+                return { efforts };
             },
             backends: () => {
                 try {

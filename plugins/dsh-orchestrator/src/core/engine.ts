@@ -20,7 +20,7 @@ import {
 } from './prompts.js'
 import { renderReport } from './report.js'
 import { DEFAULT_RETRY, backoffDelay, isRetryable, type RetryPolicy } from './retry.js'
-import { resolveRoute } from './router.js'
+import { resolveFallbacks, resolveRoute } from './router.js'
 import {
   emptyUsage,
   type AttemptRecord,
@@ -28,6 +28,7 @@ import {
   type JsonObject,
   type JsonValue,
   type Plan,
+  type Route,
   type RunRecord,
   type RunRequest,
   type TaskId,
@@ -354,6 +355,12 @@ export class Engine {
     const routingApplies = resolved.route === undefined || this.ports.subagents.supportsRouting
     if (resolved.route && routingApplies) record.route = resolved.route
     record.routeSource = routingApplies ? resolved.source : 'inherit'
+    // 备选槽位：attempt 1 恒为主路由（可能是 undefined＝继承父代理），重试才落 fallback。
+    const slots: (Route | undefined)[] = routingApplies
+      ? [resolved.route, ...resolveFallbacks(task, request.routing)]
+      : []
+    const routeFor = (attempt: number): Route | undefined =>
+      slots.length === 0 ? undefined : slots[Math.min(attempt - 1, slots.length - 1)]
     const maxAttempts = task.guards?.maxAttempts ?? this.retry.maxAttempts
     const timeoutMs = task.guards?.timeoutMs ?? request.defaults.timeoutMs
     let feedback: string | undefined
@@ -372,13 +379,14 @@ export class Engine {
       record.status = 'running'
       const attemptRecord: AttemptRecord = { attempt, kind: 'work', startedAt: this.ports.clock.now() }
       record.attempts.push(attemptRecord)
+      const attemptRoute = routeFor(attempt)
       this.publish(run.id, {
         type: 'task/started',
         runId: run.id,
         taskId: task.id,
         attempt,
-        ...(resolved.route ? { route: resolved.route } : {}),
-        ...(resolved.source ? { routeSource: resolved.source } : {}),
+        ...(attemptRoute ? { route: attemptRoute } : {}),
+        ...(attemptRoute ? { routeSource: attempt === 1 ? resolved.source : 'fallback' } : {}),
       })
 
       const dependencies = task.dependsOn
@@ -418,7 +426,7 @@ export class Engine {
           parent: request.parent,
           signal: controller.signal,
           ...(task.outputSchema ? { outputSchema: task.outputSchema } : {}),
-          ...(resolved.route ? { route: resolved.route } : {}),
+          ...(attemptRoute ? { route: attemptRoute } : {}),
           timeoutMs,
         })
         attemptRecord.childId = handle.childId

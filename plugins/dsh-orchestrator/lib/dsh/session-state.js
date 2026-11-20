@@ -55,6 +55,15 @@ export class SessionState {
                     stored.route = route;
                 if (typeof entry['reasoningEffort'] === 'string' && entry['reasoningEffort'] !== '')
                     stored.reasoningEffort = entry['reasoningEffort'];
+                if (typeof entry['maxParallel'] === 'number' && Number.isInteger(entry['maxParallel']) && entry['maxParallel'] >= 1 && entry['maxParallel'] <= 8)
+                    stored.maxParallel = entry['maxParallel'];
+                if (entry['waitMode'] === 'await' || entry['waitMode'] === 'background')
+                    stored.waitMode = entry['waitMode'];
+                if (Array.isArray(entry['fallbacks'])) {
+                    const routes = entry['fallbacks'].map((item) => validRoute(item)).filter((item) => item !== undefined);
+                    if (routes.length > 0)
+                        stored.fallbacks = routes.slice(0, 6);
+                }
                 if (Object.keys(stored).length > 0)
                     clean[id] = stored;
             }
@@ -103,6 +112,9 @@ export class SessionState {
             ...(entry.backend !== undefined ? { backend: entry.backend } : {}),
             ...(entry.route !== undefined ? { route: entry.route } : {}),
             ...(entry.reasoningEffort !== undefined ? { reasoningEffort: entry.reasoningEffort } : {}),
+            ...(entry.maxParallel !== undefined ? { maxParallel: entry.maxParallel } : {}),
+            ...(entry.waitMode !== undefined ? { waitMode: entry.waitMode } : {}),
+            ...(entry.fallbacks !== undefined ? { fallbacks: entry.fallbacks } : {}),
             hasOverride: true,
         };
     }
@@ -143,6 +155,38 @@ export class SessionState {
                 delete next.backend;
             else
                 next.backend = clean;
+            return next;
+        });
+    }
+    setMaxParallel(sessionId, maxParallel) {
+        this.update(sessionId, (entry) => {
+            const next = { ...entry };
+            const clean = maxParallel !== undefined ? Math.min(8, Math.max(1, Math.round(maxParallel))) : undefined;
+            if (clean === undefined)
+                delete next.maxParallel;
+            else
+                next.maxParallel = clean;
+            return next;
+        });
+    }
+    setWaitMode(sessionId, waitMode) {
+        this.update(sessionId, (entry) => {
+            const next = { ...entry };
+            if (waitMode === undefined)
+                delete next.waitMode;
+            else
+                next.waitMode = waitMode;
+            return next;
+        });
+    }
+    setFallbacks(sessionId, fallbacks) {
+        this.update(sessionId, (entry) => {
+            const next = { ...entry };
+            const clean = Array.isArray(fallbacks) ? fallbacks.slice(0, 6) : undefined;
+            if (clean === undefined || clean.length === 0)
+                delete next.fallbacks;
+            else
+                next.fallbacks = clean;
             return next;
         });
     }

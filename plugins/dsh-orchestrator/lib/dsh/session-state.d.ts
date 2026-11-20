@@ -8,6 +8,12 @@ export interface SessionSettings {
     readonly backend?: string;
     readonly route?: SessionRoute;
     readonly reasoningEffort?: string;
+    /** Worker concurrency cap for runs started in this session (1..8). */
+    readonly maxParallel?: number;
+    /** Forced wait mode for orch_run in this session; undefined = per-call/model choice. */
+    readonly waitMode?: 'await' | 'background';
+    /** Ordered fallback subagent routes appended after the plugin routing fallbacks. */
+    readonly fallbacks?: SessionRoute[];
     readonly hasOverride: boolean;
 }
 export declare const DEFAULT_SESSION_SETTINGS: SessionSettings;
@@ -27,5 +33,8 @@ export declare class SessionState {
     setRoute(sessionId: string, route: SessionRoute | undefined): void;
     setReasoningEffort(sessionId: string, effort: string | undefined): void;
     setBackend(sessionId: string, backend: string | undefined): void;
+    setMaxParallel(sessionId: string, maxParallel: number | undefined): void;
+    setWaitMode(sessionId: string, waitMode: 'await' | 'background' | undefined): void;
+    setFallbacks(sessionId: string, fallbacks: SessionRoute[] | undefined): void;
     clear(sessionId: string): void;
 }

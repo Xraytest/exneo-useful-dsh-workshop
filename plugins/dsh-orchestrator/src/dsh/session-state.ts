@@ -26,6 +26,12 @@ export interface SessionSettings {
   readonly backend?: string
   readonly route?: SessionRoute
   readonly reasoningEffort?: string
+  /** Worker concurrency cap for runs started in this session (1..8). */
+  readonly maxParallel?: number
+  /** Forced wait mode for orch_run in this session; undefined = per-call/model choice. */
+  readonly waitMode?: 'await' | 'background'
+  /** Ordered fallback subagent routes appended after the plugin routing fallbacks. */
+  readonly fallbacks?: SessionRoute[]
   readonly hasOverride: boolean
 }
 
@@ -36,6 +42,9 @@ interface StoredEntry {
   backend?: string
   route?: SessionRoute
   reasoningEffort?: string
+  maxParallel?: number
+  waitMode?: 'await' | 'background'
+  fallbacks?: SessionRoute[]
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -71,6 +80,12 @@ export class SessionState {
         const route = validRoute(entry['route']);
         if (route !== undefined) stored.route = route;
         if (typeof entry['reasoningEffort'] === 'string' && entry['reasoningEffort'] !== '') stored.reasoningEffort = entry['reasoningEffort'];
+        if (typeof entry['maxParallel'] === 'number' && Number.isInteger(entry['maxParallel']) && entry['maxParallel'] >= 1 && entry['maxParallel'] <= 8) stored.maxParallel = entry['maxParallel'];
+        if (entry['waitMode'] === 'await' || entry['waitMode'] === 'background') stored.waitMode = entry['waitMode'];
+        if (Array.isArray(entry['fallbacks'])) {
+          const routes = entry['fallbacks'].map((item: unknown) => validRoute(item)).filter((item: SessionRoute | undefined): item is SessionRoute => item !== undefined);
+          if (routes.length > 0) stored.fallbacks = routes.slice(0, 6);
+        }
         if (Object.keys(stored).length > 0) clean[id] = stored
       }
       this.doc = { version: 1, sessions: clean };
@@ -114,6 +129,9 @@ export class SessionState {
       ...(entry.backend !== undefined ? { backend: entry.backend } : {}),
       ...(entry.route !== undefined ? { route: entry.route } : {}),
       ...(entry.reasoningEffort !== undefined ? { reasoningEffort: entry.reasoningEffort } : {}),
+      ...(entry.maxParallel !== undefined ? { maxParallel: entry.maxParallel } : {}),
+      ...(entry.waitMode !== undefined ? { waitMode: entry.waitMode } : {}),
+      ...(entry.fallbacks !== undefined ? { fallbacks: entry.fallbacks } : {}),
       hasOverride: true,
     };
   }
@@ -153,6 +171,35 @@ export class SessionState {
       const clean = backend !== undefined && backend !== '' ? backend : undefined;
       if (clean === undefined) delete next.backend;
       else next.backend = clean;
+      return next;
+    });
+  }
+
+  setMaxParallel(sessionId: string, maxParallel: number | undefined): void {
+    this.update(sessionId, (entry) => {
+      const next = { ...entry };
+      const clean = maxParallel !== undefined ? Math.min(8, Math.max(1, Math.round(maxParallel))) : undefined;
+      if (clean === undefined) delete next.maxParallel;
+      else next.maxParallel = clean;
+      return next;
+    });
+  }
+
+  setWaitMode(sessionId: string, waitMode: 'await' | 'background' | undefined): void {
+    this.update(sessionId, (entry) => {
+      const next = { ...entry };
+      if (waitMode === undefined) delete next.waitMode;
+      else next.waitMode = waitMode;
+      return next;
+    });
+  }
+
+  setFallbacks(sessionId: string, fallbacks: SessionRoute[] | undefined): void {
+    this.update(sessionId, (entry) => {
+      const next = { ...entry };
+      const clean = Array.isArray(fallbacks) ? fallbacks.slice(0, 6) : undefined;
+      if (clean === undefined || clean.length === 0) delete next.fallbacks;
+      else next.fallbacks = clean;
       return next;
     });
   }

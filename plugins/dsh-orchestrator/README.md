@@ -61,10 +61,26 @@ Plugin config (Plugins page row, `cordis.patch.yml`, or profile patch):
 
 Routing precedence: explicit task route → first matching rule (wildcards allowed) → role map → `default` → inherit the parent's route. Routes become `agentOptions` overrides on each child. Note: a route that sets `provider`/`model` without `reasoningEffort` intentionally drops the parent's effort.
 
+`routing.fallbacks` (optional, 0.3.0): the worker retry chain — attempt 1 uses the primary route, attempt 2 the first fallback, and so on (duplicates of the primary are dropped, past the end the last entry repeats; planner / critic / synthesis always stay on the primary route).
+
 
 ## Toolbox switch and per-session subagent menu
 
-The dsh-workbench toolbox carries an Orchestrator switch (per session). **New sessions start disabled** — `orch_run` stays hidden and session-event triggers stay paused until the switch is turned on for that session. The switch persists per session in BOTH directions (on and off both stored under `$DSH_HOME/dsh-orchestrator/sessions.json`) and remains freely changeable at any time. The row's secondary menu (子代理设置) sets this session's subagent defaults: the default worker model (from the host's llm catalog), reasoning effort, and backend (spawn / fork) — likewise per-session, applied live; the chosen model becomes the session's default route (explicit role/rule routes in plugin config still win).
+The dsh-workbench toolbox carries an Orchestrator switch (per session). **New sessions start disabled** — `orch_run` stays hidden and session-event triggers stay paused until the switch is turned on for that session. The switch persists per session in BOTH directions (on and off both stored under `$DSH_HOME/dsh-orchestrator/sessions.json`) and remains freely changeable at any time.
+
+The row's secondary menu (子代理设置, v2 layout; everything per-session, live, changeable):
+
+| Group | Setting | Semantics |
+| --- | --- | --- |
+| Status | top status line | compact summary of what is currently in effect (enabled / model / concurrency / wait / fallbacks) |
+| Model & reasoning | default model | this session's `routing.default`; explicit role/rule routes in plugin config still win |
+| | reasoning effort | **listed from the selected model's actual metadata** (llm `resolveModelInfo`) — no longer a hardcoded trio; when metadata is unavailable only 「模型默认」 remains |
+| | subagent backend | spawn (fresh sessions) / fork (inherits the parent's completed turns) |
+| Concurrency & wait | concurrency cap | `maxParallel` for runs started in this session (1..8); an explicit orch_run argument wins |
+| | wait mode | background = every `orch_run` in this session returns the run id immediately (the cure for long foreground waits); await = block until done |
+| Fallbacks | retry chain (max 6) | workers advance along it on retries; appended after the plugin's `routing.fallbacks`; reorder/remove inline |
+
+Overall precedence: **explicit orch_run argument > session menu setting > plugin config** (within routing: explicit task route / rule / role map > session default route).
 
 ## Session-event triggers (opt-in)
 

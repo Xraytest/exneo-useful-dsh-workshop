@@ -110,8 +110,17 @@ check('跨域 POST 403', cross.status === 403)
 // ── GET /menu：声明式 spec ──
 const menu = await call('/dsh-orchestrator/menu?sessionId=s1')
 check('menu 200', menu.status === 200)
-check('menu 通用件齐全', Array.isArray(menu.payload?.items) && menu.payload.items.length >= 5)
+check('menu 通用件齐全', Array.isArray(menu.payload?.items) && menu.payload.items.length >= 12)
 check('menu phase=off（本会话当前关）', menu.payload?.phase === 'off')
+// v2：并发 / 等待 / 备选链
+const mp = await call('/dsh-orchestrator/menu', 'POST', { sessionId: 's1', op: 'set', id: 'maxParallel', value: '4' })
+check('set maxParallel=4 200', mp.status === 200)
+const wm = await call('/dsh-orchestrator/menu', 'POST', { sessionId: 's1', op: 'set', id: 'waitMode', value: 'background' })
+check('set waitMode=background 200', wm.status === 200)
+const badMp = await call('/dsh-orchestrator/menu', 'POST', { sessionId: 's1', op: 'set', id: 'maxParallel', value: '9' })
+check('maxParallel 越界 400', badMp.status === 400)
+const badRoute = await call('/dsh-orchestrator/menu', 'POST', { sessionId: 's1', op: 'fb-add', fields: { route: 'not-a-route' } })
+check('fb-add 非法值 400', badRoute.status === 400)
 const badOp = await call('/dsh-orchestrator/menu', 'POST', { sessionId: 's1', op: 'nope' })
 check('未知 op 400', badOp.status === 400)
 

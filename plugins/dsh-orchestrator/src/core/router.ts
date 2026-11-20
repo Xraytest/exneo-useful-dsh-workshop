@@ -41,6 +41,27 @@ export function resolveRoute(task: TaskSpec, routing: RoutingConfig): ResolvedRo
   return { route: undefined, source: 'inherit' }
 }
 
+/** Route label identity used to dedupe the chain (provider/model/effort). */
+const routeKey = (route: Route): string =>
+  [route.provider ?? '', route.model ?? '', route.reasoningEffort ?? ''].join('/**/')
+
+/**
+ * The deduplicated fallback list for one task: everything configured under
+ * routing.fallbacks, minus a duplicate of the primary route. The ENGINE owns
+ * the slot layout — attempt 1 is always the primary (possibly undefined =
+ * inherit), fallbacks start at attempt 2, and past the end the last repeats.
+ */
+export function resolveFallbacks(task: TaskSpec, routing: RoutingConfig): Route[] {
+  const primary = resolveRoute(task, routing).route
+  const out: Route[] = []
+  for (const fallback of routing.fallbacks ?? []) {
+    if (primary !== undefined && routeKey(fallback) === routeKey(primary)) continue
+    if (out.some((entry) => routeKey(entry) === routeKey(fallback))) continue
+    out.push(fallback)
+  }
+  return out
+}
+
 /** Merge a resolved route over a base route; defined fields win. */
 export function mergeRoute(base: Route | undefined, override: Route | undefined): Route | undefined {
   if (!base) return override

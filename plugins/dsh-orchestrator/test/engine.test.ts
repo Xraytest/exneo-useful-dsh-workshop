@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Engine, EngineError } from '../src/core/engine.js'
+import { DEFAULT_RETRY } from '../src/core/retry.js'
 import { CRITIC_SCHEMA, PLAN_SCHEMA } from '../src/core/prompts.js'
 import type { ActivationRequest, SubagentPort } from '../src/core/ports.js'
 import type { JsonValue, OrchestratorEvent } from '../src/core/types.js'
@@ -368,6 +369,84 @@ describe('engine: routing', () => {
     expect(run.tasks['other']?.routeSource).toBe('inherit')
     const forwarded = sub.byKind('work').map((s) => s.request.route)
     expect(forwarded[0]).toEqual({ provider: 'glm', reasoningEffort: 'high' })
+  })
+
+  it('advances worker retries along the fallback chain (deduped, clamped)', async () => {
+    resetUsage()
+    let calls = 0
+    const sub = new ScriptedPort((req) => {
+      if (req.kind !== 'work') return { outcome: outcome({ text: 'x' }) }
+      calls += 1
+      return calls <= 2
+        ? { outcome: outcome({ text: 'boom', stopReason: 'error' }) }
+        : { outcome: outcome({ text: 'ok' }) }
+    })
+    const base = request({
+      plan: rawPlan([{ id: 'a', role: 'coder', critical: false }]),
+      routing: {
+        roles: { coder: { provider: 'primary', model: 'p1' } },
+        rules: [],
+        // 首条与主路由重复 → 应被去重；attempt 2 落到 b1，attempt 3 越界后钳制到链尾 b2。
+        fallbacks: [
+          { provider: 'primary', model: 'p1' },
+          { provider: 'backup', model: 'b1' },
+          { provider: 'backup', model: 'b2' },
+        ],
+      },
+    })
+    // 核心引擎的重试策略来自构造期 retry（适配层才映射 defaults），这里显式给 3 次。
+    const run = await new Engine(ports(sub, new FakeClock(), makeJournal(), () => {}), { ...DEFAULT_RETRY, maxAttempts: 3 }).run(base)
+    expect(run.status).toBe('succeeded')
+    const routes = sub.byKind('work').map((s) => s.request.route)
+    expect(routes).toHaveLength(3)
+    expect(routes[0]).toEqual({ provider: 'primary', model: 'p1' })
+    expect(routes[1]).toEqual({ provider: 'backup', model: 'b1' })
+    expect(routes[2]).toEqual({ provider: 'backup', model: 'b2' })
+    expect(run.tasks['a']?.route).toEqual({ provider: 'primary', model: 'p1' })
+    expect(run.tasks['a']?.routeSource).toBe('role')
+    expect(run.tasks['a']?.attempts).toHaveLength(3)
+  })
+
+  it('inherits on attempt 1 and starts falling back from attempt 2 when no primary route exists', async () => {
+    resetUsage()
+    let calls = 0
+    const sub = new ScriptedPort((req) => {
+      if (req.kind !== 'work') return { outcome: outcome({ text: 'x' }) }
+      calls += 1
+      return calls === 1 ? { outcome: outcome({ text: 'bad', stopReason: 'error' }) } : { outcome: outcome({ text: 'ok' }) }
+    })
+    const run = await new Engine(ports(sub, new FakeClock(), makeJournal(), () => {}), { ...DEFAULT_RETRY, maxAttempts: 2 }).run(
+      request({
+        plan: rawPlan([{ id: 'a', role: 'free', critical: false }]),
+        routing: { roles: {}, rules: [], fallbacks: [{ provider: 'backup', model: 'b1' }] },
+      }),
+    )
+    expect(run.status).toBe('succeeded')
+    const routes = sub.byKind('work').map((s) => s.request.route)
+    expect(routes[0]).toBeUndefined()
+    expect(routes[1]).toEqual({ provider: 'backup', model: 'b1' })
+  })
+
+  it('keeps the happy path on the primary route when fallbacks are configured', async () => {
+    resetUsage()
+    const sub = new ScriptedPort()
+    const run = await engine(sub).run(
+      request({
+        plan: rawPlan([{ id: 'a', role: 'coder' }]),
+        routing: {
+          roles: {},
+          rules: [],
+          default: { provider: 'primary', model: 'p1' },
+          fallbacks: [{ provider: 'backup', model: 'b1' }],
+        },
+      }),
+    )
+    expect(run.status).toBe('succeeded')
+    // 一次成功：只应有 1 次 work 激活，且走主路由（备选链不扰动正常路径）。
+    const works = sub.byKind('work')
+    expect(works).toHaveLength(1)
+    expect(works[0]?.request.route).toEqual({ provider: 'primary', model: 'p1' })
+    expect(run.tasks['a']?.routeSource).toBe('default')
   })
 })
 

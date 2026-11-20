@@ -1,6 +1,6 @@
 {
   "name": "dsh-orchestrator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Orchestrator plugin for DeepSeek Harness: plan a task DAG, dispatch parallel subagents, route roles/models, verify and aggregate results, and drive runs from event or schedule triggers.",
   "keywords": [
     "dsh",
