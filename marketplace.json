@@ -1,7 +1,7 @@
 {
   "name": "exneo-useful-dsh-workshop",
   "version": "1.0.0",
-  "description": "DSH 插件市场：35 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强、工作箱、REA 逆向工程、插件自动更新），每个都是可直接 install_bundle 的 Cordis bundle。",
+  "description": "DSH 插件市场：32 个自研/整理插件的 monorepo（模型路由、会话管理、用量统计、权限审计、多设备网格、界面增强、工作箱、REA 逆向工程、插件自动更新），每个都是可直接 install_bundle 的 Cordis bundle。",
   "license": "LGPL-3.0",
   "dsh": {
     "minVersion": ">=0.2.0-rc.1"
@@ -12,18 +12,6 @@
     "note": "安装前请确认 profile 的 cordis.patch.yml 中没有同 rowId 的旧行，否则报 duplicate loader entry id。"
   },
   "plugins": [
-    {
-      "id": "eac-design-world",
-      "path": "plugins/eac-design-world",
-      "rowId": "eac-design-world",
-      "version": "0.4.0",
-      "category": "creative",
-      "description": "EAC design world：DSH 的本地视频制作与设计工作室——模板选片、浏览器/桌面录制、多轨时间线、本地语音字幕、渲染质检与 HTML/SVG/Markdown 设计成品（保留源文件与修订历史）。本目录为 Ebony-Vinyl/EAC-design-world（AGPL-3.0-or-later）的本地修改版，出处与修改点见 plugins/eac-design-world/MARKETPLACE-PROVENANCE.md",
-      "license": "AGPL-3.0-or-later",
-      "hasClient": true,
-      "peers": [],
-      "author": "Ebony-Vinyl（Xraytest 本地修改版）"
-    },
     {
       "id": "dsh-admin-channel",
       "path": "plugins/dsh-admin-channel",
@@ -87,17 +75,6 @@
       ]
     },
     {
-      "id": "dsh-dual-agent",
-      "path": "plugins/dsh-dual-agent",
-      "rowId": "dual-agent",
-      "version": "4.1.0",
-      "category": "tooling",
-      "description": "双主智能：启动=武装待命（等用户键入初始指令）；执行者=真 subagent（delivery:caller，自己的会话与提示）；任务期间主上下文静默（回合起点被压制）；挑刺者=主上下文评估人格，执行者自然结算后由编排注入恰一条「报告+评估」消息；用户手动停止回待命等补充、不挑刺。",
-      "license": "MIT",
-      "hasClient": false,
-      "peers": []
-    },
-    {
       "id": "dsh-free-search",
       "path": "plugins/dsh-free-search",
       "rowId": "web-search-free",
@@ -142,34 +119,12 @@
       "peers": []
     },
     {
-      "id": "dsh-model-capabilities",
-      "path": "plugins/dsh-model-capabilities",
-      "rowId": "model-capabilities",
-      "version": "1.0.0",
-      "category": "model",
-      "description": "模型能力管理：按模型管理输入模态与思考强度（关闭/低/高/最大四档），管理值写入 llm-pi-ai 渠道设置成为真实能力声明",
-      "license": "MIT",
-      "hasClient": true,
-      "peers": []
-    },
-    {
       "id": "dsh-model-groups",
       "path": "plugins/dsh-model-groups",
       "rowId": "model-groups",
       "version": "1.0.1",
       "category": "model",
       "description": "模型分组：把 (provider, model) 路由编成命名组（成员可跨供应商），一个路由最多归属一个组；分组供用量统计（by=group）与重试策略（按组下策略）消费，设置页「模型分组」管理。",
-      "license": "MIT",
-      "hasClient": true,
-      "peers": []
-    },
-    {
-      "id": "dsh-model-pool",
-      "path": "plugins/dsh-model-pool",
-      "rowId": "model-pool",
-      "version": "1.0.0",
-      "category": "model",
-      "description": "会话级模型供应池（纯静态、无预设/skill/模型工具依赖）：在会话头部的「供应池」工具里按会话启用/停用，动态调整各级用量上限与重置计数；按 SessionId 严格隔离，未启用的会话完全直通。",
       "license": "MIT",
       "hasClient": true,
       "peers": []
@@ -192,6 +147,17 @@
       "version": "1.0.0",
       "category": "model",
       "description": "Cordis plugin: on ModelScope multimodal-download timeouts, drop the earliest image from the model-visible surface and retry the failed step.",
+      "license": "MIT",
+      "hasClient": false,
+      "peers": []
+    },
+    {
+      "id": "dsh-orchestrator",
+      "path": "plugins/dsh-orchestrator",
+      "rowId": "orchestrator",
+      "version": "0.1.0",
+      "category": "tooling",
+      "description": "多代理编排引擎：orch_run 一个工具声明目标与预算，引擎自行规划任务 DAG、并行派发 spawn/fork 子代理、按 schema 与停止原因判定成败、失败自动重试与重规划、全程事件留痕可取消；工具箱里有按会话开关与「子代理设置」二级菜单（指定本会话子代理的默认模型/思考力度/后端）。",
       "license": "MIT",
       "hasClient": false,
       "peers": []
@@ -348,7 +314,7 @@
       "id": "dsh-workbench",
       "path": "plugins/dsh-workbench",
       "rowId": "workbench",
-      "version": "1.12.0",
+      "version": "1.13.0",
       "category": "ui",
       "description": "工作箱（输入框工具行 order 23，原 Ultracode 座位）：图标点击展开工作列表，复选选中才注入上下文。Ultracode 联动 dsh-ultracode 开关；REA 未选中时经 rea-mcp 摘除全部工具 schema，并在系统提示装配期摘除 mcp:rea 说明段——零上下文注入。选择按会话家族落盘 workbench.json。",
       "license": "MIT",

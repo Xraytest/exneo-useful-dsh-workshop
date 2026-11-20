@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-11-16T14:09:38Z",
+  "generatedAt": "2026-11-20T15:46:14.696Z",
   "items": [
     {
       "id": "dsh-admin-channel",
@@ -23,13 +23,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-archived-sessions",
@@ -52,13 +52,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-bilibili",
@@ -81,448 +81,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-device-mesh",
-      "name": "dsh-device-mesh",
-      "displayName": "device-mesh",
-      "summary": "设备网格：多台 DSH 互相接入，会话按 设备/工作区/会话 三级汇总",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "multi-device"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-device-mesh"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-dual-agent",
-      "name": "dsh-dual-agent",
-      "displayName": "dual-agent",
-      "summary": "双主智能：启动=武装待命（等用户键入初始指令）；执行者=真 subagent（delivery:caller，自己的会话与提示）；任务期间主上下文静默（回合起点被压制）；挑刺者=主上下文评估人格，执行者自然结算后由编排注入恰一条「报告+评估」消息；用户手动停止回待命等补充、不挑刺。",
-      "latestVersion": "4.1.0",
-      "license": "MIT",
-      "categories": [
-        "tooling"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-dual-agent"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-free-search",
-      "name": "dsh-free-search",
-      "displayName": "free-search",
-      "summary": "免费网页搜索：多引擎并行 + 智能路由 + 多源合并去重 + 时间过滤 + 页面全文抓取，无需 API Key。上游 DDDMUC/dsh-free-search（MIT），此处为镜像收录，出处与差异见 UPSTREAM.md。",
-      "latestVersion": "0.9.23",
-      "license": "MIT",
-      "categories": [
-        "tooling"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-free-search"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-image-unload",
-      "name": "dsh-image-unload",
-      "displayName": "image-unload",
-      "summary": "Cordis plugin: an unload_images model tool that drops the images in the agent's context from later model requests.",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "tooling"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-image-unload"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-message-branches",
-      "name": "dsh-message-branches",
-      "displayName": "message-branches",
-      "summary": "消息分支（v4）：分支＝我发出的某条消息的多个版本，**不创建任何会话记录**。每条我的消息下面有一条导航条「‹ 上一个分支 | 2/3 | 下一个分支 ›」，点笔改写文本即新建一个分支并切到它；切换是粘性的（host 记账，刷新不丢）。不碰会话日志、不重跑模型、不回退文件——那一整套（v3 的 journal/隔离区/回执）随「真会话分叉」一起删除。",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "session"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-message-branches"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-mobile-fullscreen",
-      "name": "dsh-mobile-fullscreen",
-      "displayName": "mobile-fullscreen",
-      "summary": "移动端全屏按钮：侧边栏底部 lanmode 二维码按钮右侧的全屏切换按钮（仅窄屏触摸设备且浏览器支持全屏 API 时显示，点击进出全屏，图标与悬停提示同步，样式只用主题 token）",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "ui"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-mobile-fullscreen"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-model-capabilities",
-      "name": "dsh-model-capabilities",
-      "displayName": "model-capabilities",
-      "summary": "模型能力管理：按模型管理输入模态与思考强度（关闭/低/高/最大四档），管理值写入 llm-pi-ai 渠道设置成为真实能力声明",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-model-capabilities"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-model-groups",
-      "name": "dsh-model-groups",
-      "displayName": "model-groups",
-      "summary": "模型分组：把 (provider, model) 路由编成命名组（成员可跨供应商），一个路由最多归属一个组；分组供用量统计（by=group）与重试策略（按组下策略）消费，设置页「模型分组」管理。",
-      "latestVersion": "1.0.1",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-model-groups"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-16T14:09:38Z"
-    },
-    {
-      "id": "dsh-model-pool",
-      "name": "dsh-model-pool",
-      "displayName": "model-pool",
-      "summary": "会话级模型供应池（纯静态、无预设/skill/模型工具依赖）：在会话头部的「供应池」工具里按会话启用/停用，动态调整各级用量上限与重置计数；按 SessionId 严格隔离，未启用的会话完全直通。",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-model-pool"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-model-retry",
-      "name": "dsh-model-retry",
-      "displayName": "model-retry",
-      "summary": "按模型的重试策略：为指定 provider:model 配置重试次数、触发重试的状态码与失败类别、退避；设置页「重试策略」管理，规则落盘热生效，未匹配规则的模型保持官方缺省行为。",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-model-retry"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-ms-multimodal-retry",
-      "name": "dsh-ms-multimodal-retry",
-      "displayName": "ms-multimodal-retry",
-      "summary": "Cordis plugin: on ModelScope multimodal-download timeouts, drop the earliest image from the model-visible surface and retry the failed step.",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-ms-multimodal-retry"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-our-free-model",
-      "name": "dsh-our-free-model",
-      "displayName": "our-free-model",
-      "summary": "Our Free Model — 在 dsh 里装上这个插件即可，无需登录、注册或填 API Key，就能使用包括 DeepSeek V4.1 Flash、Kimi K3 在内的前沿模型，桌面端另有 EAC 协付渠道；2.0 起接入 LobsterAI、Qoder、TRAE、Cline、Loomy、Raccoon、MiniMax、ZCode、Gemini 十个账号渠道（原有匿名免费通道保留）（登录、账号池、积分领取、本地 OpenAI 网关与局域网转发、数据看板与运行日志），六页毛玻璃界面统一呈现。",
-      "latestVersion": "2.7.2",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-our-free-model"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-plugin-autoupdate",
-      "name": "dsh-plugin-autoupdate",
-      "displayName": "plugin-autoupdate",
-      "summary": "插件源自动更新：定时对比源版本（link: 目录读 package.json，git ls-remote，npm registry dist-tags），更新走 pluginManager 公开服务（同设置页入口，含锁/兼容/回滚）。设置页「插件更新」可视化管理。",
-      "latestVersion": "1.0.2",
-      "license": "MIT",
-      "categories": [
-        "tooling"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-plugin-autoupdate"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "dsh-provider-alias",
-      "name": "dsh-provider-alias",
-      "displayName": "provider-alias",
-      "summary": "自定义模型供应商：在「设置 → 模型」声明 endpoint / 协议 / 模型 / 自有 API Key，并可按协议配置各自的端点路径（内置 opencode-go 的 per-request session header 规格）。",
-      "latestVersion": "0.4.1",
-      "license": "MIT",
-      "categories": [
-        "model"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-provider-alias"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "68fec6f64cf81ec21a3a84919914481379f658c8"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-16T13:46:52Z"
-    },
-    {
-      "id": "dsh-safefull",
-      "name": "dsh-safefull",
-      "displayName": "safefull",
-      "summary": "Cordis plugin: the command security audit gate behind the `audited-full-access` permission level (full permissions, every tool call statically audited first).",
-      "latestVersion": "1.0.0",
-      "license": "MIT",
-      "categories": [
-        "security"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/dsh-safefull"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-cordis-define-schema-fix",
@@ -545,13 +110,390 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-device-mesh",
+      "name": "dsh-device-mesh",
+      "displayName": "device-mesh",
+      "summary": "设备网格：多台 DSH 互相接入，会话按 设备/工作区/会话 三级汇总",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "multi-device"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-device-mesh"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-free-search",
+      "name": "dsh-free-search",
+      "displayName": "free-search",
+      "summary": "免费网页搜索：多引擎并行 + 智能路由 + 多源合并去重 + 时间过滤 + 页面全文抓取，无需 API Key。上游 DDDMUC/dsh-free-search（MIT），此处为镜像收录，出处与差异见 UPSTREAM.md。",
+      "latestVersion": "0.9.23",
+      "license": "MIT",
+      "categories": [
+        "tooling"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-free-search"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-image-unload",
+      "name": "dsh-image-unload",
+      "displayName": "image-unload",
+      "summary": "Cordis plugin: an unload_images model tool that drops the images in the agent's context from later model requests.",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "tooling"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-image-unload"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-message-branches",
+      "name": "dsh-message-branches",
+      "displayName": "message-branches",
+      "summary": "消息分支（v4）：分支＝我发出的某条消息的多个版本，**不创建任何会话记录**。每条我的消息下面有一条导航条「‹ 上一个分支 | 2/3 | 下一个分支 ›」，点笔改写文本即新建一个分支并切到它；切换是粘性的（host 记账，刷新不丢）。不碰会话日志、不重跑模型、不回退文件——那一整套（v3 的 journal/隔离区/回执）随「真会话分叉」一起删除。",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "session"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-message-branches"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-mobile-fullscreen",
+      "name": "dsh-mobile-fullscreen",
+      "displayName": "mobile-fullscreen",
+      "summary": "移动端全屏按钮：侧边栏底部 lanmode 二维码按钮右侧的全屏切换按钮（仅窄屏触摸设备且浏览器支持全屏 API 时显示，点击进出全屏，图标与悬停提示同步，样式只用主题 token）",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "ui"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-mobile-fullscreen"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-model-groups",
+      "name": "dsh-model-groups",
+      "displayName": "model-groups",
+      "summary": "模型分组：把 (provider, model) 路由编成命名组（成员可跨供应商），一个路由最多归属一个组；分组供用量统计（by=group）与重试策略（按组下策略）消费，设置页「模型分组」管理。",
+      "latestVersion": "1.0.1",
+      "license": "MIT",
+      "categories": [
+        "model"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-model-groups"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-model-retry",
+      "name": "dsh-model-retry",
+      "displayName": "model-retry",
+      "summary": "按模型的重试策略：为指定 provider:model 配置重试次数、触发重试的状态码与失败类别、退避；设置页「重试策略」管理，规则落盘热生效，未匹配规则的模型保持官方缺省行为。",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "model"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-model-retry"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-ms-multimodal-retry",
+      "name": "dsh-ms-multimodal-retry",
+      "displayName": "ms-multimodal-retry",
+      "summary": "Cordis plugin: on ModelScope multimodal-download timeouts, drop the earliest image from the model-visible surface and retry the failed step.",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "model"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-ms-multimodal-retry"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-orchestrator",
+      "name": "dsh-orchestrator",
+      "displayName": "orchestrator",
+      "summary": "多代理编排引擎：orch_run 一个工具声明目标与预算，引擎自行规划任务 DAG、并行派发 spawn/fork 子代理、按 schema 与停止原因判定成败、失败自动重试与重规划、全程事件留痕可取消；工具箱里有按会话开关与「子代理设置」二级菜单（指定本会话子代理的默认模型/思考力度/后端）。",
+      "latestVersion": "0.1.0",
+      "license": "MIT",
+      "categories": [
+        "tooling"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-orchestrator"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-our-free-model",
+      "name": "dsh-our-free-model",
+      "displayName": "our-free-model",
+      "summary": "Our Free Model — 在 dsh 里装上这个插件即可，无需登录、注册或填 API Key，就能使用包括 DeepSeek V4.1 Flash、Kimi K3 在内的前沿模型，桌面端另有 EAC 协付渠道；2.0 起接入 LobsterAI、Qoder、TRAE、Cline、Loomy、Raccoon、MiniMax、ZCode、Gemini 十个账号渠道（原有匿名免费通道保留）（登录、账号池、积分领取、本地 OpenAI 网关与局域网转发、数据看板与运行日志），六页毛玻璃界面统一呈现。",
+      "latestVersion": "2.7.2",
+      "license": "MIT",
+      "categories": [
+        "model"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-our-free-model"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-plugin-autoupdate",
+      "name": "dsh-plugin-autoupdate",
+      "displayName": "plugin-autoupdate",
+      "summary": "插件源自动更新：定时对比源版本（link: 目录读 package.json，git ls-remote，npm registry dist-tags），更新走 pluginManager 公开服务（同设置页入口，含锁/兼容/回滚）。设置页「插件更新」可视化管理。",
+      "latestVersion": "1.0.2",
+      "license": "MIT",
+      "categories": [
+        "tooling"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-plugin-autoupdate"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-provider-alias",
+      "name": "dsh-provider-alias",
+      "displayName": "provider-alias",
+      "summary": "自定义模型供应商：在「设置 → 模型」声明 endpoint / 协议 / 模型 / 自有 API Key，并可按协议配置各自的端点路径（内置 opencode-go 的 per-request session header 规格）。",
+      "latestVersion": "0.4.1",
+      "license": "MIT",
+      "categories": [
+        "model"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-provider-alias"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
+    },
+    {
+      "id": "dsh-safefull",
+      "name": "dsh-safefull",
+      "displayName": "safefull",
+      "summary": "Cordis plugin: the command security audit gate behind the `audited-full-access` permission level (full permissions, every tool call statically audited first).",
+      "latestVersion": "1.0.0",
+      "license": "MIT",
+      "categories": [
+        "security"
+      ],
+      "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness"
+      ],
+      "repository": {
+        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
+        "subdirectory": "plugins/dsh-safefull"
+      },
+      "installSource": {
+        "kind": "github",
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
+      },
+      "publisher": {
+        "name": "ExNeo",
+        "url": "https://github.com/Xraytest"
+      },
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-session-done-notify",
@@ -574,13 +516,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-session-import",
@@ -603,13 +545,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-session-orb",
@@ -632,13 +574,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-session-title-context",
@@ -661,13 +603,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-settings-nav",
@@ -690,13 +632,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-subagent-models",
@@ -719,13 +661,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-ultracode",
@@ -748,13 +690,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-usage-stats",
@@ -777,13 +719,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-user-keep-compaction",
@@ -806,20 +748,20 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-workbench",
       "name": "dsh-workbench",
       "displayName": "workbench",
       "summary": "工作箱（输入框工具行 order 23，原 Ultracode 座位）：图标点击展开工作列表，复选选中才注入上下文。Ultracode 联动 dsh-ultracode 开关；REA 未选中时经 rea-mcp 摘除全部工具 schema，并在系统提示装配期摘除 mcp:rea 说明段——零上下文注入。选择按会话家族落盘 workbench.json。",
-      "latestVersion": "1.12.0",
+      "latestVersion": "1.13.0",
       "license": "MIT",
       "categories": [
         "ui"
@@ -835,13 +777,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-workspace-context",
@@ -864,13 +806,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "dsh-workspace-plugins",
@@ -893,42 +835,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
-    },
-    {
-      "id": "eac-design-world",
-      "name": "eac-design-world",
-      "displayName": "eac-design-world",
-      "summary": "EAC design world：DSH 的本地视频制作与设计工作室——模板选片、浏览器/桌面录制、多轨时间线、本地语音字幕、渲染质检与 HTML/SVG/Markdown 设计成品（保留源文件与修订历史）。本目录为 Ebony-Vinyl/EAC-design-world（AGPL-3.0-or-later）的本地修改版，出处与修改点见 plugins/eac-design-world/MARKETPLACE-PROVENANCE.md",
-      "latestVersion": "0.4.0",
-      "license": "AGPL-3.0-or-later",
-      "categories": [
-        "creative"
-      ],
-      "keywords": [
-        "dsh",
-        "dsh-plugin",
-        "deepseek-harness"
-      ],
-      "repository": {
-        "url": "https://github.com/Xraytest/exneo-useful-dsh-workshop",
-        "subdirectory": "plugins/eac-design-world"
-      },
-      "installSource": {
-        "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
-      },
-      "publisher": {
-        "name": "ExNeo",
-        "url": "https://github.com/Xraytest"
-      },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "prts-omni-bridge",
@@ -951,13 +864,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "rea-mcp",
@@ -980,13 +893,13 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "fd763a14cd971618dfd55ecb58fe5a9272c11cf9"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-16T14:09:38Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     },
     {
       "id": "workspace-plus",
@@ -1009,16 +922,16 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "1c11d19707740edc749ee289959cfb3b5cd1e37b"
+        "commit": "0f41f222ecc77ee3f19a6abbe787216a8c98470b"
       },
       "publisher": {
         "name": "ExNeo",
         "url": "https://github.com/Xraytest"
       },
-      "updatedAt": "2026-11-11T12:21:25.666Z"
+      "updatedAt": "2026-11-20T15:46:14.696Z"
     }
   ],
   "page": {
-    "total": 35
+    "total": 32
   }
 }

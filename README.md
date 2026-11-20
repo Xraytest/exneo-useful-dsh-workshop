@@ -25,6 +25,8 @@ https://raw.githubusercontent.com/Xraytest/exneo-useful-dsh-workshop/main/dsh-in
 - Node.js `>= 22`
 - pnpm（DSH profile 自带）
 
+> **`link:` 与 `file:` 的区别（跨设备同步必读）**：`link:<目录>` 是符号链接，改源目录即刻生效；`file:<目录>` pnpm 会在 profile 的 `node_modules/` 里放**独立副本**——只改源目录不生效，必须两处都改或重装。带大体积素材的插件（历史收录过 eac-design-world 这类）尤其容易踩到（实测：改 vendor 无效果，postinstall 是在 node_modules 副本里跑的）。多设备同步时优先 `link:`。
+
 ## 安装
 
 ```bash
@@ -50,30 +52,26 @@ dsh plugin --profile <profile> install
 
 **移除**：`remove_bundle`，或从 `dsh.profile.bundles` 删掉包名后重装。
 
-> **`link:` 与 `file:` 的区别（跨设备同步必读）**：`link:<目录>` 是符号链接，改源目录即刻生效；`file:<目录>` pnpm 会在 profile 的 `node_modules/` 里放**独立副本**——只改源目录不生效，必须两处都改或重装。eac-design-world 这类带大体积素材的插件尤其容易踩到（实测：改 vendor 无效果，postinstall 是在 node_modules 副本里跑的）。多设备同步时优先 `link:`。
 
 > **rowId 冲突**：loader 按行 id 去重。若 profile 的 `cordis.patch.yml` 已有同 rowId 的手工行（如旧文档里的 `./plugins/xxx/index.js`），先删除，否则报 `duplicate loader entry id`。各插件 rowId 见 [marketplace.json](marketplace.json)。
 
 ## 插件一览
 
-市场源现收录 35 个插件（`plugins/` 下另有 `dsh-ofm-compat` 宿主垫片，随 `dsh-our-free-model` 一起加载，不单独安装）：
+市场源现收录 32 个插件（`plugins/` 下另有 `dsh-ofm-compat` 宿主垫片，随 `dsh-our-free-model` 一起加载，不单独安装）：
 
 | 插件 | rowId | 分类 | 说明 |
 |---|---|---|---|
-| [eac-design-world](plugins/eac-design-world) | `eac-design-world` | 创作 | EAC design world：本地视频制作与设计工作室（录制/时间线/配音字幕/渲染质检/设计成品）。**AGPL-3.0-or-later**，Ebony-Vinyl/EAC-design-world 的本地修改版，出处见 [MARKETPLACE-PROVENANCE.md](plugins/eac-design-world/MARKETPLACE-PROVENANCE.md) |
 | [dsh-admin-channel](plugins/dsh-admin-channel) | `admin-channel` | 工具 | 会话级管理员权限通道：工作箱开关（一次 UAC）后，本会话的提权命令交给常驻提权进程执行，不再逐次确认 |
 | [dsh-archived-sessions](plugins/dsh-archived-sessions) | `archived-sessions` | 会话 | 恢复被归档隐藏的会话（出厂只归档、不提供恢复） |
 | [dsh-bilibili](plugins/dsh-bilibili) | `bilibili-tools` | 工具 | Bilibili 搜索与读取：搜视频/专栏、读完整视频信息（简介/标签/分P）、读专栏正文（Quill Delta → 文本/Markdown）、读评论；自带 WBI 签名与 buvid 引导 |
 | [dsh-cordis-define-schema-fix](plugins/dsh-schema-fix) | `cordis-define-schema-fix` | 工具 | 扁平化 oneOf 工具参数，让转换器交出嵌套对象而非字符串 |
 | [dsh-device-mesh](plugins/dsh-device-mesh) | `device-mesh` | 多设备 | 多台 DSH 互接（令牌 + HMAC 签名），会话按设备→工作区→会话汇总，支持工作区多路径与跨设备执行 |
-| [dsh-dual-agent](plugins/dsh-dual-agent) | `dual-agent` | 模型 | 双主智能：主上下文当挑刺者、执行者作真 subagent 干活，任务期间主上下文静默，结算后只注入一条「报告+评估」 |
+| [dsh-orchestrator](plugins/dsh-orchestrator) | `orchestrator` | 工具 | 多代理编排引擎：`orch_run` 声明目标与预算，引擎自行规划任务 DAG、并行派发 spawn/fork 子代理、按 schema 与停止原因判定成败、失败自动重试与重规划，全程事件留痕可取消；工具箱里有按会话开关与「子代理设置」二级菜单 |
 | [dsh-free-search](plugins/dsh-free-search) | `web-search-free` | 工具 | 免费网页搜索：多引擎并行 + 智能路由 + 多源合并去重 + 时间过滤 + 页面全文抓取，免 API Key。**MIT**，上游 DDDMUC/dsh-free-search 的镜像收录，差异见 [UPSTREAM.md](plugins/dsh-free-search/UPSTREAM.md) |
 | [dsh-image-unload](plugins/dsh-image-unload) | `image-unload` | 工具 | `unload_images`：把图片从后续模型请求中卸下，省上下文 |
 | [dsh-message-branches](plugins/dsh-message-branches) | `message-branches` | 会话 | 消息分支：同一条消息的多个版本，不新建会话，用导航条切换 |
 | [dsh-mobile-fullscreen](plugins/dsh-mobile-fullscreen) | `mobile-fullscreen` | 界面 | 移动端全屏按钮：侧边栏 lanmode 二维码按钮右侧的全屏切换（仅窄屏触摸设备） |
-| [dsh-model-capabilities](plugins/dsh-model-capabilities) | `model-capabilities` | 模型 | 按模型配置输入模态与思考强度（关/低/高/最大），写入 llm-pi-ai 渠道设置 |
 | [dsh-model-groups](plugins/dsh-model-groups) | `model-groups` | 模型 | 把 (provider, model) 编成命名分组，跨供应商可用，供统计与重试消费 |
-| [dsh-model-pool](plugins/dsh-model-pool) | `model-pool` | 模型 | 会话级模型供应池：按会话启停、调整用量上限与重置计数，SessionId 隔离 |
 | [dsh-model-retry](plugins/dsh-model-retry) | `model-retry` | 模型 | 按 provider:model 配置重试次数、状态码、失败类别与退避，落盘热生效 |
 | [dsh-ms-multimodal-retry](plugins/dsh-ms-multimodal-retry) | `ms-multimodal-retry-v1` | 模型 | ModelScope 多模态下载超时时丢弃最早一张图后重试 |
 | [dsh-our-free-model](plugins/dsh-our-free-model) | `our-free-model` | 模型 | Our Free Model：装上即用前沿模型（免登录/免 key），带账号池、积分领取、本地 OpenAI 网关与局域网转发、数据看板，六页毛玻璃界面 |
@@ -156,4 +154,3 @@ dsh plugin --profile <profile> add @goodandready/dsh-lanmode
 
 - 多数自研插件为 **MIT**；
 - `dsh-free-search` 为上游 **MIT**（[DDDMUC/dsh-free-search](https://github.com/DDDMUC/dsh-free-search)），镜像收录，出处见 [UPSTREAM.md](plugins/dsh-free-search/UPSTREAM.md)；
-- `eac-design-world` 为 **AGPL-3.0-or-later**（上游 [Ebony-Vinyl/EAC-design-world](https://github.com/Ebony-Vinyl/EAC-design-world)），见其目录内 LICENSE。
