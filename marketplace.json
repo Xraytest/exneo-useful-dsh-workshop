@@ -155,7 +155,7 @@
       "id": "dsh-orchestrator",
       "path": "plugins/dsh-orchestrator",
       "rowId": "orchestrator",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "category": "tooling",
       "description": "多代理编排引擎：orch_run 一个工具声明目标与预算，引擎自行规划任务 DAG、并行派发 spawn/fork 子代理、按 schema 与停止原因判定成败、失败自动重试与重规划、全程事件留痕可取消；工具箱里有按会话开关与「子代理设置」二级菜单（指定本会话子代理的默认模型/思考力度/后端）。",
       "license": "MIT",
