@@ -20,7 +20,7 @@
 # 与 route 不变。
 - insert:
     - id: workbench
-      name: './entry-v11.js'
+      name: './entry-v13.js'
       config:
         # 选择落盘位置；null/省略 = $DSH_HOME/workbench.json。
         stateFile: null

@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Dual-Agent Guidance",
-    "description": "One master switch. When on, the main agent only judges and delegates — coding, debugging and information gathering always go to subagents. The subagent model chain (ordered candidates, per-candidate limits, automatic fallback) is chosen in the second-level menu, and every source a subagent reports is checked by deterministic code before it reaches the main context. The Executor runs as a background subagent with its own session; the Critic evaluates its report from the main context's viewpoint and only on an agent-initiated stop. Manual stop returns to armed, waiting for your follow-up, without criticism."
-  }
-}

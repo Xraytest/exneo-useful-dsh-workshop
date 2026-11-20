@@ -1,9 +1,9 @@
 {
   "name": "dsh-workbench",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "private": true,
   "type": "module",
-  "description": "输入框工具行的「工作箱」：点开列表勾选 Ultracode / REA 等工作项，选中才把对应上下文注入本会话；REA 未选中时工具与提示段完全不进上下文。v2 增加动作条目（一键触发其它插件的动作）。v3 增加「管理员权限通道」开关（属主 dsh-admin-channel）。v9 增加**可进入的二级菜单**：属主插件用 GET spec / POST op 出内容，工作箱按通用件（heading/note/switch/select/text/rows/form/buttons）渲染——双智能指导的子代理模型选择就长在这里，工作箱行上的开关照旧保留。",
+  "description": "输入框工具行的「工作箱」：点开列表勾选 Ultracode / REA 等工作项，选中才把对应上下文注入本会话；REA 未选中时工具与提示段完全不进上下文。v2 增加动作条目（一键触发其它插件的动作）。v3 增加「管理员权限通道」开关（属主 dsh-admin-channel）。v14 移除已删除属主 dsh-dual-agent 的双智能指导行。v9 增加**可进入的二级菜单**：属主插件用 GET spec / POST op 出内容，工作箱按通用件（heading/note/switch/select/text/rows/form/buttons）渲染——双智能指导的子代理模型选择就长在这里，工作箱行上的开关照旧保留。",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
@@ -25,7 +25,8 @@
     "client-selftest-v2.mjs",
     "client-selftest-v3.mjs",
     "client-selftest-v4.mjs",
-    "README.md"
+    "README.md",
+    "entry-v13.js"
   ],
   "dsh": {
     "bundle": {

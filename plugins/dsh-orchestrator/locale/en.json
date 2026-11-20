@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Orchestrator",
+    "description": "Plan a task DAG, dispatch parallel subagents, route roles to models, verify with critic passes, replan on failures, and synthesize one answer. Drives runs from tools, session events, and schedules."
+  }
+}

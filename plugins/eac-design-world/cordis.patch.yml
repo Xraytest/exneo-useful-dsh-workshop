@@ -1,6 +1,0 @@
-- insert:
-    - id: eac-design-world
-      name: eac-design-world
-      config:
-        port: 4173
-        dev: false

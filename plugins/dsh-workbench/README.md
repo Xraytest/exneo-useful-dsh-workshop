@@ -209,3 +209,31 @@ node plugins/dsh-workbench/client-selftest-v2.mjs    # 40 项：开关渲染/乐
 09 WB status A           → rea.master=False source=defaults
 10 defaults final        → master=False mode=all enabled=207 sessions=[]
 ```
+
+
+## v13（2026-11-20）：Orchestrator 开关与子代理二级菜单
+
+用户指令：「Orchestrator的开关做成UI放到工具箱，增加二级菜单支持指定本会话的Orchestrator的子代理」。
+
+- **开关行**：属主 dsh-orchestrator。拨开/拨关只改**本会话**的启用态（属主落盘于
+  `$DSH_HOME/dsh-orchestrator/sessions.json`）：关掉后 `orch_run` 对该会话按步隐藏
+  （属主用 tools.register 的 `when` 条件注册）、其会话事件触发器停用；
+  `orch_status` / `orch_cancel` 不受影响。勾选态、阶段说明、悬停提示全部来自属主
+  `GET /dsh-orchestrator/status?sessionId=…`，本插件零语义。
+- **二级菜单**：属主 `GET /dsh-orchestrator/menu` 出声明式 spec（子代理默认模型
+  select —— 选项来自属主侧 llm 目录、思考力度、spawn/fork 后端、恢复默认按钮），
+  POST op 落回属主。工作箱照旧只画通用件。
+- row id（orchestrator）、route、既有条目全部不动；client.js 零改动（v9 起
+  动作行与二级菜单均为数据驱动渲染）。
+
+## v14（2026-11-20）：移除「双智能指导」行
+
+用户指令：「删除 双智能指导 、 供应池 、 模型能力 、 eac-design-world 插件」。
+
+- dsh-dual-agent 属主插件已删（备份在本地 `_tmp/plugin-removal-20261120`），
+  本插件 ACTIONS 的 `dual-agent` 行随之移除，row id `dual-agent` 退役；其余行
+  （admin-channel / inject-switch / orchestrator）的 id 与 route 不动。
+- host-selftest 的动作转发夹具改用 `orchestrator` 行（同为带二级菜单的开关）。
+- client.js 零改动：其中残留的 dual-agent 专属分支（fallbackHint 三元、
+  「已停止→执行中」标签改写）在行缺席时是惰性路径——前者永远走中性文案，后者
+  phase 恒为 off → 只做还原。保留它们以维持 client-selftest-v3/v4 的既有覆盖。

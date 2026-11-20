@@ -43,7 +43,7 @@ const sessionsById = new Map();
 // Fake the ultracode & rea routes on our fake webserver via fetch interception
 const ultraCalls = [];
 const reaCalls = [];
-const dualCalls = [];
+const orchCalls = [];
 const adminCalls = [];
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, options) => {
@@ -82,15 +82,15 @@ globalThis.fetch = async (url, options) => {
       }),
     };
   }
-  if (String(url).includes('/dsh-dual-agent/')) {
-    dualCalls.push({ url: String(url), options });
-    // 开关式属主：status 报 phase/running/armed；action 回新态 phase。
+  // v14：dual-agent 属主已删，夹具换 dsh-orchestrator（同为带二级菜单的开关行）。
+  if (String(url).includes('/dsh-orchestrator/')) {
+    orchCalls.push({ url: String(url), options });
     if (String(url).includes('/status')) {
-      return { ok: true, json: async () => ({ sessionId: 'SID', phase: 'armed', running: true, armed: true, note: '已武装：请键入本任务的初始指令。', childId: null, hatchAt: 1_700_000_000_000, agentLive: true, stateFile: '/x', storeError: null }) };
+      return { ok: true, json: async () => ({ running: true, phase: 'running', note: '子代理默认 glm / glm-5.3', hint: '关闭后本会话的 orch_run 隐藏、触发器停用', menu: { route: '/dsh-orchestrator/menu', label: '子代理设置' } }) };
     }
     const wanted = options?.body === undefined ? undefined : JSON.parse(options.body).enabled;
-    const phase = wanted === false ? 'off' : wanted === true ? 'armed' : 'armed';
-    return { ok: true, json: async () => ({ sessionId: 'SID', phase, running: phase !== 'off', armed: phase === 'armed', note: null, childId: null, hatchAt: phase === 'running' ? 1_700_000_000_000 : null, agentLive: true, stateFile: '/x', storeError: null, action: phase === 'off' ? 'off' : 'armed' }) };
+    const running = wanted !== false;
+    return { ok: true, json: async () => ({ ok: true, running, phase: running ? 'running' : 'off', note: running ? '子代理默认 glm / glm-5.3' : '子代理沿用插件配置', menu: { route: '/dsh-orchestrator/menu', label: '子代理设置' } }) };
   }
   throw new Error('unexpected fetch ' + url);
 };
@@ -185,21 +185,21 @@ check('rea reset called with sessionId', reaResetCall !== undefined && JSON.pars
 
 // 7. 动作条目的开关契约：status 透出 kind/checked/phase/note，action 转发目标 enabled
 st = await call('/dsh-workbench/status?sessionId=child-1');
-const action = (st.actions ?? []).find((a) => a.id === 'dual-agent');
+const action = (st.actions ?? []).find((a) => a.id === 'orchestrator');
 check('action row present', action !== undefined);
 check('action declares switch control', action?.kind === 'switch');
 check('action checked mirrors owner running', action?.checked === true && action?.running === true);
-check('action phase passed through', action?.phase === 'armed');
-check('action note passed through', typeof action?.note === 'string' && action.note.includes('已武装'));
-check('action hatchAt forwarded (client live-timer anchor)', action?.hatchAt === 1_700_000_000_000);
-await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'dual-agent', enabled: false });
-const offCall = dualCalls.filter((c) => c.url.includes('/action')).at(-1);
+check('action phase passed through', action?.phase === 'running');
+check('action note passed through', typeof action?.note === 'string' && action.note.includes('子代理默认'));
+check('action menu forwarded', action?.menu?.route === '/dsh-orchestrator/menu');
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'orchestrator', enabled: false });
+const offCall = orchCalls.filter((c) => c.url.includes('/action')).at(-1);
 check('action forwards enabled=false to owner', JSON.parse(offCall.options.body).enabled === false);
-await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'dual-agent', enabled: true });
-const onCall = dualCalls.filter((c) => c.url.includes('/action')).at(-1);
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'orchestrator', enabled: true });
+const onCall = orchCalls.filter((c) => c.url.includes('/action')).at(-1);
 check('action forwards enabled=true to owner', JSON.parse(onCall.options.body).enabled === true);
-await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'dual-agent' });
-const legacyCall = dualCalls.filter((c) => c.url.includes('/action')).at(-1);
+await call('/dsh-workbench/action', 'POST', { sessionId: 'child-1', actionId: 'orchestrator' });
+const legacyCall = orchCalls.filter((c) => c.url.includes('/action')).at(-1);
 check('legacy action without enabled omits the key', !('enabled' in JSON.parse(legacyCall.options.body)));
 
 // 8. v3：管理员权限通道动作条目（属主 dsh-admin-channel）

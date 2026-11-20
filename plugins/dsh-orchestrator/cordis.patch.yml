@@ -1,0 +1,29 @@
+# dsh-orchestrator — plan a task DAG, dispatch parallel subagents over
+# ctx.subagents, route roles to provider/model/effort, verify with critic
+# passes, replan on critical failures, and synthesize one final answer.
+# Tools: orch_run / orch_status / orch_cancel. Runs are journaled under
+# $DSH_HOME/dsh-orchestrator/runs. Config knobs (all optional):
+#   defaults: { timeoutMs, maxAttempts, verify, maxParallel, maxReplans,
+#              maxPlanRepairs, synthesize, dependencyContextChars }
+#   limits:   { maxWallMs, maxActivations, maxTasks, maxOutputChars, maxTokens }
+#   routing:  { roles: {<role>: {provider, model, reasoningEffort, maxTokens}},
+#              rules: [{name, match: {role|taskId|titleIncludes}, route}],
+#              default: {provider, model, reasoningEffort, maxTokens} }
+- insert:
+    - id: orchestrator
+      name: dsh-orchestrator
+      config:
+        defaults:
+          timeoutMs: 1200000
+          maxAttempts: 2
+          verify: false
+          maxParallel: 3
+          maxReplans: 1
+          maxPlanRepairs: 1
+          synthesize: true
+          dependencyContextChars: 4000
+        limits:
+          maxActivations: 40
+        routing:
+          roles: {}
+          rules: []

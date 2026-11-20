@@ -69,27 +69,14 @@ const ENTRIES = [
 /**
  * 箱内动作条目注册表（v2）：一次性触发，不落盘勾选。
  * `route`：动作属主插件的同源 POST 路由；`payload(sessionId)` 组装请求体。
- * 第一个条目是 dsh-dual-agent 的双主智能（2026-10-28 用户指令「启动按钮放
- * 到工具箱内」）。属主插件缺席时按钮报它的错误——不在这里伪造能力。
+ * v14 起 dsh-dual-agent 行已随属主插件一并移除；现存首行是管理员权限通道。
+ * 属主插件缺席时按钮报它的错误——不在这里伪造能力。
  * v2.1（2026-10-29）：status 探测回包的 note（阶段说明）原样透传给 client。
  */
 const ACTIONS = [
-  {
-    id: 'dual-agent',
-    label: '双智能指导',
-    description: '主智能只判断',
-    // 控件形态由属主语义决定：双主智能是「启用/关闭」的开关，不是一次触发按钮。
-    kind: 'switch',
-    route: '/dsh-dual-agent/action',
-    payload: (sessionId, enabled) => (typeof enabled === 'boolean' ? { sessionId, enabled } : { sessionId }),
-    /** 开关的读法：勾上=启用。armingLabel/runningLabel 只用于徽标与 aria 文案。 */
-    runningLabel: '运行中',
-    idleLabel: '待命中',
-    // v4 二级菜单（用户指令 2026-11-03「在工作箱UI内创建可进入的二级菜单，开关也保留」）：
-    // 内容由属主插件出（GET spec / POST op），工作箱只按通用件渲染——它不认识「模型链」
-    // 这种语义，也就不需要为任何一个属主改一次代码。
-    menu: { route: '/dsh-dual-agent/menu', label: '子代理模型与规则' },
-  },
+  // v14（2026-11-20 用户指令「删除 双智能指导 …插件」）：dsh-dual-agent 行随属主
+  // 一并移除（源码备份在本地 _tmp/plugin-removal-20261120）。行 id
+  // 'dual-agent' 退役；属主路由 /dsh-dual-agent/* 不再有人应答。
   // v3（2026-10-29 用户指令「启动通道的 UI 也放在工具箱内」）：管理员权限通道。
   // 拨开 = 由属主插件弹一次 UAC 并拉起常驻提权进程；开关状态、阶段说明与悬停提示
   // 全部来自属主 /dsh-admin-channel/status（本插件只画开关，不复制任何提权逻辑）。
@@ -120,6 +107,23 @@ const ACTIONS = [
     runningLabel: '注入中',
     idleLabel: '已关闭',
     menu: { route: '/dsh-inject-switch/menu', label: '注入设置' },
+  },
+  // v13（2026-11-20 用户指令「Orchestrator的开关做成UI放到工具箱，增加二级菜单
+  // 支持指定本会话的Orchestrator的子代理」）：属主 dsh-orchestrator。开关 = 本会话
+  // 的启用态（关掉后 orch_run 对该会话隐藏、其会话触发器停用，orch_status /
+  // orch_cancel 保留）；勾选态与阶段说明全部来自属主 /dsh-orchestrator/status。
+  // 二级菜单由属主出声明式 spec（选本会话子代理的默认模型 / 思考力度 / 后端），
+  // 本插件依旧只画通用件，不认识任何 Orchestrator 语义。
+  {
+    id: 'orchestrator',
+    label: 'Orchestrator',
+    description: '多代理编排',
+    kind: 'switch',
+    route: '/dsh-orchestrator/action',
+    payload: (sessionId, enabled) => (typeof enabled === 'boolean' ? { sessionId, enabled } : { sessionId }),
+    runningLabel: '已启用',
+    idleLabel: '已关闭',
+    menu: { route: '/dsh-orchestrator/menu', label: '子代理设置' },
   },
 ];
 const ENTRY_IDS = new Set(ENTRIES.map((entry) => entry.id));
