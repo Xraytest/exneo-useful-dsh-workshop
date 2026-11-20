@@ -585,4 +585,8 @@ export function apply(ctx, config) {
             run.cancel('plugin unloaded');
     };
 }
-export default apply;
+// 注意：**不要**加 `export default apply`。cordis loader 的 unwrapExports 是
+// `exports.default ?? exports`——只要模块带 default 导出，具名的 name/inject/Config/apply
+// 就会被整个丢弃，插件退化成裸函数立即应用：inject 失传 → apply 抢跑 webServer 启动 →
+// 工作箱路由永不挂载（2026-11-21 灰行事故根因；对照 admin-channel / inject-switch / workbench
+// 全部无 default 导出）。host-selftest 有对应断言防回归。

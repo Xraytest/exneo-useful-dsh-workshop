@@ -36,6 +36,9 @@ const failures = []
 const check = (label, cond) => { console.log((cond ? 'ok   ' : 'FAIL ') + label); if (!cond) failures.push(label) }
 
 // ── 工具注册 ──
+// cordis unwrapExports：有 default 导出时具名 inject/Config 会被丢弃（灰行事故根因）
+check('模块无 default 导出（loader unwrap 陷阱）', plugin.default === undefined)
+check('inject 声明含 webServer', JSON.stringify(plugin.inject).includes('webServer'))
 check('orch_run 已注册', tools.has('orch_run'))
 check('orch_status 已注册', tools.has('orch_status'))
 check('orch_cancel 已注册', tools.has('orch_cancel'))

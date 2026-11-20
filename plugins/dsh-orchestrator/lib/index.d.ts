@@ -75,4 +75,3 @@ export interface Config {
 }
 export declare const Config: z<Config>;
 export declare function apply(ctx: Context, config: Config): () => void;
-export default apply;
