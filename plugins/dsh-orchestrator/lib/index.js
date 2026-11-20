@@ -30,7 +30,10 @@ import { jsonOf, queryOf, readBody, sameOrigin } from './dsh/http.js';
 import { SessionState } from './dsh/session-state.js';
 import { attachWorkbenchMenu } from './dsh/workbench-menu.js';
 export const name = 'dsh-orchestrator';
-export const inject = ['tools'];
+// 'webServer' 必须 reactive 注入：dsh-web-app 的 webServer 服务在插件 apply 时可能尚未启动，
+// 一次性 ctx.get 会拿到 undefined 并静默跳过路由挂载（2026-11-21 修复：改用工作箱同款
+// inject 声明，cordis 会等 webServer 就绪后再 apply，路由必然可挂）。
+export const inject = ['tools', 'webServer'];
 export const Config = z.object({
     provider: z.string().default('spawn').description('ctx.subagents backend for workers (spawn = fresh in-process children).'),
     maxDepth: z.union([z.natural(), z.const('provider-managed')]).description('Child delegation depth cap; omitted reads the host subagent depth setting.'),
@@ -386,15 +389,11 @@ export function apply(ctx, config) {
     ctx.tools.register(cancelTool);
     // ---- dsh-workbench 面板（属主契约：/status /action /menu）----
     // 工作箱只画通用件；这三条路由是它与本插件之间的全部 HTTP 契约。
-    // webServer 是软依赖：拿不到就不挂路由（工作箱会如实显示「属主未响应」）。
-    const webServer = (() => {
-        try {
-            return ctx.get('webServer');
-        }
-        catch {
-            return undefined;
-        }
-    })();
+    // webServer 经 inject 声明（见文件头 export const inject）：apply 时保证就绪。
+    const webServer = ctx.webServer;
+    if (webServer === undefined || typeof webServer.register !== 'function') {
+        log('webServer 服务不可用：工作箱面板路由未挂载（本会话仍可用 orch_* 工具）');
+    }
     if (webServer !== undefined && typeof webServer.register === 'function') {
         const register = (path, handler) => {
             ctx.effect(() => webServer.register({
