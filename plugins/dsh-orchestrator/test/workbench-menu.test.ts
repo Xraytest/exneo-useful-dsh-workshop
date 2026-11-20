@@ -40,7 +40,8 @@ describe('workbench menu', () => {
   it('builds a spec with catalog options and default state', async () => {
     const menu = attachWorkbenchMenu(hubOf(makeState()))
     const spec = (await menu.buildSpec('s1')) as { items: Array<Record<string, unknown>>; phase: string }
-    expect(spec.phase).toBe('running')
+    // 0.2.0：新会话默认关闭
+    expect(spec.phase).toBe('off')
     const select = spec.items.find((item) => item['id'] === 'route') as { options: Array<{ value: string }> }
     expect(select.options.map((option) => option.value)).toEqual(['', 'deepseek::chat', 'deepseek::reasoner', 'glm::glm-5.3'])
     const backend = spec.items.find((item) => item['id'] === 'backend') as { options: Array<{ value: string }> }
@@ -54,7 +55,10 @@ describe('workbench menu', () => {
     const select = after.items.find((item) => item['id'] === 'route') as { value: string }
     expect(select.value).toBe('glm::glm-5.3')
     expect(state.stateOf('s1').route).toEqual({ provider: 'glm', model: 'glm-5.3' })
-    const note = (after.items.find((item) => item['kind'] === 'note')) as { text: string }
+    // 0.2.0：默认关闭时首条 note 是关闭说明；拨开后应带路由信息
+    await menu.applyOp({ sessionId: 's1', op: 'set', id: 'enabled', value: true })
+    const afterOn = (await menu.buildSpec('s1')) as { items: Array<Record<string, unknown>> }
+    const note = (afterOn.items.find((item) => item['kind'] === 'note')) as { text: string }
     expect(note.text).toContain('glm / glm-5.3')
     await menu.applyOp({ sessionId: 's1', op: 'set', id: 'effort', value: 'high' })
     await menu.applyOp({ sessionId: 's1', op: 'set', id: 'backend', value: 'fork' })
@@ -75,8 +79,8 @@ describe('workbench menu', () => {
     const menu = attachWorkbenchMenu(hubOf(state))
     await menu.applyOp({ sessionId: 's1', op: 'set', id: 'enabled', value: false })
     const spec = (await menu.applyOp({ sessionId: 's1', op: 'reset' })) as { phase: string }
-    expect(spec.phase).toBe('running')
-    expect(state.stateOf('s1')).toEqual({ enabled: true, hasOverride: false })
+    expect(spec.phase).toBe('off')
+    expect(state.stateOf('s1')).toEqual({ enabled: false, hasOverride: false })
   })
 
   it('menuError carries a machine-readable status', () => {

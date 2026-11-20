@@ -1,8 +1,12 @@
 /**
  * Per-session orchestrator settings: the toolbox switch (enabled) and the
- * session's subagent specification (backend + default worker route). Explicit
- * overrides only are persisted — an absent key inherits the plugin default,
- * so removing an override never leaves a stale value behind.
+ * session's subagent specification (backend + default worker route).
+ *
+ * Default policy (0.2.0): NEW SESSIONS ARE DISABLED — orch_run stays hidden
+ * until the toolbox switch is turned on for that session. The switch position
+ * is persisted in BOTH directions (on stores true, off stores false) and stays
+ * freely changeable at any time; an entry without an explicit boolean reads as
+ * disabled; clear() returns the session to the default.
  *
  * Storage: $DSH_HOME/dsh-orchestrator/sessions.json, atomic tmp+rename writes,
  * read-before-write merge across processes (same discipline as workbench.json).
@@ -25,7 +29,7 @@ export interface SessionSettings {
   readonly hasOverride: boolean
 }
 
-export const DEFAULT_SESSION_SETTINGS: SessionSettings = { enabled: true, hasOverride: false }
+export const DEFAULT_SESSION_SETTINGS: SessionSettings = { enabled: false, hasOverride: false }
 
 interface StoredEntry {
   enabled?: boolean
@@ -62,12 +66,12 @@ export class SessionState {
       for (const [id, entry] of Object.entries(sessions)) {
         if (typeof id !== 'string' || id === '' || !isRecord(entry)) continue;
         const stored: StoredEntry = {};
-        if (entry['enabled'] === false) stored.enabled = false;
+        if (typeof entry['enabled'] === 'boolean') stored.enabled = entry['enabled'];
         if (typeof entry['backend'] === 'string' && entry['backend'] !== '') stored.backend = entry['backend'];
         const route = validRoute(entry['route']);
         if (route !== undefined) stored.route = route;
         if (typeof entry['reasoningEffort'] === 'string' && entry['reasoningEffort'] !== '') stored.reasoningEffort = entry['reasoningEffort'];
-        if (Object.keys(stored).length > 0) clean[id] = stored;
+        if (Object.keys(stored).length > 0) clean[id] = stored
       }
       this.doc = { version: 1, sessions: clean };
       this.loadError = undefined;
@@ -106,7 +110,7 @@ export class SessionState {
     const entry = this.doc.sessions[sessionId];
     if (entry === undefined) return DEFAULT_SESSION_SETTINGS;
     return {
-      enabled: entry.enabled !== false,
+      enabled: entry.enabled === true,
       ...(entry.backend !== undefined ? { backend: entry.backend } : {}),
       ...(entry.route !== undefined ? { route: entry.route } : {}),
       ...(entry.reasoningEffort !== undefined ? { reasoningEffort: entry.reasoningEffort } : {}),
@@ -119,13 +123,9 @@ export class SessionState {
   }
 
   setEnabled(sessionId: string, enabled: boolean): void {
-    // true = inherit the default; only an explicit false is stored.
-    this.update(sessionId, (entry) => {
-      const next = { ...entry };
-      if (enabled) delete next.enabled;
-      else next.enabled = false;
-      return next;
-    });
+    // 0.2.0：默认关闭，所以开关的两个方向都落盘（拨开存 true，拨关存 false）。
+    // 任何时候都能再改；clear() 才回到默认（关）。
+    this.update(sessionId, (entry) => ({ ...entry, enabled }));
   }
 
   setRoute(sessionId: string, route: SessionRoute | undefined): void {

@@ -64,7 +64,7 @@ Routing precedence: explicit task route → first matching rule (wildcards allow
 
 ## Toolbox switch and per-session subagent menu
 
-The dsh-workbench toolbox carries an Orchestrator switch (per session). Turning it off hides `orch_run` from that session's model and pauses its session-event triggers; `orch_status` / `orch_cancel` stay available. The row's secondary menu (子代理设置) sets this session's subagent defaults: the default worker model (from the host's llm catalog), reasoning effort, and backend (spawn / fork). Settings persist per session under `$DSH_HOME/dsh-orchestrator/sessions.json` and apply live — the chosen model becomes the session's default route (explicit role/rule routes in plugin config still win).
+The dsh-workbench toolbox carries an Orchestrator switch (per session). **New sessions start disabled** — `orch_run` stays hidden and session-event triggers stay paused until the switch is turned on for that session. The switch persists per session in BOTH directions (on and off both stored under `$DSH_HOME/dsh-orchestrator/sessions.json`) and remains freely changeable at any time. The row's secondary menu (子代理设置) sets this session's subagent defaults: the default worker model (from the host's llm catalog), reasoning effort, and backend (spawn / fork) — likewise per-session, applied live; the chosen model becomes the session's default route (explicit role/rule routes in plugin config still win).
 
 ## Session-event triggers (opt-in)
 

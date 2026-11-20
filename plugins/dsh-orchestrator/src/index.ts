@@ -584,8 +584,8 @@ export function apply(ctx: Context, config: Config): () => void {
           ? '子代理默认 ' + settings.route.provider + ' / ' + settings.route.model
           : '子代理沿用插件配置',
         hint: running
-          ? '关闭后本会话的 orch_run 隐藏、触发器停用（orch_status / orch_cancel 仍在）'
-          : 'orch_run 已对本会话隐藏；拨开恢复',
+          ? '拨关后本会话记住关闭状态（orch_status / orch_cancel 仍在）'
+          : '新会话默认关闭；拨开即对本会话启用并记住选择',
         menu: { route: '/dsh-orchestrator/menu', label: '子代理设置' },
         ...(sessionState.error !== undefined ? { storeError: sessionState.error } : {}),
       }

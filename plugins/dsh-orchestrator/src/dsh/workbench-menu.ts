@@ -83,7 +83,7 @@ export function attachWorkbenchMenu(hub: WorkbenchMenuHub) {
       text: settings.enabled
         ? '已启用：本会话的模型可以调用 orch_run 编排多代理任务。'
           + (settings.route !== undefined ? ' 子代理默认走 ' + settings.route.provider + ' / ' + settings.route.model + '。' : '')
-        : '总开关关着：orch_run 对本会话隐藏、触发器停用（orch_status / orch_cancel 仍可用）。菜单里的设置可预先配置，拨开开关即生效。',
+        : '当前关闭：orch_run 对本会话隐藏、触发器停用（orch_status / orch_cancel 仍可用）。新会话默认关闭；拨开工作箱开关即启用并按会话记住，菜单里的设置可预先配置。',
     })
 
     items.push({ kind: 'heading', text: '本会话子代理' })
@@ -124,7 +124,7 @@ export function attachWorkbenchMenu(hub: WorkbenchMenuHub) {
     items.push({
       kind: 'note',
       tone: 'info',
-      text: '以上设置只作用于本会话（每个会话独立），落盘于 $DSH_HOME/dsh-orchestrator/sessions.json；会话中途也可随时更改。',
+      text: '开关与这些设置都只作用于本会话（每个会话独立）、落盘于 $DSH_HOME/dsh-orchestrator/sessions.json，且随时可以再改。',
     })
     items.push({
       kind: 'buttons',

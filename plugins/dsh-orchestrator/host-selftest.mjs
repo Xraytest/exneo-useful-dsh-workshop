@@ -83,15 +83,25 @@ const call = async (path, method = 'GET', body = null, headers = {}) => {
 // ── workbench 属主契约：GET /status ──
 const st = await call('/dsh-orchestrator/status?sessionId=s1')
 check('status 200', st.status === 200)
-check('status.running=true（默认启用）', st.payload?.running === true)
+check('status.running=false（0.2.0 新会话默认关闭）', st.payload?.running === false)
 check('status 带 menu 声明', st.payload?.menu?.route === '/dsh-orchestrator/menu')
 check('status 带 phase', typeof st.payload?.phase === 'string')
 
-// ── POST /action：翻转开关 ──
+// ── POST /action：拨开（存 true，按会话记住）──
+const on = await call('/dsh-orchestrator/action', 'POST', { sessionId: 's1', enabled: true })
+check('action 开 200', on.status === 200 && on.payload?.running === true)
+const st2 = await call('/dsh-orchestrator/status?sessionId=s1')
+check('开后 status.running=true', st2.payload?.running === true)
+
+// ── 再拨关（双向持久化）──
 const off = await call('/dsh-orchestrator/action', 'POST', { sessionId: 's1', enabled: false })
 check('action 关 200', off.status === 200 && off.payload?.running === false)
-const st2 = await call('/dsh-orchestrator/status?sessionId=s1')
-check('关后 status.running=false', st2.payload?.running === false)
+const st3 = await call('/dsh-orchestrator/status?sessionId=s1')
+check('关后 status.running=false', st3.payload?.running === false)
+
+// ── 新会话仍是默认关 ──
+const fresh = await call('/dsh-orchestrator/status?sessionId=brand-new')
+check('新会话默认 running=false', fresh.payload?.running === false)
 
 // ── 跨域拒绝 ──
 const cross = await call('/dsh-orchestrator/action', 'POST', { sessionId: 's1', enabled: true }, { origin: 'http://evil.example' })
@@ -100,8 +110,8 @@ check('跨域 POST 403', cross.status === 403)
 // ── GET /menu：声明式 spec ──
 const menu = await call('/dsh-orchestrator/menu?sessionId=s1')
 check('menu 200', menu.status === 200)
-check('menu 8 件通用件', Array.isArray(menu.payload?.items) && menu.payload.items.length >= 5)
-check('menu phase=off（刚才关了）', menu.payload?.phase === 'off')
+check('menu 通用件齐全', Array.isArray(menu.payload?.items) && menu.payload.items.length >= 5)
+check('menu phase=off（本会话当前关）', menu.payload?.phase === 'off')
 const badOp = await call('/dsh-orchestrator/menu', 'POST', { sessionId: 's1', op: 'nope' })
 check('未知 op 400', badOp.status === 400)
 
